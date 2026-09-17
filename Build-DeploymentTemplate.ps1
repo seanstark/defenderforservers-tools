@@ -7,7 +7,13 @@ param(
     [string] $MdePolicyOutputPath = (Join-Path $PSScriptRoot 'configureMDEMode.armtemplate.json'),
 
     [Parameter()]
-    [string] $AzureBenefitsPolicyOutputPath = (Join-Path $PSScriptRoot 'configureazbenefitsforwindowsarc.armtemplate.json')
+    [string] $AzureBenefitsPolicyOutputPath = (Join-Path $PSScriptRoot 'configureazbenefitsforwindowsarc.armtemplate.json'),
+
+    [Parameter()]
+    [string] $WindowsDeviceTaggingPolicyOutputPath = (Join-Path $PSScriptRoot 'configureMDEdevicetagging.armtemplate.json'),
+
+    [Parameter()]
+    [string] $LinuxDeviceTaggingPolicyOutputPath = (Join-Path $PSScriptRoot 'configureMDEdevicetaggingLinux.armtemplate.json')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +49,79 @@ function ConvertTo-ArmLiteral {
     }
 
     return $Value
+}
+
+function New-StandalonePolicyTemplate {
+    param(
+        [Parameter(Mandatory)]
+        [string] $PolicyPath,
+
+        [Parameter(Mandatory)]
+        [string] $OutputPath,
+
+        [Parameter(Mandatory)]
+        [string] $DefaultName,
+
+        [Parameter(Mandatory)]
+        [string] $DefaultDisplayName,
+
+        [Parameter(Mandatory)]
+        [string] $Description
+    )
+
+    $sourcePolicy = Get-Content -Raw $PolicyPath | ConvertFrom-Json -Depth 100
+    $policyRule = ConvertTo-ArmLiteral -Value $sourcePolicy.policyRule
+    $roleDefinitionIds = @($sourcePolicy.policyRule.then.details.roleDefinitionIds)
+    if ($roleDefinitionIds.Count -eq 0) {
+        throw "The policy at '$PolicyPath' doesn't contain any roleDefinitionIds."
+    }
+
+    $escapedRoleDefinitionIds = $roleDefinitionIds |
+        ForEach-Object { "'$($_ -replace "'", "''")'" }
+    $policyRule.then.details.roleDefinitionIds = "[createArray($($escapedRoleDefinitionIds -join ', '))]"
+
+    $standaloneTemplate = [ordered] @{
+        '$schema' = 'https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#'
+        contentVersion = '1.0.0.0'
+        metadata = [ordered] @{
+            description = $Description
+        }
+        parameters = [ordered] @{
+            policyDefinitionName = [ordered] @{
+                type = 'string'
+                defaultValue = $DefaultName
+                metadata = [ordered] @{
+                    description = 'Name of the custom Azure Policy definition.'
+                }
+            }
+            policyDefinitionDisplayName = [ordered] @{
+                type = 'string'
+                defaultValue = $DefaultDisplayName
+                metadata = [ordered] @{
+                    description = 'Display name of the custom Azure Policy definition.'
+                }
+            }
+        }
+        resources = @(
+            [ordered] @{
+                type = 'Microsoft.Authorization/policyDefinitions'
+                apiVersion = '2023-04-01'
+                name = "[parameters('policyDefinitionName')]"
+                properties = [ordered] @{
+                    policyType = 'Custom'
+                    mode = $sourcePolicy.mode
+                    displayName = "[parameters('policyDefinitionDisplayName')]"
+                    description = $Description
+                    metadata = ConvertTo-ArmLiteral -Value $sourcePolicy.metadata
+                    parameters = ConvertTo-ArmLiteral -Value $sourcePolicy.parameters
+                    policyRule = $policyRule
+                }
+            }
+        )
+    }
+
+    $standaloneTemplate | ConvertTo-Json -Depth 100 | Set-Content -Path $OutputPath -Encoding utf8
+    Write-Host "Standalone policy template created at '$OutputPath'."
 }
 
 $policy = Get-Content -Raw (Join-Path $PSScriptRoot 'configureMDEMode.json') |
@@ -352,3 +431,17 @@ $mdePolicyTemplate | ConvertTo-Json -Depth 100 | Set-Content -Path $MdePolicyOut
 $azureBenefitsPolicyTemplate | ConvertTo-Json -Depth 100 | Set-Content -Path $AzureBenefitsPolicyOutputPath -Encoding utf8
 Write-Host "Standalone policy template created at '$MdePolicyOutputPath'."
 Write-Host "Standalone policy template created at '$AzureBenefitsPolicyOutputPath'."
+
+New-StandalonePolicyTemplate `
+    -PolicyPath (Join-Path $PSScriptRoot 'configureMDEdevicetagging.json') `
+    -OutputPath $WindowsDeviceTaggingPolicyOutputPath `
+    -DefaultName 'configure-mde-device-tagging-windows' `
+    -DefaultDisplayName 'Configure Microsoft Defender for Endpoint device tagging on Windows machines' `
+    -Description 'Configures and autocorrects the Group device tag registry value by using Azure Machine Configuration.'
+
+New-StandalonePolicyTemplate `
+    -PolicyPath (Join-Path $PSScriptRoot 'configureMDEdevicetaggingLinux.json') `
+    -OutputPath $LinuxDeviceTaggingPolicyOutputPath `
+    -DefaultName 'configure-mde-device-tagging-linux' `
+    -DefaultDisplayName 'Configure Microsoft Defender for Endpoint device tagging on Linux machines' `
+    -Description 'Configures and autocorrects the GROUP device tag in mdatp_managed.json by using Azure Machine Configuration.'

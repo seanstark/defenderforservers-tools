@@ -43,6 +43,8 @@ Both policies support Azure virtual machines, virtual machine scale sets, Azure 
 | `devicetagging-linux/output/devicetagginglinux.zip` | Linux Machine Configuration package. |
 | `../configureMDEdevicetagging.json` | Portal-ready Windows configure policy definition. |
 | `../configureMDEdevicetaggingLinux.json` | Portal-ready Linux configure policy definition. |
+| `../configureMDEdevicetagging.armtemplate.json` | Subscription-scope ARM template for the Windows configure policy definition. |
+| `../configureMDEdevicetaggingLinux.armtemplate.json` | Subscription-scope ARM template for the Linux configure policy definition. |
 
 Each platform's `output/policies/audit/` directory contains an `AuditIfNotExists` policy. Its `output/policies/configure/` directory contains a `DeployIfNotExists` policy with auto-correction support.
 
@@ -202,7 +204,16 @@ Both build scripts also accept these optional parameters:
 
 ## Deploy and assign the policies
 
-Create separate custom Azure Policy definitions for Windows and Linux from the generated configure or audit policy JSON files. Assign each definition at the required management group, subscription, or resource group scope.
+Deploy the Windows and Linux configure policy definitions independently at subscription scope:
+
+| Platform | ARM template | Deployment |
+| --- | --- | --- |
+| Windows | `configureMDEdevicetagging.armtemplate.json` | [![Deploy Windows device-tagging policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureMDEdevicetagging.armtemplate.json) |
+| Linux | `configureMDEdevicetaggingLinux.armtemplate.json` | [![Deploy Linux device-tagging policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureMDEdevicetaggingLinux.armtemplate.json) |
+
+These templates create only the selected custom policy definition. They do not create policy assignments, managed identities, role assignments, or remediation tasks.
+
+Alternatively, create separate custom Azure Policy definitions from the generated configure or audit policy JSON files. Assign each definition at the required management group, subscription, or resource group scope.
 
 For a configure policy:
 

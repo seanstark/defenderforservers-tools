@@ -980,11 +980,15 @@
                   "type": 9,
                   "content": {
                     "version": "KqlParameterItem/1.0",
+                    "crossComponentResources": [
+                      "value::all"
+                    ],
                     "parameters": [
                       {
                         "id": "8a7694d3-c308-4b44-b748-b650f29f0c5d",
                         "version": "KqlParameterItem/1.0",
                         "name": "Workspace",
+                        "label": "Log Analytics workspace",
                         "type": 5,
                         "isRequired": true,
                         "query": "resources\n| where type == \"microsoft.operationalinsights/workspaces\"\n| project id",
@@ -997,7 +1001,6 @@
                         },
                         "queryType": 1,
                         "resourceType": "microsoft.resourcegraph/resources",
-                        "label": "Log Analytics workspace",
                         "value": "[parameters('logAnalyticsWorkspaceResourceId')]"
                       },
                       {
@@ -1058,8 +1061,8 @@
                       }
                     ],
                     "style": "pills",
-                    "queryType": 0,
-                    "resourceType": "microsoft.operationalinsights/workspaces"
+                    "queryType": 1,
+                    "resourceType": "microsoft.resourcegraph/resources"
                   },
                   "name": "parameters"
                 },
@@ -1147,9 +1150,36 @@
                   "name": "activity-tiles"
                 },
                 {
+                  "type": 11,
+                  "content": {
+                    "version": "LinkItem/1.0",
+                    "style": "tabs",
+                    "links": [
+                      {
+                        "id": "78f601d8-7c62-4fe4-a7b7-77d7955d9efc",
+                        "cellValue": "tab",
+                        "linkTarget": "parameter",
+                        "linkLabel": "Defender Passive Mode",
+                        "subTarget": "passivemode",
+                        "style": "link"
+                      },
+                      {
+                        "id": "3e1cdb84-a6ee-4add-85e8-a6d692134895",
+                        "cellValue": "tab",
+                        "linkTarget": "parameter",
+                        "linkLabel": "Defender Device Tags",
+                        "subTarget": "devicetags",
+                        "style": "link"
+                      }
+                    ]
+                  },
+                  "name": "links - 14"
+                },
+                {
                   "type": 1,
                   "content": {
-                    "json": "## Azure Policy Compliance\r\n> Policy Complaine may not reflect current state\r\n\r\nAside from the standard 24-hour cycle, Azure Policy evaluates resources during specific lifecycle events:\r\n- A resource is created or updated within a scope that has a policy assignment (~15 minutes delay).\r\n\r\n- A new policy or initiative is assigned to a scope (~5 to 30 minutes to start). An existing policy assignment is updated"
+                    "json": "#### Azure Policy Compliance\r\n> Policy Complaine may not reflect current state\r\n\r\nAside from the standard 24-hour cycle, Azure Policy evaluates resources during specific lifecycle events:\r\n- A resource is created or updated within a scope that has a policy assignment (~15 minutes delay).\r\n\r\n- A new policy or initiative is assigned to a scope (~5 to 30 minutes to start). An existing policy assignment is updated",
+                    "style": "info"
                   },
                   "name": "current-heading - Copy"
                 },
@@ -1267,12 +1297,139 @@
                       ]
                     }
                   },
+                  "conditionalVisibility": {
+                    "parameterName": "tab",
+                    "comparison": "isEqualTo",
+                    "value": "passivemode"
+                  },
                   "name": "query - 12"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "guestconfigurationresources\r\n| where name startswith \"defenderdevicetagging\"\r\n| extend vmid = properties.targetResourceId, policyAssignmentId = tostring(properties.policyAssignmentId), latestReportId = properties.latestReportId\r\n| extend intendedState = properties.guestConfiguration.configurationParameter[0].value\r\n| extend complianceStatus = properties.complianceStatus, lastComplianceStatusChecked = properties.lastComplianceStatusChecked\r\n| extend SubscriptionId = tostring(split(policyAssignmentId, '/')[2])\r\n| project vmid, lastComplianceStatusChecked, intendedState, complianceStatus, \r\nlatestReportId, SubscriptionId, policyAssignmentId\r\n",
+                    "size": 1,
+                    "showAnalytics": true,
+                    "showRefreshButton": true,
+                    "showExportToExcel": true,
+                    "queryType": 1,
+                    "resourceType": "microsoft.resourcegraph/resources",
+                    "gridSettings": {
+                      "formatters": [
+                        {
+                          "columnMatch": "vmid",
+                          "formatter": 13,
+                          "formatOptions": {
+                            "linkTarget": null,
+                            "showIcon": true
+                          }
+                        },
+                        {
+                          "columnMatch": "lastComplianceStatusChecked",
+                          "formatter": 6,
+                          "formatOptions": {
+                            "linkColumn": "latestReportId",
+                            "linkTarget": "Resource",
+                            "linkIsContextBlade": true
+                          },
+                          "dateFormat": {
+                            "formatName": "shortDateTimeNoMsPattern"
+                          }
+                        },
+                        {
+                          "columnMatch": "intendedState",
+                          "formatter": 1
+                        },
+                        {
+                          "columnMatch": "complianceStatus",
+                          "formatter": 1
+                        },
+                        {
+                          "columnMatch": "latestReportId",
+                          "formatter": 5
+                        },
+                        {
+                          "columnMatch": "SubscriptionId",
+                          "formatter": 5
+                        },
+                        {
+                          "columnMatch": "policyAssignmentId",
+                          "formatter": 13,
+                          "formatOptions": {
+                            "linkTarget": "OpenBlade",
+                            "linkIsContextBlade": true,
+                            "showIcon": true,
+                            "bladeOpenContext": {
+                              "bladeName": "AssignmentDetail.ReactView",
+                              "extensionName": "Microsoft_Azure_Policy",
+                              "bladeParameters": [
+                                {
+                                  "name": "id",
+                                  "source": "column",
+                                  "value": "policyAssignmentId"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "columnMatch": "policyAssignmentName",
+                          "formatter": 13,
+                          "formatOptions": {
+                            "linkTarget": "OpenBlade",
+                            "linkIsContextBlade": true,
+                            "showIcon": true,
+                            "bladeOpenContext": {
+                              "bladeName": "AssignmentDetail.ReactView",
+                              "extensionName": "Microsoft_Azure_Policy",
+                              "bladeParameters": [
+                                {
+                                  "name": "assignmentId",
+                                  "source": "column",
+                                  "value": "policyAssignmentId"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      ],
+                      "labelSettings": [
+                        {
+                          "columnId": "vmid",
+                          "label": "Computer"
+                        },
+                        {
+                          "columnId": "lastComplianceStatusChecked",
+                          "label": "Last Compliance Time Checked"
+                        },
+                        {
+                          "columnId": "intendedState",
+                          "label": "Policy Intended State"
+                        },
+                        {
+                          "columnId": "complianceStatus",
+                          "label": "Last Compliance State"
+                        },
+                        {
+                          "columnId": "policyAssignmentId",
+                          "label": "Policy Assignment"
+                        }
+                      ]
+                    }
+                  },
+                  "conditionalVisibility": {
+                    "parameterName": "tab",
+                    "comparison": "isEqualTo",
+                    "value": "devicetags"
+                  },
+                  "name": "query - 12 - Copy"
                 },
                 {
                   "type": 1,
                   "content": {
-                    "json": "## Current Values From Change Tracking\n\n> Change Tracking audits registry values every 50 minutes\n\nLatest observed record in the selected time range for each computer, registry key, and value name. Removed values are shown as `<removed>`."
+                    "json": "## Current Values From Change Tracking\n\n> Change Tracking audits registry values every 50 minutes\n\nLatest observed record in the selected time range for each computer, registry key, and value name. Removed values are shown as `<removed>`.",
+                    "style": "info"
                   },
                   "name": "current-heading"
                 },
@@ -1336,6 +1493,11 @@
                         "sortOrder": 2
                       }
                     ]
+                  },
+                  "conditionalVisibility": {
+                    "parameterName": "tab",
+                    "comparison": "isEqualTo",
+                    "value": "passivemode"
                   },
                   "name": "current-values"
                 },
@@ -1404,7 +1566,145 @@
                       }
                     ]
                   },
+                  "conditionalVisibility": {
+                    "parameterName": "tab",
+                    "comparison": "isEqualTo",
+                    "value": "passivemode"
+                  },
                   "name": "change-history"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "let ComputerInventory = materialize(\n    ConfigurationChange\n    | where isnotempty(Computer)\n    | where \"*\" in ({ComputerFilter}) or Computer in ({ComputerFilter})\n    | extend JoinVMUUID = tostring(VMUUID)\n    | where isnotempty(JoinVMUUID)\n    | summarize arg_max(TimeGenerated, _ResourceId, Computer) by JoinVMUUID\n    | project JoinVMUUID, ConfigComputer = Computer, InventoryObserved = TimeGenerated, InventoryResourceId = _ResourceId\n);\nlet LatestSetting = materialize(\n    ConfigurationChange\n    | where ValueName == \"Group\"\n    | where \"*\" in ({ComputerFilter}) or Computer in ({ComputerFilter})\n    | extend JoinVMUUID = tostring(VMUUID)\n    | where isnotempty(JoinVMUUID)\n    | summarize arg_max(TimeGenerated, *) by JoinVMUUID\n    | project JoinVMUUID, SettingObserved = TimeGenerated, SettingResourceId = _ResourceId, ValueData, ValueName, ValueType, ChangeCategory\n);\nlet LatestHeartbeat = materialize(\n    Heartbeat\n    | extend JoinVMUUID = tostring(VMUUID)\n    | where isnotempty(JoinVMUUID)\n    | summarize arg_max(TimeGenerated, OSName, Computer, ComputerPrivateIPs) by JoinVMUUID\n    | project JoinVMUUID, HeartbeatComputer = Computer, OSName, ComputerPrivateIPs = tostring(ComputerPrivateIPs)\n);\nComputerInventory\n| join kind=leftouter LatestSetting on JoinVMUUID\n| extend LastObserved = coalesce(SettingObserved, InventoryObserved),\n         Resource = coalesce(SettingResourceId, InventoryResourceId),\n         ValueName = coalesce(ValueName, \"Group\"),\n         State = case(isnull(SettingObserved), \"Does not exist\", ChangeCategory =~ \"Removed\", \"Does not exist\", \"Present\"),\n         CurrentValue = case(isnull(SettingObserved) or ChangeCategory =~ \"Removed\", \"<does not exist>\", isempty(tostring(ValueData)), \"<empty>\", tostring(ValueData)),\n         LastAction = case(isnull(SettingObserved), \"Not observed\", isempty(ChangeCategory), \"Snapshot\", ChangeCategory)\n| extend ModeFilter = iff(State == \"Present\" and trim(\" \", CurrentValue) == \"1\", \"Passive\", \"Active\")\n| where \"{RegistryActivityFilter}\" == \"*\" or LastAction == \"{RegistryActivityFilter}\"\n| where \"{DefenderModeFilter}\" == \"*\" or ModeFilter == \"{DefenderModeFilter}\"\n| join kind=leftouter LatestHeartbeat on JoinVMUUID\n| extend Computer = coalesce(HeartbeatComputer, ConfigComputer)\n| project LastObserved, Resource, ValueName, CurrentValue, State, LastAction, OSName, ['Computer Name'] = Computer, ComputerPrivateIPs\n| order by LastObserved desc",
+                    "size": 0,
+                    "showAnalytics": true,
+                    "title": "Latest observed registry values",
+                    "timeContextFromParameter": "TimeRange",
+                    "showRefreshButton": true,
+                    "exportFieldName": "Resource",
+                    "exportParameterName": "SelectedResource",
+                    "exportDefaultValue": "*",
+                    "showExportToExcel": true,
+                    "queryType": 0,
+                    "resourceType": "microsoft.operationalinsights/workspaces",
+                    "crossComponentResources": [
+                      "{Workspace}"
+                    ],
+                    "visualization": "table",
+                    "gridSettings": {
+                      "formatters": [
+                        {
+                          "columnMatch": "Resource",
+                          "formatter": 13,
+                          "formatOptions": {
+                            "linkTarget": "Resource",
+                            "linkIsContextBlade": true,
+                            "showIcon": true
+                          }
+                        }
+                      ],
+                      "filter": true,
+                      "sortBy": [
+                        {
+                          "itemKey": "LastObserved",
+                          "sortOrder": 2
+                        }
+                      ],
+                      "labelSettings": [
+                        {
+                          "columnId": "LastObserved",
+                          "label": "Last observed"
+                        },
+                        {
+                          "columnId": "CurrentValue",
+                          "label": "Current value"
+                        },
+                        {
+                          "columnId": "LastAction",
+                          "label": "Last action"
+                        }
+                      ]
+                    },
+                    "sortBy": [
+                      {
+                        "itemKey": "LastObserved",
+                        "sortOrder": 2
+                      }
+                    ]
+                  },
+                  "conditionalVisibility": {
+                    "parameterName": "tab",
+                    "comparison": "isEqualTo",
+                    "value": "devicetags"
+                  },
+                  "name": "current-values - Copy"
+                },
+                {
+                  "type": 3,
+                  "content": {
+                    "version": "KqlItem/1.0",
+                    "query": "let LatestHeartbeat = materialize(\n    Heartbeat\n    | extend JoinVMUUID = tostring(VMUUID)\n    | where isnotempty(JoinVMUUID)\n    | summarize arg_max(TimeGenerated, OSName, Computer, ComputerPrivateIPs) by JoinVMUUID\n    | project JoinVMUUID, HeartbeatComputer = Computer, OSName, ComputerPrivateIPs = tostring(ComputerPrivateIPs)\n);\nConfigurationChange\n| where ConfigChangeType =~ \"Registry\"\n| where ChangeCategory in~ (\"Added\", \"Modified\", \"Removed\")\n| where ValueName == \"Group\"\n| where \"*\" in ({ComputerFilter}) or Computer in ({ComputerFilter})\n| where \"{SelectedResource}\" == \"*\" or _ResourceId =~ \"{SelectedResource}\"\n| extend ConfigComputer = Computer, JoinVMUUID = tostring(VMUUID)\n| extend PreviousValue = iff(isempty(tostring(PreviousValueData)), \"<empty>\", tostring(PreviousValueData))\n| extend NewValue = iff(ChangeCategory =~ \"Removed\", \"<removed>\", iff(isempty(tostring(ValueData)), \"<empty>\", tostring(ValueData)))\n| extend ModeFilter = iff(ChangeCategory !~ \"Removed\" and trim(\" \", tostring(ValueData)) == \"1\", \"Passive\", \"Active\")\n| where \"{RegistryActivityFilter}\" == \"*\" or ChangeCategory == \"{RegistryActivityFilter}\"\n| where \"{DefenderModeFilter}\" == \"*\" or ModeFilter == \"{DefenderModeFilter}\"\n| join kind=leftouter LatestHeartbeat on JoinVMUUID\n| extend Computer = coalesce(HeartbeatComputer, ConfigComputer)\n| project TimeGenerated, Resource = _ResourceId, ValueName, NewValue, PreviousValue, Action = ChangeCategory, OSName, ['Computer Name'] = Computer, ComputerPrivateIPs, Hive, RegistryKey, ValueType, FieldsChanged\n| order by TimeGenerated desc",
+                    "size": 0,
+                    "showAnalytics": true,
+                    "title": "Registry change audit trail",
+                    "timeContextFromParameter": "TimeRange",
+                    "showRefreshButton": true,
+                    "showExportToExcel": true,
+                    "queryType": 0,
+                    "resourceType": "microsoft.operationalinsights/workspaces",
+                    "crossComponentResources": [
+                      "{Workspace}"
+                    ],
+                    "visualization": "table",
+                    "gridSettings": {
+                      "formatters": [
+                        {
+                          "columnMatch": "Resource",
+                          "formatter": 13,
+                          "formatOptions": {
+                            "linkTarget": "Resource",
+                            "linkIsContextBlade": true,
+                            "showIcon": true
+                          }
+                        }
+                      ],
+                      "filter": true,
+                      "sortBy": [
+                        {
+                          "itemKey": "TimeGenerated",
+                          "sortOrder": 2
+                        }
+                      ],
+                      "labelSettings": [
+                        {
+                          "columnId": "TimeGenerated",
+                          "label": "Time generated"
+                        },
+                        {
+                          "columnId": "NewValue",
+                          "label": "New value"
+                        },
+                        {
+                          "columnId": "PreviousValue",
+                          "label": "Previous value"
+                        }
+                      ]
+                    },
+                    "sortBy": [
+                      {
+                        "itemKey": "TimeGenerated",
+                        "sortOrder": 2
+                      }
+                    ]
+                  },
+                  "conditionalVisibility": {
+                    "parameterName": "tab",
+                    "comparison": "isEqualTo",
+                    "value": "devicetags"
+                  },
+                  "name": "change-history - Copy"
                 },
                 {
                   "type": 1,
@@ -1418,7 +1718,7 @@
                   "content": {
                     "version": "KqlItem/1.0",
                     "query": "ConfigurationChange\n| where ConfigChangeType =~ \"Registry\"\n| where ChangeCategory in~ (\"Added\", \"Modified\", \"Removed\")\n| where ValueName == \"ForceDefenderPassiveMode\"\n| where \"*\" in ({ComputerFilter}) or Computer in ({ComputerFilter})\n| summarize Changes = count() by bin(TimeGenerated, 1h), ChangeCategory\n| order by TimeGenerated asc",
-                    "size": 0,
+                    "size": 1,
                     "showAnalytics": true,
                     "title": "ForceDefenderPassiveMode changes over time",
                     "timeContextFromParameter": "TimeRange",
@@ -1429,12 +1729,13 @@
                     "crossComponentResources": [
                       "{Workspace}"
                     ],
-                    "visualization": "timechart",
+                    "visualization": "barchart",
                     "chartSettings": {
                       "xAxis": "TimeGenerated",
                       "yAxis": [
                         "Changes"
                       ],
+                      "showLegend": true,
                       "seriesLabelSettings": [
                         {
                           "seriesName": "Added",
@@ -1451,19 +1752,63 @@
                       ]
                     }
                   },
+                  "conditionalVisibility": {
+                    "parameterName": "tab",
+                    "comparison": "isEqualTo",
+                    "value": "passivemode"
+                  },
+                  "customWidth": "50",
                   "name": "changes-over-time"
                 },
                 {
-                  "type": 1,
+                  "type": 3,
                   "content": {
-                    "json": "### Notes\n- Select a Registry Activity or Defender Mode tile to filter both tables. Selecting All Changes clears the activity filter.\n- Active Mode combines computers where `ForceDefenderPassiveMode` is `0`, removed, or not observed; Passive Mode is value `1`.\n- OS name and private IP data come from each computer's latest `Heartbeat` record in the selected time range.\n- Current-state views are bounded by the selected time range. Increase the range if a computer or value has not been observed recently."
+                    "version": "KqlItem/1.0",
+                    "query": "ConfigurationChange\n| where ConfigChangeType =~ \"Registry\"\n| where ChangeCategory in~ (\"Added\", \"Modified\", \"Removed\")\n| where ValueName == \"Group\"\n| where \"*\" in ({ComputerFilter}) or Computer in ({ComputerFilter})\n| summarize Changes = count() by bin(TimeGenerated, 1h), ChangeCategory\n| order by TimeGenerated asc",
+                    "size": 1,
+                    "showAnalytics": true,
+                    "title": "DeviceTagging changes over time",
+                    "timeContextFromParameter": "TimeRange",
+                    "showRefreshButton": true,
+                    "showExportToExcel": true,
+                    "queryType": 0,
+                    "resourceType": "microsoft.operationalinsights/workspaces",
+                    "crossComponentResources": [
+                      "{Workspace}"
+                    ],
+                    "visualization": "barchart",
+                    "chartSettings": {
+                      "xAxis": "TimeGenerated",
+                      "yAxis": [
+                        "Changes"
+                      ],
+                      "showLegend": true,
+                      "seriesLabelSettings": [
+                        {
+                          "seriesName": "Added",
+                          "color": "green"
+                        },
+                        {
+                          "seriesName": "Modified",
+                          "color": "blue"
+                        },
+                        {
+                          "seriesName": "Removed",
+                          "color": "red"
+                        }
+                      ]
+                    }
                   },
-                  "name": "notes"
+                  "conditionalVisibility": {
+                    "parameterName": "tab",
+                    "comparison": "isEqualTo",
+                    "value": "passivemode"
+                  },
+                  "customWidth": "50",
+                  "name": "changes-over-time - Copy"
                 }
               ],
-              "fallbackResourceIds": [
-                "/subscriptions/9ebcb583-7adb-44ea-b688-06f1de624cc1/resourcegroups/sentinel-prd/providers/microsoft.operationalinsights/workspaces/sentinel-prd"
-              ],
+              "fallbackResourceIds": [],
               "fromTemplateId": "sentinel-RegistryChangeMonitor",
               "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
             }
@@ -1495,13 +1840,22 @@
                           "registryCollectionFrequency": 3000,
                           "registryInfo": [
                             {
-                              "name": "Registry_5",
+                              "name": "ForceDefenderPassiveMode",
                               "groupTag": "Defender",
                               "enabled": true,
                               "recurse": false,
                               "description": "",
                               "keyName": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows Advanced Threat Protection",
                               "valueName": "ForceDefenderPassiveMode"
+                            },
+                            {
+                              "name": "DeviceTagging",
+                              "groupTag": "Defender",
+                              "enabled": true,
+                              "recurse": false,
+                              "description": "",
+                              "keyName": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows Advanced Threat Protection\\DeviceTagging",
+                              "valueName": ""
                             }
                           ]
                         },
@@ -1528,14 +1882,30 @@
                       ],
                       "extensionName": "ChangeTracking-Linux",
                       "extensionSettings": {
-                        "enableFiles": true,
-                        "enableSoftware": true,
+                        "enableFiles": false,
+                        "enableSoftware": false,
                         "enableRegistry": false,
                         "enableServices": false,
-                        "enableInventory": true,
+                        "enableInventory": false,
                         "fileSettings": {
                           "fileCollectionFrequency": 900,
-                          "fileInfo": null
+                          "fileInfo": [
+                            {
+                              "name": "devicetagging",
+                              "description": "",
+                              "destinationPath": "/etc/opt/microsoft/mdatp/managed/mdatp_managed.json",
+                              "pathType": "File",
+                              "recurse": false,
+                              "links": "Follow",
+                              "uploadContent": false,
+                              "checksum": "Sha256",
+                              "maxOutputSize": 5000000,
+                              "groupTag": "Defender",
+                              "maxContentsReturnable": 0,
+                              "useSudo": true,
+                              "enabled": true
+                            }
+                          ]
                         },
                         "softwareSettings": {
                           "softwareCollectionFrequency": 300
