@@ -14,7 +14,7 @@ Both policies support Azure virtual machines, virtual machine scale sets, Azure 
 ## Table of contents
 
 - [Overview](#overview)
-- [Solution structure](#solution-structure)
+- [Deploy and assign the policies](#deploy-and-assign-the-policies)
 - [Windows device tagging](#windows-device-tagging)
   - [Windows managed setting](#windows-managed-setting)
   - [Windows compliance states](#windows-compliance-states)
@@ -26,27 +26,36 @@ Both policies support Azure virtual machines, virtual machine scale sets, Azure 
 - [Build and publish](#build-and-publish)
   - [Build the Windows package](#build-the-windows-package)
   - [Build the Linux package](#build-the-linux-package)
-- [Deploy and assign the policies](#deploy-and-assign-the-policies)
 - [Policy parameters](#policy-parameters)
 - [Validate the configuration](#validate-the-configuration)
   - [Validate Windows](#validate-windows)
   - [Validate Linux](#validate-linux)
 - [Update the solution](#update-the-solution)
 
-## Solution structure
+## Deploy and assign the policies
 
-| Path | Purpose |
+Deploy the Windows and Linux configure policy definitions independently at subscription scope:
+
+| Platform | ARM template | Deployment |
 | --- | --- |
-| `devicetagging/` | Windows DSC configuration, resource module, build script, package, and generated policies. |
-| `devicetagging-linux/` | Linux DSC configuration, resource module, build script, package, and generated policies. |
-| `devicetagging/output/defenderdevicetagging.zip` | Windows Machine Configuration package. |
-| `devicetagging-linux/output/devicetagginglinux.zip` | Linux Machine Configuration package. |
-| `../configureMDEdevicetagging.json` | Portal-ready Windows configure policy definition. |
-| `../configureMDEdevicetaggingLinux.json` | Portal-ready Linux configure policy definition. |
-| `../configureMDEdevicetagging.armtemplate.json` | Subscription-scope ARM template for the Windows configure policy definition. |
-| `../configureMDEdevicetaggingLinux.armtemplate.json` | Subscription-scope ARM template for the Linux configure policy definition. |
+| Windows | `configureMDEdevicetagging.armtemplate.json` | [![Deploy Windows device-tagging policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureMDEdevicetagging.armtemplate.json) |
+| Linux | `configureMDEdevicetaggingLinux.armtemplate.json` | [![Deploy Linux device-tagging policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureMDEdevicetaggingLinux.armtemplate.json) |
 
-Each platform's `output/policies/audit/` directory contains an `AuditIfNotExists` policy. Its `output/policies/configure/` directory contains a `DeployIfNotExists` policy with auto-correction support.
+These templates create only the selected custom policy definition. They do not create policy assignments, managed identities, role assignments, or remediation tasks.
+
+Alternatively, create separate custom Azure Policy definitions from the generated configure or audit policy JSON files. Assign each definition at the required management group, subscription, or resource group scope.
+
+For a configure policy:
+
+1. Open **Azure Policy > Definitions** and create a custom policy definition.
+2. Use the applicable portal-ready JSON file as the policy definition content.
+3. Create an assignment at the approved scope.
+4. Enable a system-assigned managed identity on the assignment.
+5. Grant the role requested on the **Remediation** tab.
+6. Review the parameters and create the assignment.
+7. Create a remediation task for existing noncompliant machines.
+
+Use the generated audit policies for an audit-only rollout that does not deploy a configuration assignment. Machine Configuration deployment and evaluation are asynchronous, so allow time for guest assignments to reach machines and report compliance.
 
 ## Windows device tagging
 
@@ -201,31 +210,6 @@ Both build scripts also accept these optional parameters:
 | `OutputPath` | Package, compiled MOF, and generated-policy output directory. Defaults to the platform's `output` directory. |
 | `ConfigurePolicyOutputPath` | Destination for the portal-ready configure policy JSON. |
 | `PolicySkeletonUri` | Machine Configuration policy skeleton used during policy generation. |
-
-## Deploy and assign the policies
-
-Deploy the Windows and Linux configure policy definitions independently at subscription scope:
-
-| Platform | ARM template | Deployment |
-| --- | --- | --- |
-| Windows | `configureMDEdevicetagging.armtemplate.json` | [![Deploy Windows device-tagging policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureMDEdevicetagging.armtemplate.json) |
-| Linux | `configureMDEdevicetaggingLinux.armtemplate.json` | [![Deploy Linux device-tagging policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureMDEdevicetaggingLinux.armtemplate.json) |
-
-These templates create only the selected custom policy definition. They do not create policy assignments, managed identities, role assignments, or remediation tasks.
-
-Alternatively, create separate custom Azure Policy definitions from the generated configure or audit policy JSON files. Assign each definition at the required management group, subscription, or resource group scope.
-
-For a configure policy:
-
-1. Open **Azure Policy > Definitions** and create a custom policy definition.
-2. Use the applicable portal-ready JSON file as the policy definition content.
-3. Create an assignment at the approved scope.
-4. Enable a system-assigned managed identity on the assignment.
-5. Grant the role requested on the **Remediation** tab.
-6. Review the parameters and create the assignment.
-7. Create a remediation task for existing noncompliant machines.
-
-Use the generated audit policies for an audit-only rollout that does not deploy a configuration assignment. Machine Configuration deployment and evaluation are asynchronous, so allow time for guest assignments to reach machines and report compliance.
 
 ## Policy parameters
 
