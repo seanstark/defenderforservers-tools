@@ -37,7 +37,7 @@ Both policies support Azure virtual machines, virtual machine scale sets, Azure 
 Deploy the Windows and Linux configure policy definitions independently at subscription scope:
 
 | Platform | ARM template | Deployment |
-| --- | --- |
+| --- | --- | --- |
 | Windows | `configureMDEdevicetagging.armtemplate.json` | [![Deploy Windows device-tagging policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureMDEdevicetagging.armtemplate.json) |
 | Linux | `configureMDEdevicetaggingLinux.armtemplate.json` | [![Deploy Linux device-tagging policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureMDEdevicetaggingLinux.armtemplate.json) |
 
