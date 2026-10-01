@@ -101,16 +101,16 @@
         "description": "Configures and autocorrects ForceDefenderPassiveMode in the Windows registry by using Azure Machine Configuration.",
         "metadata": {
           "category": "Guest Configuration",
-          "version": "1.0.1",
+          "version": "1.0.2",
           "requiredProviders": [
             "Microsoft.GuestConfiguration"
           ],
           "guestConfiguration": {
             "name": "MdeDefenderModeConfig",
-            "version": "1.0.1",
+            "version": "1.0.2",
             "contentType": "Custom",
             "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/mde-defender-mode/output/MdeDefenderModeConfig.zip",
-            "contentHash": "CDD41438B100E63DB2BE39C93B4EEECCA34A7276AC0526D5F8A2E4B7F245B739",
+            "contentHash": "D06FE773E0B1E11B6A0A2581B59269F301FBF9BDD8B539C61AB22C668ADE546F",
             "configurationParameter": {
               "DefenderMode": "[MdeDefenderMode]DefenderForEndpointMode;Mode"
             },
@@ -473,10 +473,10 @@
                         "properties": {
                           "guestConfiguration": {
                             "name": "MdeDefenderModeConfig",
-                            "version": "1.0.1",
+                            "version": "1.0.2",
                             "contentType": "Custom",
                             "contentUri": "[[parameters('contentUri')]",
-                            "contentHash": "CDD41438B100E63DB2BE39C93B4EEECCA34A7276AC0526D5F8A2E4B7F245B739",
+                            "contentHash": "D06FE773E0B1E11B6A0A2581B59269F301FBF9BDD8B539C61AB22C668ADE546F",
                             "assignmentType": "ApplyAndAutoCorrect",
                             "configurationParameter": [
                               {
@@ -496,10 +496,10 @@
                         "properties": {
                           "guestConfiguration": {
                             "name": "MdeDefenderModeConfig",
-                            "version": "1.0.1",
+                            "version": "1.0.2",
                             "contentType": "Custom",
                             "contentUri": "[[parameters('contentUri')]",
-                            "contentHash": "CDD41438B100E63DB2BE39C93B4EEECCA34A7276AC0526D5F8A2E4B7F245B739",
+                            "contentHash": "D06FE773E0B1E11B6A0A2581B59269F301FBF9BDD8B539C61AB22C668ADE546F",
                             "assignmentType": "ApplyAndAutoCorrect",
                             "configurationParameter": [
                               {
@@ -519,10 +519,10 @@
                         "properties": {
                           "guestConfiguration": {
                             "name": "MdeDefenderModeConfig",
-                            "version": "1.0.1",
+                            "version": "1.0.2",
                             "contentType": "Custom",
                             "contentUri": "[[parameters('contentUri')]",
-                            "contentHash": "CDD41438B100E63DB2BE39C93B4EEECCA34A7276AC0526D5F8A2E4B7F245B739",
+                            "contentHash": "D06FE773E0B1E11B6A0A2581B59269F301FBF9BDD8B539C61AB22C668ADE546F",
                             "assignmentType": "ApplyAndAutoCorrect",
                             "configurationParameter": [
                               {

@@ -225,6 +225,17 @@ In **Azure Policy > Compliance**:
 - Review the Change Tracking initiative assignment for identity, extension, agent, and DCR-association compliance.
 - Review remediation task status and investigate resources that remain noncompliant.
 
+The Defender mode Machine Configuration resource reports these detailed reasons:
+
+| Reason | Meaning |
+| --- | --- |
+| `Compliant` | `ForceDefenderPassiveMode` is a `REG_DWORD` with the expected value. |
+| `KeyNotPresent` | The Windows Advanced Threat Protection policy registry key does not exist. |
+| `ValueNotPresent` | The registry key exists but `ForceDefenderPassiveMode` does not. |
+| `WrongType` | The registry value exists but is not a `REG_DWORD`. |
+| `ValueMismatch` | The registry value is a `REG_DWORD`, but its value does not match the assigned mode. |
+| `ReadError` | Machine Configuration could not read the registry value; the reason phrase includes the underlying error. |
+
 Machine Configuration assignment, package download, guest evaluation, Change Tracking collection, and Log Analytics ingestion are asynchronous. Allow at least one evaluation and collection cycle before troubleshooting missing or pending results.
 
 ## Package availability and updates

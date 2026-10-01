@@ -1,6 +1,14 @@
+[ClassVersion("1.0.0.0")]
+class Reason
+{
+    [Read] string Code;
+    [Read] string Phrase;
+};
+
 [ClassVersion("1.0.0.0"), FriendlyName("MdeDefenderMode")]
 class MdeDefenderMode : OMI_BaseResource
 {
     [Key] string Name;
     [Required, ValueMap{"Active", "Passive"}, Values{"Active", "Passive"}] string Mode;
+    [Read, EmbeddedInstance("Reason")] string Reasons[];
 };

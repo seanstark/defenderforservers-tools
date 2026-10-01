@@ -75,6 +75,8 @@ MdeDefenderModeConfig -OutputPath $compiledPath
 $compiledMof = Join-Path $compiledPath 'localhost.mof'
 $namedMof = Join-Path $compiledPath "$configurationName.mof"
 Move-Item -Path $compiledMof -Destination $namedMof -Force
+$mofContent = [System.IO.File]::ReadAllText($namedMof).Replace("`r`r`n", "`r`n")
+[System.IO.File]::WriteAllText($namedMof, $mofContent, [System.Text.UTF8Encoding]::new($false))
 
 $packageParameters = @{
     Name          = $configurationName
@@ -141,7 +143,7 @@ $policyParameter = @(
 $commonPolicyParameters = @{
     ContentUri    = $ContentUri.AbsoluteUri
     Platform      = 'Windows'
-    PolicyVersion = '1.0.1'
+    PolicyVersion = '1.0.2'
     Parameter     = $policyParameter
 }
 
