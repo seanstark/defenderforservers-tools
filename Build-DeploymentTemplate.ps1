@@ -415,7 +415,7 @@ $template = [ordered] @{
                         value = "[variables('workspaceName')]"
                     }
                     workspaceLocation = [ordered] @{
-                        value = "[reference(parameters('logAnalyticsWorkspaceResourceId'), '2022-10-01').location]"
+                        value = "[reference(parameters('logAnalyticsWorkspaceResourceId'), '2022-10-01', 'Full').location]"
                     }
                 }
                 template = $changeTrackingSolutionTemplate
