@@ -26,7 +26,8 @@ The subscription-scope ARM template deploys these resources:
 | **Configure Azure Benefits for Windows Arc Machines** policy | Attests and configures Azure benefits for eligible Arc-connected Windows servers with qualifying Windows Server licenses, allowing Change Tracking and Inventory to be used on those Arc-connected machines at no additional service cost. Log Analytics or Microsoft Sentinel data ingestion and retention charges can still apply. |
 | **Configure ChangeTracking for Defender Passive Mode Auditing** initiative | Deploys the required identities, extensions, Azure Monitor Agent, and DCR associations for Change Tracking. |
 | **Configure Microsoft Defender for Endpoint mode on Windows machines** policy | Audits or configures `ForceDefenderPassiveMode` through Machine Configuration. |
-| **DefenderPassiveMode-ChangeTracking-dcr** | Collects changes to the Defender mode registry value. |
+| **ChangeTracking workspace solution** | Provisions the `ConfigurationChange` and `ConfigurationData` Log Analytics tables required by the Change Tracking DCR. |
+| **DefenderPassiveMode-ChangeTracking-dcr** | Collects changes to the Defender mode registry value after the required workspace tables are provisioned. |
 | **Defender for Endpoint Passive Mode Monitor** workbook | Displays current mode, policy status, and registry-change history. |
 
 ## Table of contents
@@ -91,6 +92,7 @@ az login
 az account set --subscription '<subscription-id>'
 az provider register --namespace Microsoft.GuestConfiguration
 az provider register --namespace Microsoft.Insights
+az provider register --namespace Microsoft.OperationsManagement
 
 az deployment sub create `
 	--name deploy-mde-passive-mode `
@@ -109,6 +111,7 @@ Set-AzContext -Subscription '<subscription-id>'
 
 Register-AzResourceProvider -ProviderNamespace Microsoft.GuestConfiguration
 Register-AzResourceProvider -ProviderNamespace Microsoft.Insights
+Register-AzResourceProvider -ProviderNamespace Microsoft.OperationsManagement
 
 New-AzSubscriptionDeployment `
 	-Name 'deploy-mde-passive-mode' `
@@ -118,7 +121,7 @@ New-AzSubscriptionDeployment `
 	-logAnalyticsWorkspaceResourceId '/subscriptions/<subscription-id>/resourceGroups/<workspace-resource-group>/providers/Microsoft.OperationalInsights/workspaces/<workspace-name>'
 ```
 
-The deployment creates the policy definitions, initiative, DCR, and workbook. It intentionally does not create policy assignments because assignment scope, exclusions, identity, licensing attestation, and remediation permissions require customer review.
+The deployment creates the policy definitions, initiative, Change Tracking workspace solution, DCR, and workbook. The workspace solution is deployed first because it provisions the `ConfigurationChange` and `ConfigurationData` tables required by the DCR. It intentionally does not create policy assignments because assignment scope, exclusions, identity, licensing attestation, and remediation permissions require customer review.
 
 #### Deploy individual policies
 

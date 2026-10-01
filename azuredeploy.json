@@ -2,7 +2,7 @@
   "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "Deploys the Microsoft Defender for Endpoint mode and Azure Benefits policy definitions, custom Change Tracking initiative, data collection rule, and Azure Monitor workbook."
+    "description": "Deploys the Microsoft Defender for Endpoint mode and Azure Benefits policy definitions, custom Change Tracking initiative, workspace solution, data collection rule, and Azure Monitor workbook."
   },
   "parameters": {
     "policyDefinitionName": {
@@ -83,7 +83,11 @@
     }
   },
   "variables": {
-    "policyDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', parameters('policyDefinitionName'))]"
+    "policyDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', parameters('policyDefinitionName'))]",
+    "workspaceResourceIdSegments": "[split(parameters('logAnalyticsWorkspaceResourceId'), '/')]",
+    "workspaceSubscriptionId": "[variables('workspaceResourceIdSegments')[2]]",
+    "workspaceResourceGroupName": "[variables('workspaceResourceIdSegments')[4]]",
+    "workspaceName": "[variables('workspaceResourceIdSegments')[8]]"
   },
   "resources": [
     {
@@ -921,8 +925,67 @@
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2022-09-01",
+      "name": "deploy-change-tracking-solution",
+      "subscriptionId": "[variables('workspaceSubscriptionId')]",
+      "resourceGroup": "[variables('workspaceResourceGroupName')]",
+      "properties": {
+        "mode": "Incremental",
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "parameters": {
+          "workspaceResourceId": {
+            "value": "[parameters('logAnalyticsWorkspaceResourceId')]"
+          },
+          "workspaceName": {
+            "value": "[variables('workspaceName')]"
+          },
+          "workspaceLocation": {
+            "value": "[reference(parameters('logAnalyticsWorkspaceResourceId'), '2022-10-01').location]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "workspaceResourceId": {
+              "type": "string"
+            },
+            "workspaceName": {
+              "type": "string"
+            },
+            "workspaceLocation": {
+              "type": "string"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.OperationsManagement/solutions",
+              "apiVersion": "2015-11-01-preview",
+              "name": "[format('ChangeTracking({0})', parameters('workspaceName'))]",
+              "location": "[parameters('workspaceLocation')]",
+              "plan": {
+                "name": "[format('ChangeTracking({0})', parameters('workspaceName'))]",
+                "product": "OMSGallery/ChangeTracking",
+                "promotionCode": "",
+                "publisher": "Microsoft"
+              },
+              "properties": {
+                "workspaceResourceId": "[parameters('workspaceResourceId')]"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
       "name": "deploy-mde-passive-mode-monitoring",
       "resourceGroup": "[parameters('resourceGroupName')]",
+      "dependsOn": [
+        "Microsoft.Resources/deployments/deploy-change-tracking-solution"
+      ],
       "properties": {
         "mode": "Incremental",
         "expressionEvaluationOptions": {

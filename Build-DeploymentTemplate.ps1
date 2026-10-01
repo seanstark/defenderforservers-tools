@@ -228,11 +228,44 @@ $resourceGroupTemplate = [ordered] @{
     )
 }
 
+$changeTrackingSolutionTemplate = [ordered] @{
+    '$schema' = 'https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#'
+    contentVersion = '1.0.0.0'
+    parameters = [ordered] @{
+        workspaceResourceId = [ordered] @{
+            type = 'string'
+        }
+        workspaceName = [ordered] @{
+            type = 'string'
+        }
+        workspaceLocation = [ordered] @{
+            type = 'string'
+        }
+    }
+    resources = @(
+        [ordered] @{
+            type = 'Microsoft.OperationsManagement/solutions'
+            apiVersion = '2015-11-01-preview'
+            name = "[format('ChangeTracking({0})', parameters('workspaceName'))]"
+            location = "[parameters('workspaceLocation')]"
+            plan = [ordered] @{
+                name = "[format('ChangeTracking({0})', parameters('workspaceName'))]"
+                product = 'OMSGallery/ChangeTracking'
+                promotionCode = ''
+                publisher = 'Microsoft'
+            }
+            properties = [ordered] @{
+                workspaceResourceId = "[parameters('workspaceResourceId')]"
+            }
+        }
+    )
+}
+
 $template = [ordered] @{
     '$schema' = 'https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#'
     contentVersion = '1.0.0.0'
     metadata = [ordered] @{
-        description = 'Deploys the Microsoft Defender for Endpoint mode and Azure Benefits policy definitions, custom Change Tracking initiative, data collection rule, and Azure Monitor workbook.'
+        description = 'Deploys the Microsoft Defender for Endpoint mode and Azure Benefits policy definitions, custom Change Tracking initiative, workspace solution, data collection rule, and Azure Monitor workbook.'
     }
     parameters = [ordered] @{
         policyDefinitionName = [ordered] @{
@@ -314,6 +347,10 @@ $template = [ordered] @{
     }
     variables = [ordered] @{
         policyDefinitionId = "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', parameters('policyDefinitionName'))]"
+        workspaceResourceIdSegments = "[split(parameters('logAnalyticsWorkspaceResourceId'), '/')]"
+        workspaceSubscriptionId = "[variables('workspaceResourceIdSegments')[2]]"
+        workspaceResourceGroupName = "[variables('workspaceResourceIdSegments')[4]]"
+        workspaceName = "[variables('workspaceResourceIdSegments')[8]]"
     }
     resources = @(
         [ordered] @{
@@ -362,8 +399,36 @@ $template = [ordered] @{
         [ordered] @{
             type = 'Microsoft.Resources/deployments'
             apiVersion = '2022-09-01'
+            name = 'deploy-change-tracking-solution'
+            subscriptionId = "[variables('workspaceSubscriptionId')]"
+            resourceGroup = "[variables('workspaceResourceGroupName')]"
+            properties = [ordered] @{
+                mode = 'Incremental'
+                expressionEvaluationOptions = [ordered] @{
+                    scope = 'inner'
+                }
+                parameters = [ordered] @{
+                    workspaceResourceId = [ordered] @{
+                        value = "[parameters('logAnalyticsWorkspaceResourceId')]"
+                    }
+                    workspaceName = [ordered] @{
+                        value = "[variables('workspaceName')]"
+                    }
+                    workspaceLocation = [ordered] @{
+                        value = "[reference(parameters('logAnalyticsWorkspaceResourceId'), '2022-10-01').location]"
+                    }
+                }
+                template = $changeTrackingSolutionTemplate
+            }
+        },
+        [ordered] @{
+            type = 'Microsoft.Resources/deployments'
+            apiVersion = '2022-09-01'
             name = 'deploy-mde-passive-mode-monitoring'
             resourceGroup = "[parameters('resourceGroupName')]"
+            dependsOn = @(
+                'Microsoft.Resources/deployments/deploy-change-tracking-solution'
+            )
             properties = [ordered] @{
                 mode = 'Incremental'
                 expressionEvaluationOptions = [ordered] @{
