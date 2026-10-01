@@ -33,7 +33,7 @@
             },
             "queryType": 1,
             "resourceType": "microsoft.resourcegraph/resources",
-            "value": null
+            "value": ""
           },
           {
             "id": "f8268d55-54eb-4d95-acdf-73f79fb0cd63",
@@ -219,7 +219,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "guestconfigurationresources\r\n| where name startswith \"MdeDefenderModeConfig\"\r\n| extend vmid = properties.targetResourceId, policyAssignmentId = tostring(properties.policyAssignmentId), latestReportId = properties.latestReportId\r\n| extend intendedState = properties.guestConfiguration.configurationParameter[0].value\r\n| extend complianceStatus = properties.complianceStatus, lastComplianceStatusChecked = properties.lastComplianceStatusChecked\r\n| extend SubscriptionId = tostring(split(policyAssignmentId, '/')[2])\r\n| project vmid, lastComplianceStatusChecked, intendedState, complianceStatus, \r\nlatestReportId, SubscriptionId, policyAssignmentId\r\n",
+        "query": "guestconfigurationresources\r\n| where name startswith \"MdeDefenderModeConfig\"\r\n| extend vmid = properties.targetResourceId, policyAssignmentId = tostring(properties.policyAssignmentId), latestReportId = properties.latestReportId\r\n| extend intendedState = properties.guestConfiguration.configurationParameter[0].value\r\n| extend complianceStatus = properties.complianceStatus, lastComplianceStatusChecked = properties.lastComplianceStatusChecked\r\n| extend complianceReason = tostring(properties.latestAssignmentReport.resources[0].reasons[0].phrase)\r\n| extend SubscriptionId = tostring(split(policyAssignmentId, '/')[2])\r\n| project vmid, lastComplianceStatusChecked, intendedState, complianceStatus, \r\nlatestReportId, SubscriptionId, complianceReason, policyAssignmentId\r\n",
         "size": 1,
         "showAnalytics": true,
         "showRefreshButton": true,
@@ -340,7 +340,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "guestconfigurationresources\r\n| where name startswith \"defenderdevicetagging\"\r\n| extend vmid = properties.targetResourceId, policyAssignmentId = tostring(properties.policyAssignmentId), latestReportId = properties.latestReportId\r\n| extend intendedState = properties.guestConfiguration.configurationParameter[0].value\r\n| extend complianceStatus = properties.complianceStatus, lastComplianceStatusChecked = properties.lastComplianceStatusChecked\r\n| extend SubscriptionId = tostring(split(policyAssignmentId, '/')[2])\r\n| project vmid, lastComplianceStatusChecked, intendedState, complianceStatus, \r\nlatestReportId, SubscriptionId, policyAssignmentId\r\n",
+        "query": "guestconfigurationresources\r\n| where name startswith \"defenderdevicetagging\"\r\n| extend vmid = properties.targetResourceId, policyAssignmentId = tostring(properties.policyAssignmentId), latestReportId = properties.latestReportId\r\n| extend intendedState = properties.guestConfiguration.configurationParameter[0].value\r\n| extend complianceStatus = properties.complianceStatus, lastComplianceStatusChecked = properties.lastComplianceStatusChecked\r\n| extend complianceReason = tostring(properties.latestAssignmentReport.resources[0].reasons[0].phrase)\r\n| extend SubscriptionId = tostring(split(policyAssignmentId, '/')[2])\r\n| project vmid, lastComplianceStatusChecked, intendedState, complianceStatus, \r\nlatestReportId, SubscriptionId, complianceReason, policyAssignmentId\r\n",
         "size": 1,
         "showAnalytics": true,
         "showRefreshButton": true,
@@ -841,6 +841,7 @@
     }
   ],
   "fallbackResourceIds": [
+    ""
   ],
   "fromTemplateId": "sentinel-RegistryChangeMonitor",
   "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
