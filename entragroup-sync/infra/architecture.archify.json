@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Azure Arc to Entra Security Group Synchronization",
+    "subtitle": "Event Grid + Timer discovery · MDE Advanced Hunting correlation · Verified add-only Entra group sync · Read-only portal",
+    "output": "entragroup-sync/report/www/architecture.html",
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "triggers",
+      "type": "external",
+      "label": "Discovery Triggers",
+      "sublabel": "Timer (30m) · Event Grid write",
+      "pos": [20, 120],
+      "size": [190, 62]
+    },
+    {
+      "id": "ingest_fn",
+      "type": "backend",
+      "label": "Inventory & ArcEvent",
+      "sublabel": "MG / Sub / RG scope validation",
+      "pos": [250, 120],
+      "size": [205, 62],
+      "tag": "worker functions"
+    },
+    {
+      "id": "arg_arm",
+      "type": "cloud",
+      "label": "Azure Resource Graph & ARM",
+      "sublabel": "HybridCompute · extensions · tags",
+      "pos": [250, 10],
+      "size": [225, 62]
+    },
+    {
+      "id": "service_bus",
+      "type": "messagebus",
+      "label": "Service Bus Queue",
+      "sublabel": "machines · 10 retries + DLQ",
+      "pos": [495, 120],
+      "size": [195, 62]
+    },
+    {
+      "id": "machine_worker",
+      "type": "backend",
+      "label": "Machine Sync Worker",
+      "sublabel": "Invoke-MachineSync · Managed Identity",
+      "pos": [730, 120],
+      "size": [230, 62],
+      "tag": "PowerShell 7.4"
+    },
+    {
+      "id": "mde_hunting",
+      "type": "security",
+      "label": "Defender XDR Hunting",
+      "sublabel": "DeviceInfo · NetworkInfo · scid-2010",
+      "pos": [730, 10],
+      "size": [230, 62],
+      "tag": "runHuntingQuery"
+    },
+    {
+      "id": "entra_graph",
+      "type": "security",
+      "label": "Microsoft Graph (Entra ID)",
+      "sublabel": "devices · groups · members/$ref",
+      "pos": [1010, 120],
+      "size": [225, 62],
+      "tag": "Audit / Enforce"
+    },
+    {
+      "id": "table_storage",
+      "type": "database",
+      "label": "Azure Table Storage",
+      "sublabel": "state · h_ history · log_ runs",
+      "pos": [760, 300],
+      "size": [230, 62],
+      "tag": "atomic batch"
+    },
+    {
+      "id": "report_fn",
+      "type": "backend",
+      "label": "Report Function App",
+      "sublabel": "Easy Auth + Report.Reader check",
+      "pos": [420, 300],
+      "size": [220, 62],
+      "tag": "read-only MI"
+    },
+    {
+      "id": "portal_ui",
+      "type": "frontend",
+      "label": "Device Inventory Portal",
+      "sublabel": "KPIs · hover cards · drawer · logs",
+      "pos": [50, 300],
+      "size": [230, 62]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Privileged Worker Plane (System-Assigned Managed Identity)",
+      "wraps": ["ingest_fn", "service_bus", "machine_worker"]
+    },
+    {
+      "kind": "security-group",
+      "label": "Read-Only Report Plane (Table Reader only · no Graph or Queue access)",
+      "wraps": ["report_fn", "portal_ui"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "trig-ingest",
+      "from": "triggers",
+      "to": "ingest_fn",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ingest-arg",
+      "from": "ingest_fn",
+      "to": "arg_arm",
+      "label": "KQL scope discovery",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "ingest-bus",
+      "from": "ingest_fn",
+      "to": "service_bus",
+      "variant": "emphasis"
+    },
+    {
+      "id": "bus-worker",
+      "from": "service_bus",
+      "to": "machine_worker",
+      "variant": "emphasis"
+    },
+    {
+      "id": "worker-mde",
+      "from": "machine_worker",
+      "to": "mde_hunting",
+      "label": "AzureResourceId + AV",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "worker-entra",
+      "from": "machine_worker",
+      "to": "entra_graph",
+      "label": "verify / add objectId",
+      "variant": "security"
+    },
+    {
+      "id": "worker-table",
+      "from": "machine_worker",
+      "to": "table_storage",
+      "label": "state + history + logs",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "table-report",
+      "from": "table_storage",
+      "to": "report_fn",
+      "label": "read-only query",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "report-ui",
+      "from": "report_fn",
+      "to": "portal_ui",
+      "label": "JSON + static assets",
+      "variant": "emphasis",
+      "fromSide": "left",
+      "toSide": "right"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Scoped Discovery & Queueing",
+      "items": [
+        "Inventory (NCRONTAB timer) and ArcEvent (Event Grid write) validate Management Group, Subscription, and Resource Group scope",
+        "Azure Resource Graph discovers Microsoft.HybridCompute/machines and resolves management group subscriptions",
+        "Service Bus queue decouples discovery spikes from per-machine correlation with 10-delivery dead-letter protection"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Hunting-Only MDE & Safe Group Sync",
+      "items": [
+        "All MDE telemetry (DeviceInfo, DeviceNetworkInfo, scid-2010 AV mode, tags, MachineGroup) comes via Graph /security/runHuntingQuery",
+        "Requires Connected Arc machine, unique unmerged Onboarded MDE record within FreshnessHours, and enabled Entra device",
+        "Audit mode records WouldAdd; Enforce mode writes mutation intent first, adds directory object ID, and verifies read-back"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Isolated Read-Only Reporting",
+      "items": [
+        "Atomic Azure Table batch commits current state and h_ history snapshots plus system/inventory and log_ execution logs",
+        "Separate Report Function App has only Storage Table Data Reader and enforces Entra Easy Auth + Report.Reader role",
+        "Interactive Defender-style portal provides KPI filters, hover popovers, context drawer, Function App telemetry, and docs"
+      ]
+    }
+  ]
+}

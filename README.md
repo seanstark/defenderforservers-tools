@@ -7,6 +7,7 @@ This repository contains Azure Policy and Azure Machine Configuration solutions 
 - [Solutions](#solutions)
   - [Defender for Endpoint passive mode](#defender-for-endpoint-passive-mode)
   - [Defender for Endpoint device tagging](#defender-for-endpoint-device-tagging)
+  - [Arc to Entra security group synchronization](#arc-to-entra-security-group-synchronization)
 - [Choose a solution](#choose-a-solution)
 - [Deployment guidance](#deployment-guidance)
 - [Repository structure](#repository-structure)
@@ -34,6 +35,18 @@ Supported targets include applicable Azure virtual machines, virtual machine sca
 
 [View the device-tagging solution guide](machineConfiguration/DEVICE-TAGGING-SOLUTION.md)
 
+### Arc to Entra security group synchronization
+
+The PowerShell Azure Functions solution correlates Arc-enabled Windows and Linux servers through Defender for Endpoint to existing Entra device objects. Scheduled reconciliation and Arc resource-write events drive optional, verified security-group additions. A separate Entra-authenticated HTML dashboard shows correlation, observed membership, and persisted history.
+
+It starts in audit-only mode. Machines without an Entra device are reported without membership changes, and the solution never removes members.
+
+![Azure Arc to Entra Security Group Synchronization Architecture](entragroup-sync/infra/architecture.archify.svg)
+
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2Fentragroup-sync%2Fazuredeploy.json)
+
+[View the Arc to Entra synchronization guide](entragroup-sync/README.md)
+
 ## Choose a solution
 
 | Requirement | Solution |
@@ -42,6 +55,7 @@ Supported targets include applicable Azure virtual machines, virtual machine sca
 | Monitor historical changes to the passive-mode registry setting | [Passive mode](PASSIVE-MODE-SOLUTION.md) |
 | Configure Microsoft Defender for Endpoint device groups on Windows | [Device tagging](machineConfiguration/DEVICE-TAGGING-SOLUTION.md) |
 | Configure Microsoft Defender for Endpoint device groups on Linux | [Device tagging](machineConfiguration/DEVICE-TAGGING-SOLUTION.md) |
+| Correlate Arc/MDE machines to Entra devices and add verified devices to a security group | [Arc to Entra sync](entragroup-sync/README.md) |
 | Filter policy applicability by Azure resource tags | Both solutions |
 | Audit settings before enabling automatic remediation | Both solutions |
 
@@ -65,5 +79,7 @@ Start with audit behavior when validating scope and existing configuration. Enab
 | `configureMDEdevicetagging.json` | Portal-ready Windows device-tagging policy definition. |
 | `configureMDEdevicetaggingLinux.json` | Portal-ready Linux device-tagging policy definition. |
 | `workbook.json` | Azure Monitor workbook for passive-mode monitoring. |
+| `entragroup-sync/azuredeploy.json` | Compiled ARM template for deploying the Arc-to-Entra synchronization infrastructure. |
+| `entragroup-sync/` | PowerShell Functions, deployment templates, and HTML reporting for Arc-to-Entra group synchronization. |
 
-For detailed implementation and deployment instructions, use the [passive-mode guide](PASSIVE-MODE-SOLUTION.md) or [device-tagging guide](machineConfiguration/DEVICE-TAGGING-SOLUTION.md).
+For detailed implementation and deployment instructions, use the [passive-mode guide](PASSIVE-MODE-SOLUTION.md), [device-tagging guide](machineConfiguration/DEVICE-TAGGING-SOLUTION.md), or [Arc-to-Entra synchronization guide](entragroup-sync/README.md).
