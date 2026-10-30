@@ -7,6 +7,7 @@ This repository contains Azure Policy and Azure Machine Configuration solutions 
 - [Solutions](#solutions)
   - [Defender for Endpoint passive mode](#defender-for-endpoint-passive-mode)
   - [Defender for Endpoint device tagging](#defender-for-endpoint-device-tagging)
+  - [Defender for Endpoint SenseCM Entra ID device ID discovery](#defender-for-endpoint-sensecm-entra-id-device-id-discovery)
   - [Arc to Entra security group synchronization](#arc-to-entra-security-group-synchronization)
 - [Choose a solution](#choose-a-solution)
 - [Deployment guidance](#deployment-guidance)
@@ -34,6 +35,20 @@ The device-tagging solution audits and configures Microsoft Defender for Endpoin
 Supported targets include applicable Azure virtual machines, virtual machine scale sets, Azure Arc-enabled servers, and Azure Arc-enabled VMware vSphere virtual machines.
 
 [View the device-tagging solution guide](machineConfiguration/DEVICE-TAGGING-SOLUTION.md)
+
+### Defender for Endpoint SenseCM Entra ID device ID discovery
+
+The `entraid-deviceid` (Windows) and `entraid-deviceid-linux` (Linux) Azure Machine Configuration solutions extract and report the MDE Security Settings Management (`MicrosoftSense`) `intuneDeviceId` (which maps directly to the Entra ID `deviceId`) from endpoints that are onboarded to Defender for Endpoint after verifying that `MDE.Windows` or `MDE.Linux` is installed:
+
+- **Windows (`machineConfiguration/entraid-deviceid/`):** Reads `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration` &rarr; `EnrollmentPayload` and outputs `intuneDeviceId=<guid>`.
+- **Linux (`machineConfiguration/entraid-deviceid-linux/`):** Reads `/var/opt/microsoft/mdatp/wdavstate` &rarr; `mEnrollmentPayload` and outputs `intuneDeviceId=<guid>`.
+- **4 Dedicated Azure Policies (Windows/Linux × Native VMs/Azure Arc):**
+  - `configureEntraIdDeviceIdWindowsVM.armtemplate.json` (`entraiddeviceid_VirtualMachines_DeployIfNotExists.json`)
+  - `configureEntraIdDeviceIdWindowsArc.armtemplate.json` (`entraiddeviceid_AzureArc_DeployIfNotExists.json`)
+  - `configureEntraIdDeviceIdLinuxVM.armtemplate.json` (`entraiddeviceidlinux_VirtualMachines_DeployIfNotExists.json`)
+  - `configureEntraIdDeviceIdLinuxArc.armtemplate.json` (`entraiddeviceidlinux_AzureArc_DeployIfNotExists.json`)
+
+[View the SenseCM Entra ID device ID guide](machineConfiguration/ENTRAID-DEVICEID-SOLUTION.md)
 
 ### Arc to Entra security group synchronization
 
