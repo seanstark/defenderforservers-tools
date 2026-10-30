@@ -31,11 +31,13 @@
       <a class="nav-current" href="/docs.html" aria-current="page"><span aria-hidden="true">06</span>Documentation &amp; APIs</a>
       <div class="nav-sub" role="group" aria-label="Documentation sections">
         <a class="nav-child" href="#doc-archify" data-doc-target="doc-archify">Architecture</a>
+        <a class="nav-child" href="#doc-correlation" data-doc-target="doc-correlation">3-Tier Correlation</a>
         <a class="nav-child" href="#doc-architecture" data-doc-target="doc-architecture">Workflow</a>
         <a class="nav-child" href="#doc-queries" data-doc-target="doc-queries">KQL &amp; ARG queries</a>
         <a class="nav-child" href="#doc-apis" data-doc-target="doc-apis">REST APIs</a>
         <a class="nav-child" href="#doc-permissions" data-doc-target="doc-permissions">Permissions &amp; RBAC</a>
         <a class="nav-child" href="#doc-scopes" data-doc-target="doc-scopes">Scope &amp; group routing</a>
+        <a class="nav-child" href="#doc-cost" data-doc-target="doc-cost">Cost estimate</a>
         <a class="nav-child" href="#doc-troubleshooting" data-doc-target="doc-troubleshooting">Troubleshooting</a>
       </div>
     </nav>
@@ -360,6 +362,130 @@
                   <li>Interactive Defender-style portal provides KPI filters, hover popovers, context drawer, Function App telemetry, and docs.</li>
                 </ul>
               </div>
+            </div>
+          </div>
+        </details>
+        <details id="doc-correlation" class="doc-section" open>
+          <summary>3-Tier Microsoft Entra ID device correlation chain</summary>
+          <div class="doc-body">
+            <p class="muted">How the Machine Sync Worker resolves an MDE-onboarded server to its Microsoft Entra ID device object across Entra-joined, Machine Configuration-enrolled, and <code>MicrosoftSense</code>-managed servers:</p>
+            <div class="archify-canvas-wrap">
+              <svg class="archify-svg" viewBox="0 0 1245 330" role="img" lang="en" aria-labelledby="archify-corr-title archify-corr-desc">
+                <title id="archify-corr-title">3-Tier Microsoft Entra ID Device Correlation Chain</title>
+                <desc id="archify-corr-desc">Tier 1: MDE AadDeviceId -&gt; Tier 2: Azure Machine Configuration intuneDeviceId (GuestConfigurationResources) -&gt; Tier 3: MicrosoftSense Hostname and OS Fallback</desc>
+                <defs>
+                  <marker id="corr-arrow-default" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" class="m-default" />
+                  </marker>
+                  <marker id="corr-arrow-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" class="m-emphasis" />
+                  </marker>
+                  <marker id="corr-arrow-security" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" class="m-security" />
+                  </marker>
+                  <pattern id="corr-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                    <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#corr-grid)" />
+                <rect x="305" y="14" width="315" height="298" rx="12" class="c-region" stroke-width="1.2"/>
+                <text x="462.5" y="304" class="t-muted" font-size="9" font-weight="600" text-anchor="middle">Evaluated in Priority Order (Tier 1 -&gt; Tier 2 -&gt; Tier 3)</text>
+
+                <path d="M 235 163 L 268 163 Q 278 163 278 153 L 278 75 Q 278 65 288 65 L 330 65" class="a-emphasis" stroke-width="1.8" marker-end="url(#corr-arrow-emphasis)"/>
+                <path d="M 235 163 L 330 163" class="a-default" stroke-width="1.8" marker-end="url(#corr-arrow-default)"/>
+                <path d="M 235 163 L 268 163 Q 278 163 278 173 L 278 251 Q 278 261 288 261 L 330 261" class="a-security" stroke-width="1.6" marker-end="url(#corr-arrow-security)"/>
+
+                <path d="M 462.5 98 L 462.5 130" class="a-default" stroke-width="1.3" stroke-dasharray="3 3" marker-end="url(#corr-arrow-default)"/>
+                <rect x="408" y="106" width="109" height="14" rx="3" class="c-mask"/>
+                <text x="462.5" y="116" class="t-messagebus" font-size="7.5" font-weight="600" text-anchor="middle">If AadDeviceId empty</text>
+
+                <path d="M 462.5 196 L 462.5 228" class="a-security" stroke-width="1.3" marker-end="url(#corr-arrow-security)"/>
+                <rect x="400" y="204" width="125" height="14" rx="3" class="c-mask"/>
+                <text x="462.5" y="214" class="t-security" font-size="7.5" font-weight="600" text-anchor="middle">If GC not reported yet</text>
+
+                <path d="M 595 65 L 638 65 Q 648 65 648 75 L 648 153 Q 648 163 658 163 L 690 163" class="a-emphasis" stroke-width="1.8" marker-end="url(#corr-arrow-emphasis)"/>
+                <path d="M 595 163 L 690 163" class="a-default" stroke-width="1.8" marker-end="url(#corr-arrow-default)"/>
+                <path d="M 595 261 L 638 261 Q 648 261 648 251 L 648 173 Q 648 163 658 163 L 690 163" class="a-security" stroke-width="1.6" marker-end="url(#corr-arrow-security)"/>
+
+                <path d="M 925 163 L 995 163" class="a-emphasis" stroke-width="1.8" marker-end="url(#corr-arrow-emphasis)"/>
+                <rect x="933" y="143" width="54" height="14" rx="3" class="c-mask"/>
+                <text x="960" y="153" class="t-backend" font-size="8" font-weight="600" text-anchor="middle">Object ID</text>
+
+                <g>
+                  <rect x="25" y="130" width="210" height="66" rx="8" class="c-mask"/>
+                  <rect x="25" y="130" width="210" height="66" rx="8" class="c-cloud" stroke-width="1.5"/>
+                  <text x="130" y="153" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">1. Discovered Cloud Server</text>
+                  <text x="130" y="169" class="t-muted" font-size="9" text-anchor="middle">Azure Arc · Native VM · VMSS</text>
+                  <text x="130" y="183" class="t-cloud" font-size="7.5" font-weight="600" text-anchor="middle">MDE DeviceInfo Matched (&lt;=24h)</text>
+                </g>
+                <g>
+                  <rect x="330" y="32" width="265" height="66" rx="8" class="c-mask"/>
+                  <rect x="330" y="32" width="265" height="66" rx="8" class="c-backend" stroke-width="1.5"/>
+                  <text x="462.5" y="53" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Tier 1: MDE AadDeviceId</text>
+                  <text x="462.5" y="69" class="t-muted" font-size="9" text-anchor="middle">DeviceInfo.AadDeviceId == Entra deviceId</text>
+                  <text x="462.5" y="83" class="t-backend" font-size="7.5" font-weight="600" text-anchor="middle">Primary · Entra / Hybrid Joined Servers</text>
+                </g>
+                <g>
+                  <rect x="330" y="130" width="265" height="66" rx="8" class="c-mask"/>
+                  <rect x="330" y="130" width="265" height="66" rx="8" class="c-messagebus" stroke-width="1.5"/>
+                  <text x="462.5" y="151" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Tier 2: Machine Configuration</text>
+                  <text x="462.5" y="167" class="t-muted" font-size="9" text-anchor="middle">GuestConfigurationResources intuneDeviceId</text>
+                  <text x="462.5" y="181" class="t-messagebus" font-size="7.5" font-weight="600" text-anchor="middle">SenseCM EnrollmentPayload / wdavstate</text>
+                </g>
+                <g>
+                  <rect x="330" y="228" width="265" height="66" rx="8" class="c-mask"/>
+                  <rect x="330" y="228" width="265" height="66" rx="8" class="c-security" stroke-width="1.5"/>
+                  <text x="462.5" y="249" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Tier 3: MicrosoftSense Fallback</text>
+                  <text x="462.5" y="265" class="t-muted" font-size="9" text-anchor="middle">displayName == Hostname &amp; OS Match</text>
+                  <text x="462.5" y="279" class="t-security" font-size="7.5" font-weight="600" text-anchor="middle">Fallback · managementType == MicrosoftSense</text>
+                </g>
+                <g>
+                  <rect x="690" y="130" width="235" height="66" rx="8" class="c-mask"/>
+                  <rect x="690" y="130" width="235" height="66" rx="8" class="c-security" stroke-width="1.5"/>
+                  <text x="807.5" y="153" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">2. Verified Entra ID Device</text>
+                  <text x="807.5" y="169" class="t-muted" font-size="9" text-anchor="middle">GET /v1.0/devices (Exact Match == 1)</text>
+                  <text x="807.5" y="183" class="t-security" font-size="7.5" font-weight="600" text-anchor="middle">accountEnabled == true · Entra Object ID</text>
+                </g>
+                <g>
+                  <rect x="995" y="130" width="225" height="66" rx="8" class="c-mask"/>
+                  <rect x="995" y="130" width="225" height="66" rx="8" class="c-frontend" stroke-width="1.5"/>
+                  <text x="1107.5" y="153" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">3. Cloud &times; OS Security Group</text>
+                  <text x="1107.5" y="169" class="t-muted" font-size="9" text-anchor="middle">Administrative Unit Group Sync</text>
+                  <text x="1107.5" y="183" class="t-frontend" font-size="7.5" font-weight="600" text-anchor="middle">&lt;Prefix&gt;{Passive|Active}-&lt;Id&gt;</text>
+                </g>
+              </svg>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Priority</th>
+                    <th scope="col">Correlation Method (<code>Correlation method</code> column)</th>
+                    <th scope="col">How It Works</th>
+                    <th scope="col">When It Is Used</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Tier 1</strong></td>
+                    <td><strong><code>MDE AadDeviceId</code></strong> (<code>MdeAadDeviceId</code>)</td>
+                    <td>Reads <code>AadDeviceId</code> from MDE Advanced Hunting (<code>DeviceInfo</code>) and queries <code>GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'</code>.</td>
+                    <td>Primary method for Microsoft Entra joined or hybrid joined servers where MDE directly reports <code>AadDeviceId</code>.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Tier 2</strong></td>
+                    <td><strong><code>Machine Configuration (intuneDeviceId)</code></strong> (<code>GuestConfigurationIntuneDeviceId</code>)</td>
+                    <td>Reads <code>intuneDeviceId=&lt;guid&gt;</code> from <code>GuestConfigurationResources</code> (<code>entraiddeviceid</code> on Windows reading <code>HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload</code>; <code>entraiddeviceidlinux</code> on Linux reading <code>/var/opt/microsoft/mdatp/wdavstate</code>) and queries <code>GET /v1.0/devices?$filter=deviceId eq '{intuneDeviceId}'</code>.</td>
+                    <td>Used when <code>AadDeviceId</code> is empty in MDE (workgroup / AWS / GCP / Linux servers enrolled via MDE Security Settings Management) and the Azure Machine Configuration assignment has reported back.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Tier 3</strong></td>
+                    <td><strong><code>MicrosoftSense (Hostname &amp; OS)</code></strong> (<code>MicrosoftSenseHostnameAndOS</code>)</td>
+                    <td>Queries <code>GET /v1.0/devices?$filter=displayName eq '{hostname}'</code> across candidate hostnames (<code>ComputerName</code>, <code>MdeDeviceName</code>, <code>Fqdn</code>, <code>MachineName</code>) and requires a unique match on <code>operatingSystem</code> (<code>Windows</code> / <code>Linux</code>) and <code>managementType == 'MicrosoftSense'</code>.</td>
+                    <td>Automatic fallback when <code>AadDeviceId</code> is empty and the Machine Configuration assignment has not yet reported.</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </details>
@@ -1119,6 +1245,98 @@
                     <td><strong>Portal <code>401</code> / <code>403</code> or Stale Data</strong></td>
                     <td>Signed-in user lacks the <code>Report.Reader</code> app role, or browser/server cache is serving a recent snapshot.</td>
                     <td>Assign the user/group the <code>Report.Reader</code> role on the Report Enterprise Application in Entra ID. Click <strong>Refresh inventory</strong> in the portal toolbar to bypass the 15s server cache and 30s browser cache (<code>?refresh=1</code>).</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+        <details id="doc-cost" class="doc-section" open>
+          <summary>Estimated monthly Azure cost</summary>
+          <div class="doc-body">
+            <p class="muted">Estimated monthly cost in <strong>East US (Pay-As-You-Go USD)</strong> for a typical environment (e.g., <strong>100 to 1,000 servers</strong> synced every 30 minutes):</p>
+            <h3>1. Core Infrastructure Cost (<code>entragroup-sync/azuredeploy.json</code>)</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Azure Resource</th>
+                    <th scope="col">Default SKU / Tier</th>
+                    <th scope="col">Estimated Monthly Cost (USD)</th>
+                    <th scope="col">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>App Service Plan</strong> (<code>&lt;prefix&gt;-plan</code>, hosts both <code>worker</code> &amp; <code>report</code> Function Apps)</td>
+                    <td><strong><code>B1</code> (Basic, 1 instance)</strong> <em>(default)</em><br><em>(Optional: <code>S1</code> Standard or <code>P1v3</code> Premium)</em></td>
+                    <td><strong>~$54.75 / mo</strong><br><em>(or ~$73/mo on <code>S1</code>, ~$138/mo on <code>P1v3</code>)</em></td>
+                    <td>Both the Worker and Report Function Apps share the same single App Service Plan (<code>serverFarmId</code>) at no extra per-app compute charge.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Azure Service Bus</strong> (<code>&lt;prefix&gt;-bus</code>, <code>machines</code> queue)</td>
+                    <td><strong>Standard</strong></td>
+                    <td><strong>~$10.00 / mo</strong></td>
+                    <td>~$9.81 base fee + $0.05 per million messaging operations (1,000 servers &times; 48 runs/day &approx; 1.4M ops/mo &approx; $0.01).</td>
+                  </tr>
+                  <tr>
+                    <td><strong>3 &times; Azure Storage Accounts</strong> (<code>sync&lt;suffix&gt;</code>, <code>worker&lt;suffix&gt;</code>, <code>report&lt;suffix&gt;</code>)</td>
+                    <td><strong>Standard LRS (<code>StorageV2</code>)</strong></td>
+                    <td><strong>~$0.50 – $2.00 / mo</strong></td>
+                    <td>Table Storage (<code>machines</code> state, history, and logs) + Function host leases cost fractions of a cent per GB and ~$0.00036 per 10,000 transactions.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Application Insights &amp; Log Analytics</strong> (<code>&lt;prefix&gt;-insights</code>, <code>&lt;prefix&gt;-logs</code>)</td>
+                    <td><strong>Pay-As-You-Go (<code>PerGB2018</code>, 30-day retention)</strong></td>
+                    <td><strong>$0.00 – $5.00 / mo</strong></td>
+                    <td>The first <strong>5 GB/month</strong> of Log Analytics ingestion per billing account is <strong>free</strong>; typical worker trace volume is &lt;1–2 GB/month.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Azure Event Grid</strong> (<code>Microsoft.EventGrid/eventSubscriptions</code>)</td>
+                    <td><strong>System Topic</strong></td>
+                    <td><strong>$0.00 / mo</strong></td>
+                    <td>First <strong>100,000 operations/month</strong> are <strong>free</strong> ($0.60 per million after).</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Microsoft Graph &amp; Azure Resource Graph APIs</strong></td>
+                    <td><strong>Included</strong></td>
+                    <td><strong>$0.00 / mo</strong></td>
+                    <td>No per-query charges for Azure Resource Graph, Defender Advanced Hunting, or Entra ID Graph API calls.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Total Core Infrastructure</strong></td>
+                    <td><strong>Default (<code>B1</code> Plan)</strong></td>
+                    <td><strong>~$65 – $72 / month</strong></td>
+                    <td>Fixed baseline cost for the entire synchronization and reporting platform.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h3>2. Azure Machine Configuration (Guest Configuration) Cost (<code>entraiddeviceid</code> / <code>entraiddeviceidlinux</code>)</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Server Type</th>
+                    <th scope="col">Azure Machine Configuration Pricing</th>
+                    <th scope="col">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Azure Native Virtual Machines &amp; VMSS</strong></td>
+                    <td><strong>$0.00 / mo (Included)</strong></td>
+                    <td>Azure Machine Configuration is <strong>free</strong> for native Azure Virtual Machines and Virtual Machine Scale Sets.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Azure Arc-Enabled Servers</strong> <em>(with Microsoft Defender for Servers Plan 2)</em></td>
+                    <td><strong>$0.00 / mo (Included)</strong></td>
+                    <td>Included at no additional charge when <strong>Microsoft Defender for Servers Plan 2</strong> (or Azure Automanage / Windows Server Pay-As-You-Go / Software Assurance with Azure Hybrid Benefit) is enabled on the Arc server.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Azure Arc-Enabled Servers</strong> <em>(without Defender for Servers Plan 2 or SA/AHB)</em></td>
+                    <td><strong>~$6.00 / server / mo</strong> <em>(if <code>IncludeArcMachines = true</code>)</em></td>
+                    <td>Standard Azure Machine Configuration price for Arc-enabled servers when not covered by Defender for Servers Plan 2 or Windows Server SA/AHB. <em>(If you do not want to use Machine Configuration on Arc servers, Tier 1 <code>MDE AadDeviceId</code> and Tier 3 <code>MicrosoftSense (Hostname &amp; OS)</code> fallback correlate Arc servers at <strong>$0/mo</strong> without Guest Configuration.)</em></td>
                   </tr>
                 </tbody>
               </table>
