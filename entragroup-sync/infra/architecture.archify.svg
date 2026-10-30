@@ -1,5 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1275 450" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="signal-flow" data-quality-profile="showcase" data-node-ui="" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14">
+<svg xmlns="http://www.w3.org/2000/svg" width="1275" height="450" viewBox="0 0 1275 450" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="signal-flow" data-quality-profile="showcase" data-node-ui="" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14">
   <style>
+/* <![CDATA[ */
+
 /* ==========================================================
        THEME VARIABLES — switch by toggling [data-theme] on <html>
        ========================================================== */
@@ -4915,7 +4917,9 @@
       .relationship-pulse-overlay { display: none !important; }
       svg [data-node-id], svg [data-edge-from], svg [data-detail], svg [data-detail-anchor], svg [data-legend-hit], svg { transition: none !important; }
     }
-  </style>
+  
+/* ]]> */
+</style>
 
         <title id="archify-diagram-title">Azure Arc &amp; VM to Cloud × OS Entra Group Synchronization</title>
         <desc id="archify-diagram-description">Timer + MDE Extension Event Grid discovery · MDE Hunting correlation · Per-account Cloud × OS Entra group sync · Read-only portal</desc>
@@ -4939,7 +4943,9 @@
         </defs>
 
         <!-- Background Grid -->
-        <rect width="100%" height="100%" fill="url(#grid)" />
+        
+  <rect width="1275" height="450" fill="#020617" />
+  <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Boundaries (behind everything) -->
         <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="Privileged Worker Plane (System-Assigned Managed Identity)" x="220" y="90" width="770" height="112" rx="12" class="c-region" stroke-width="1"/>

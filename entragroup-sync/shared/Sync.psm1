@@ -1424,20 +1424,9 @@ function Get-AppInsightsResourceId {
 
 function Get-RequestTenantDomain {
     param($Request)
-    try {
-        $encoded = if ($Request -and $Request.Headers) { $Request.Headers['X-MS-CLIENT-PRINCIPAL'] } else { $null }
-        if ($encoded) {
-            $principal = ConvertFrom-Json -InputObject ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$encoded))) -AsHashtable
-            foreach ($claim in @($principal.claims)) {
-                $val = [string]$claim['val']
-                if ($val -match '^[^@\s]+@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})$') {
-                    return $Matches[1].ToLowerInvariant()
-                }
-            }
-        }
-    }
-    catch {}
-    return (Get-OptionalSetting 'SYNC_TENANT_ID')
+    $configuredTenant = Get-OptionalSetting 'SYNC_TENANT_ID'
+    if ($configuredTenant) { return $configuredTenant }
+    return ''
 }
 
 function Get-ReportHistoryPage {

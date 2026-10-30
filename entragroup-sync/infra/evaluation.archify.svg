@@ -1,5 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1208 684" data-layout-contract="readable-v2" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="signal-flow" data-quality-profile="showcase" data-node-ui="">
+<svg xmlns="http://www.w3.org/2000/svg" width="1208" height="684" viewBox="0 0 1208 684" data-layout-contract="readable-v2" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="signal-flow" data-quality-profile="showcase" data-node-ui="">
   <style>
+/* <![CDATA[ */
+
 /* ==========================================================
        THEME VARIABLES — switch by toggling [data-theme] on <html>
        ========================================================== */
@@ -4915,7 +4917,9 @@
       .relationship-pulse-overlay { display: none !important; }
       svg [data-node-id], svg [data-edge-from], svg [data-detail], svg [data-detail-anchor], svg [data-legend-hit], svg { transition: none !important; }
     }
-  </style>
+  
+/* ]]> */
+</style>
 
         <title id="archify-diagram-title">Machine Correlation &amp; Per-Account Cloud × OS Group Evaluation</title>
         <desc id="archify-diagram-description">Step-by-step decision rules: Scope -&gt; ARM status -&gt; MDE DeviceInfo freshness -&gt; Entra device objectId -&gt; Per-Account Cloud (AWS/GCP/Azure) × OS (Windows/Linux) Group</desc>
@@ -4939,7 +4943,9 @@
         </defs>
 
         <!-- Background Grid -->
-        <rect width="100%" height="100%" fill="url(#grid)" />
+        
+  <rect width="1208" height="684" fill="#020617" />
+  <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Swimlanes -->
         <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="1140" height="106" rx="10" class="c-lane" stroke-width="1"/>

@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1245" height="330" viewBox="0 0 1245 330" role="img" lang="en" aria-labelledby="archify-corr-title archify-corr-desc" data-animation="trace" data-preset="signal-flow" data-quality-profile="showcase">
+  <style>
+  /* <![CDATA[ */
+    :root, [data-theme="dark"] {
+      --bg: #020617;
+      --grid: #1e293b;
+      --text: #ffffff;
+      --text-muted: #94a3b8;
+      --mask: #0f172a;
+      --lane-fill: rgba(15, 23, 42, 0.35);
+      --lane-stroke: #334155;
+      --frontend-fill: rgba(8, 51, 68, 0.45);
+      --frontend-stroke: #22d3ee;
+      --backend-fill: rgba(6, 78, 59, 0.45);
+      --backend-stroke: #34d399;
+      --cloud-fill: rgba(120, 53, 15, 0.35);
+      --cloud-stroke: #fbbf24;
+      --security-fill: rgba(136, 19, 55, 0.45);
+      --security-stroke: #fb7185;
+      --messagebus-fill: rgba(251, 146, 60, 0.35);
+      --messagebus-stroke: #fb923c;
+    }
+    svg { font-family: "Segoe UI", Aptos, Calibri, -apple-system, sans-serif; }
+    .c-grid { stroke: var(--grid); fill: none; opacity: 0.45; }
+    .c-mask { fill: var(--mask); }
+    .c-region { fill: var(--lane-fill); stroke: var(--lane-stroke); stroke-dasharray: 5 4; }
+    .c-cloud { fill: var(--cloud-fill); stroke: var(--cloud-stroke); }
+    .c-backend { fill: var(--backend-fill); stroke: var(--backend-stroke); }
+    .c-messagebus { fill: var(--messagebus-fill); stroke: var(--messagebus-stroke); }
+    .c-security { fill: var(--security-fill); stroke: var(--security-stroke); }
+    .c-frontend { fill: var(--frontend-fill); stroke: var(--frontend-stroke); }
+    .t-primary { fill: var(--text); }
+    .t-muted { fill: var(--text-muted); }
+    .t-cloud { fill: var(--cloud-stroke); }
+    .t-backend { fill: var(--backend-stroke); }
+    .t-messagebus { fill: var(--messagebus-stroke); }
+    .t-security { fill: var(--security-stroke); }
+    .t-frontend { fill: var(--frontend-stroke); }
+    .a-emphasis { stroke: #34d399; fill: none; }
+    .a-messagebus { stroke: #fb923c; fill: none; }
+    .a-security { stroke: #fb7185; fill: none; stroke-dasharray: 5 3; }
+    .m-emphasis { fill: #34d399; }
+    .m-messagebus { fill: #fb923c; }
+    .m-security { fill: #fb7185; }
+  /* ]]> */
+  </style>
+  <title id="archify-corr-title">3-Tier Microsoft Entra ID Device Correlation Chain</title>
+  <desc id="archify-corr-desc">Tier 1: MDE AadDeviceId -> Tier 2: Azure Machine Configuration intuneDeviceId (GuestConfigurationResources) -> Tier 3: MicrosoftSense Hostname and OS Fallback</desc>
+  <defs>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" class="m-emphasis" />
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" class="m-messagebus" />
+    </marker>
+    <marker id="arrow-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" class="m-security" />
+    </marker>
+    <pattern id="corr-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>
+    </pattern>
+  </defs>
+
+  <!-- Canvas Background -->
+  <rect width="1245" height="330" fill="#020617" />
+  <rect width="1245" height="330" fill="url(#corr-grid)" />
+
+  <!-- Correlation Chain Boundary Frame -->
+  <rect x="305" y="14" width="315" height="298" rx="12" class="c-region" stroke-width="1.2"/>
+  <text x="462.5" y="304" class="t-muted" font-size="9" font-weight="600" text-anchor="middle">Evaluated in Priority Order (Tier 1 -> Tier 2 -> Tier 3)</text>
+
+  <!-- Connectors from Server to Tiers 1, 2, 3 -->
+  <path d="M 235 163 L 268 163 Q 278 163 278 153 L 278 75 Q 278 65 288 65 L 330 65" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+  <path d="M 235 163 L 330 163" class="a-messagebus" stroke-width="1.8" marker-end="url(#arrow-orange)"/>
+  <path d="M 235 163 L 268 163 Q 278 163 278 173 L 278 251 Q 278 261 288 261 L 330 261" class="a-security" stroke-width="1.6" marker-end="url(#arrow-rose)"/>
+
+  <!-- Fallback arrows between Tier 1 -> Tier 2 -> Tier 3 -->
+  <path d="M 462.5 98 L 462.5 130" class="a-messagebus" stroke-width="1.3" stroke-dasharray="3 3" marker-end="url(#arrow-orange)"/>
+  <rect x="408" y="106" width="109" height="14" rx="3" class="c-mask"/>
+  <text x="462.5" y="116" class="t-messagebus" font-size="7.5" font-weight="600" text-anchor="middle">If AadDeviceId empty</text>
+
+  <path d="M 462.5 196 L 462.5 228" class="a-security" stroke-width="1.3" marker-end="url(#arrow-rose)"/>
+  <rect x="400" y="204" width="125" height="14" rx="3" class="c-mask"/>
+  <text x="462.5" y="214" class="t-security" font-size="7.5" font-weight="600" text-anchor="middle">If GC not reported yet</text>
+
+  <!-- Connectors from Tiers 1, 2, 3 to Verified Entra ID Device -->
+  <path d="M 595 65 L 638 65 Q 648 65 648 75 L 648 153 Q 648 163 658 163 L 690 163" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+  <path d="M 595 163 L 690 163" class="a-messagebus" stroke-width="1.8" marker-end="url(#arrow-orange)"/>
+  <path d="M 595 261 L 638 261 Q 648 261 648 251 L 648 173 Q 648 163 658 163 L 690 163" class="a-security" stroke-width="1.6" marker-end="url(#arrow-rose)"/>
+
+  <!-- Connector from Verified Entra Device to Cloud x OS Group -->
+  <path d="M 925 163 L 995 163" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+  <rect x="933" y="143" width="54" height="14" rx="3" class="c-mask"/>
+  <text x="960" y="153" class="t-backend" font-size="8" font-weight="600" text-anchor="middle">Object ID</text>
+
+  <!-- Node 1: Discovered Cloud Server -->
+  <g id="node-server_input">
+    <rect x="25" y="130" width="210" height="66" rx="8" class="c-mask"/>
+    <rect x="25" y="130" width="210" height="66" rx="8" class="c-cloud" stroke-width="1.5"/>
+    <text x="130" y="153" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">1. Discovered Cloud Server</text>
+    <text x="130" y="169" class="t-muted" font-size="9" text-anchor="middle">Azure Arc · Native VM · VMSS</text>
+    <text x="130" y="183" class="t-cloud" font-size="7.5" font-weight="600" text-anchor="middle">MDE DeviceInfo Matched (&lt;=24h)</text>
+  </g>
+
+  <!-- Node 2: Tier 1 MDE AadDeviceId -->
+  <g id="node-tier1_aad">
+    <rect x="330" y="32" width="265" height="66" rx="8" class="c-mask"/>
+    <rect x="330" y="32" width="265" height="66" rx="8" class="c-backend" stroke-width="1.5"/>
+    <text x="462.5" y="53" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Tier 1: MDE AadDeviceId</text>
+    <text x="462.5" y="69" class="t-muted" font-size="9" text-anchor="middle">DeviceInfo.AadDeviceId == Entra deviceId</text>
+    <text x="462.5" y="83" class="t-backend" font-size="7.5" font-weight="600" text-anchor="middle">Primary · Entra / Hybrid Joined Servers</text>
+  </g>
+
+  <!-- Node 3: Tier 2 Machine Configuration -->
+  <g id="node-tier2_gc">
+    <rect x="330" y="130" width="265" height="66" rx="8" class="c-mask"/>
+    <rect x="330" y="130" width="265" height="66" rx="8" class="c-messagebus" stroke-width="1.5"/>
+    <text x="462.5" y="151" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Tier 2: Machine Configuration</text>
+    <text x="462.5" y="167" class="t-muted" font-size="9" text-anchor="middle">GuestConfigurationResources intuneDeviceId</text>
+    <text x="462.5" y="181" class="t-messagebus" font-size="7.5" font-weight="600" text-anchor="middle">SenseCM EnrollmentPayload / wdavstate</text>
+  </g>
+
+  <!-- Node 4: Tier 3 MicrosoftSense Fallback -->
+  <g id="node-tier3_sense">
+    <rect x="330" y="228" width="265" height="66" rx="8" class="c-mask"/>
+    <rect x="330" y="228" width="265" height="66" rx="8" class="c-security" stroke-width="1.5"/>
+    <text x="462.5" y="249" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Tier 3: MicrosoftSense Fallback</text>
+    <text x="462.5" y="265" class="t-muted" font-size="9" text-anchor="middle">displayName == Hostname &amp; OS Match</text>
+    <text x="462.5" y="279" class="t-security" font-size="7.5" font-weight="600" text-anchor="middle">Fallback · managementType == MicrosoftSense</text>
+  </g>
+
+  <!-- Node 5: Verified Entra ID Device -->
+  <g id="node-entra_device">
+    <rect x="690" y="130" width="235" height="66" rx="8" class="c-mask"/>
+    <rect x="690" y="130" width="235" height="66" rx="8" class="c-security" stroke-width="1.5"/>
+    <text x="807.5" y="153" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">2. Verified Entra ID Device</text>
+    <text x="807.5" y="169" class="t-muted" font-size="9" text-anchor="middle">GET /v1.0/devices (Exact Match == 1)</text>
+    <text x="807.5" y="183" class="t-security" font-size="7.5" font-weight="600" text-anchor="middle">accountEnabled == true · Entra Object ID</text>
+  </g>
+
+  <!-- Node 6: Cloud x OS Group -->
+  <g id="node-au_group">
+    <rect x="995" y="130" width="225" height="66" rx="8" class="c-mask"/>
+    <rect x="995" y="130" width="225" height="66" rx="8" class="c-frontend" stroke-width="1.5"/>
+    <text x="1107.5" y="153" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">3. Cloud × OS Security Group</text>
+    <text x="1107.5" y="169" class="t-muted" font-size="9" text-anchor="middle">Administrative Unit Group Sync</text>
+    <text x="1107.5" y="183" class="t-frontend" font-size="7.5" font-weight="600" text-anchor="middle">&lt;Prefix&gt;{Passive|Active}-&lt;Id&gt;</text>
+  </g>
+</svg>

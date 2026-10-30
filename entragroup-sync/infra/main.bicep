@@ -302,7 +302,7 @@ resource reportAuth 'Microsoft.Web/sites/config@2023-12-01' = {
         }
       }
     }
-    login: { tokenStore: { enabled: true } }
+    login: { tokenStore: { enabled: false } }
     httpSettings: { requireHttps: true }
   }
 }

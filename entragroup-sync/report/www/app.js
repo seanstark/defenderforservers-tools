@@ -722,6 +722,12 @@
     renderHeaders();
     render();
   }
+  function clearCachedSnapshot() {
+    try {
+      sessionStorage.removeItem(dataCacheKey);
+      localStorage.removeItem(dataCacheKey);
+    } catch {}
+  }
   async function get(path, forceRefresh = false) {
     const sep = path.includes("?") ? "&" : "?";
     const fullPath = forceRefresh ? `${path}${sep}refresh=1` : path;
@@ -730,6 +736,12 @@
       cache: forceRefresh ? "no-store" : "default",
       redirect: "error"
     });
+    if (response.status === 401 || response.status === 403) {
+      clearCachedSnapshot();
+      machines = [];
+      renderSummary();
+      render();
+    }
     if (!response.ok) throw new Error(`Report request failed (${response.status}). Check your sign-in, Report.Reader role, and service health.`);
     const result = await response.json();
     if (result.error) throw new Error(result.error);
@@ -772,7 +784,8 @@
   }
   function loadCachedSnapshot() {
     try {
-      const raw = sessionStorage.getItem(dataCacheKey) || localStorage.getItem(dataCacheKey);
+      localStorage.removeItem(dataCacheKey);
+      const raw = sessionStorage.getItem(dataCacheKey);
       if (!raw) return 0;
       const cached = JSON.parse(raw);
       if (!Array.isArray(cached.items)) return 0;
@@ -784,9 +797,9 @@
   }
   function saveCachedSnapshot(items, health, logsPage, timestamp) {
     try {
+      localStorage.removeItem(dataCacheKey);
       const payload = JSON.stringify({ items, health, logsPage, timestamp, savedAt: Date.now() });
       sessionStorage.setItem(dataCacheKey, payload);
-      localStorage.setItem(dataCacheKey, payload);
     } catch {}
   }
   function updateOptions(id, values, label) {
@@ -827,7 +840,10 @@
     return { filtered, activeFilters };
   }
   function csvCell(value) {
-    const textValue = String(value ?? "").replace(/\r?\n/g, " ");
+    let textValue = String(value ?? "").replace(/\r?\n/g, " ");
+    if (/^[\t\r ]*[=+\-@]/.test(textValue)) {
+      textValue = `'${textValue}`;
+    }
     if (/[",\r\n]/.test(textValue)) {
       return `"${textValue.replace(/"/g, '""')}"`;
     }
@@ -1584,6 +1600,9 @@
     tab.addEventListener("click", () => {
       [...document.querySelectorAll("button[data-card]")].find(card => card.dataset.card === tab.dataset.cardTarget)?.click();
     });
+  }
+  for (const link of document.querySelectorAll('a[href="/.auth/logout"]')) {
+    link.addEventListener("click", clearCachedSnapshot);
   }
   document.querySelector(".table-wrap").addEventListener("scroll", hideHoverPopover, { passive: true });
   window.addEventListener("scroll", hideHoverPopover, { passive: true });

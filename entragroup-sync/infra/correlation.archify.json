@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "3-Tier Microsoft Entra ID Device Correlation Chain",
+    "subtitle": "How the Machine Sync Worker resolves an MDE-onboarded server to its Microsoft Entra ID device object",
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "server_input",
+      "type": "cloud",
+      "label": "1. Discovered Cloud Server",
+      "sublabel": "Azure Arc · Native VM · VMSS",
+      "pos": [25, 130],
+      "size": [210, 66],
+      "tag": "MDE DeviceInfo Matched"
+    },
+    {
+      "id": "tier1_aad",
+      "type": "backend",
+      "label": "Tier 1: MDE AadDeviceId",
+      "sublabel": "DeviceInfo.AadDeviceId GUID",
+      "pos": [330, 32],
+      "size": [265, 66],
+      "tag": "Entra / Hybrid Joined Servers"
+    },
+    {
+      "id": "tier2_gc",
+      "type": "messagebus",
+      "label": "Tier 2: Machine Configuration",
+      "sublabel": "GuestConfigurationResources intuneDeviceId",
+      "pos": [330, 130],
+      "size": [265, 66],
+      "tag": "SenseCM Registry / wdavstate"
+    },
+    {
+      "id": "tier3_sense",
+      "type": "security",
+      "label": "Tier 3: MicrosoftSense Fallback",
+      "sublabel": "displayName == Hostname & OS Match",
+      "pos": [330, 228],
+      "size": [265, 66],
+      "tag": "managementType == MicrosoftSense"
+    },
+    {
+      "id": "entra_device",
+      "type": "security",
+      "label": "2. Verified Entra ID Device",
+      "sublabel": "GET /v1.0/devices (Object ID + Enabled)",
+      "pos": [690, 130],
+      "size": [235, 66],
+      "tag": "Count == 1 · accountEnabled"
+    },
+    {
+      "id": "au_group",
+      "type": "frontend",
+      "label": "3. Cloud × OS Security Group",
+      "sublabel": "Administrative Unit Group Sync",
+      "pos": [995, 130],
+      "size": [225, 66],
+      "tag": "AWS · GCP · Azure (Active/Passive)"
+    }
+  ]
+}

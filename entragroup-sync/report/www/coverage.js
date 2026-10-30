@@ -161,6 +161,12 @@
       scheduleHideHoverPopover();
     });
   }
+  function clearCachedSnapshot() {
+    try {
+      sessionStorage.removeItem(dataCacheKey);
+      localStorage.removeItem(dataCacheKey);
+    } catch {}
+  }
   async function get(path, forceRefresh = false) {
     const sep = path.includes("?") ? "&" : "?";
     const fullPath = forceRefresh ? `${path}${sep}refresh=1` : path;
@@ -169,6 +175,11 @@
       cache: forceRefresh ? "no-store" : "default",
       redirect: "error"
     });
+    if (response.status === 401 || response.status === 403) {
+      clearCachedSnapshot();
+      machines = [];
+      renderCoverageReport();
+    }
     if (!response.ok) throw new Error(`Report request failed (${response.status}). Check your sign-in, Report.Reader role, and service health.`);
     const result = await response.json();
     if (result.error) throw new Error(result.error);
@@ -190,7 +201,8 @@
   }
   function loadCachedSnapshot() {
     try {
-      const raw = sessionStorage.getItem(dataCacheKey) || localStorage.getItem(dataCacheKey);
+      localStorage.removeItem(dataCacheKey);
+      const raw = sessionStorage.getItem(dataCacheKey);
       if (!raw) return 0;
       const cached = JSON.parse(raw);
       if (!Array.isArray(cached.items)) return 0;
@@ -205,11 +217,11 @@
   }
   function saveCachedSnapshot(items, health, timestamp) {
     try {
-      const raw = sessionStorage.getItem(dataCacheKey) || localStorage.getItem(dataCacheKey);
+      localStorage.removeItem(dataCacheKey);
+      const raw = sessionStorage.getItem(dataCacheKey);
       const prev = raw ? JSON.parse(raw) : {};
       const payload = JSON.stringify({ ...prev, items, health, timestamp, savedAt: Date.now() });
       sessionStorage.setItem(dataCacheKey, payload);
-      localStorage.setItem(dataCacheKey, payload);
     } catch {}
   }
   function resolveMachineCloudScope(machine) {

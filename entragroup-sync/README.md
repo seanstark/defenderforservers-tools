@@ -1,15 +1,165 @@
-# Azure Arc & Azure Virtual Machine to Entra Security Group Synchronization
+# Cloud Server Correlation — Azure Arc & Virtual Machine to Entra ID Security Group Sync
 
-Correlates Azure Arc-enabled servers and Azure Native Virtual Machines (Windows & Linux) to Microsoft Defender for Endpoint (MDE) and Microsoft Entra ID devices, then adds verified devices to an assigned Entra security group. Includes an authenticated HTML portal for device inventory, correlation history, and Function App logs.
+Automatically discovers Azure Arc-enabled servers (AWS, GCP, on-premises), Azure Virtual Machines, and Virtual Machine Scale Set (VMSS) instances, correlates them through Microsoft Defender for Endpoint (MDE) and Azure Machine Configuration to Microsoft Entra ID device objects, and assigns verified devices to per-account Cloud × OS × Active/Passive Entra ID security groups. Includes an authenticated **Cloud Server Correlation** web portal for device inventory, cloud/group coverage, permissions validation, and execution logs.
 
 - **Default mode:** `Audit` (observes and reports `WouldAdd` without modifying groups).
 - **Add-only safety:** Never deletes Entra devices or removes group members.
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2Fentragroup-sync%2Fazuredeploy.json)
+---
+
+## Step-by-Step Deployment Guide
+
+Follow these **6 straightforward steps** to deploy the solution end-to-end.
+
+### Step 1: Create the Entra ID Administrative Unit & Report App Registration
+
+1. **Create an Entra ID Administrative Unit (Recommended):**
+   - In the [Microsoft Entra admin center](https://entra.microsoft.com) &rarr; **Identity** &rarr; **Roles & admins** &rarr; **Admin units**, create a new Administrative Unit (e.g., `Defender for Servers Groups`) and copy its **Object ID** (`SYNC_ADMIN_UNIT_ID`).
+   - The Function App will only query, create, and manage Cloud × OS security groups inside this Administrative Unit.
+2. **Create the Web Portal App Registration:**
+   - Go to **Identity** &rarr; **Applications** &rarr; **App registrations** &rarr; **New registration** (Single tenant).
+   - Under **Certificates & secrets**, create a new **Client secret** and copy its **Value**.
+   - Under **App roles** &rarr; **Create app role**:
+     - **Display name:** `Report Reader`
+     - **Allowed member types:** `Users/Groups`
+     - **Value:** `Report.Reader`
+   - Go to **Enterprise applications** &rarr; select your app &rarr; **Users and groups**, and assign your users/groups to the **`Report.Reader`** role.
+
+---
+
+### Step 2: Deploy the Azure Machine Configuration Policies (MDE Entra ID Device ID)
+
+For servers managed via MDE Security Settings Management (`MicrosoftSense` / MDE Attach) that are not domain/Entra-joined, these Azure Machine Configuration policies read the local MDE `intuneDeviceId` (`HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload` on Windows and `/var/opt/microsoft/mdatp/wdavstate` on Linux) and report it to Azure Resource Graph (`GuestConfigurationResources`).
+
+1. **Deploy Both Windows & Linux Policy Definitions Together (Recommended):**
+
+   | Policy Deployment | ARM Template | Deploy to Azure |
+   | --- | --- | --- |
+   | **Both Windows & Linux Combined Policies** (`Audit MDE Entra ID Device ID on Windows machines` + `Audit MDE Entra ID Device ID on Linux machines`) | [`configureEntraIdDeviceId.armtemplate.json`](../configureEntraIdDeviceId.armtemplate.json) | [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceId.armtemplate.json) |
+
+   *(Or deploy the [4 split Native VM vs. Azure Arc policies](../machineConfiguration/ENTRAID-DEVICEID-SOLUTION.md) individually if you prefer separate assignments for VMs and Arc machines:)*
+   - **Windows VMs:** [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceIdWindowsVM.armtemplate.json) · **Windows Arc:** [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceIdWindowsArc.armtemplate.json)
+   - **Linux VMs:** [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceIdLinuxVM.armtemplate.json) · **Linux Arc:** [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceIdLinuxArc.armtemplate.json)
+
+2. **Assign the Policies in Azure Policy:**
+   - Open **Azure Policy** &rarr; **Definitions**, select **`Audit MDE Entra ID Device ID on Windows machines`** and **`Audit MDE Entra ID Device ID on Linux machines`**, and click **Assign** at your Management Group or Subscription scope.
+   - Check **Create a remediation task** on the **Remediation** tab so existing servers receive the Machine Configuration assignment immediately.
+
+---
+
+### Step 3: Deploy the Sync & Report Function Apps
+
+Choose **Option A** (automated PowerShell deployment) or **Option B** (Azure Portal button + zip upload):
+
+#### Option A: One-Command PowerShell Deployment (`Deploy.ps1` — Recommended)
+Deploys the Azure infrastructure, builds and uploads `worker.zip` and `report.zip`, assigns `Reader` RBAC, and creates the Event Grid subscription:
+
+```powershell
+cd .\entragroup-sync
+$secret = Read-Host 'Report App Client Secret' -AsSecureString
+
+.\Deploy.ps1 `
+    -ResourceGroupName 'rg-arc-entra-sync' `
+    -NamePrefix 'mdemdcsync' `
+    -SubscriptionIds @('<subscription-guid>') `
+    -ManagementGroupIds @('<optional-management-group-id>') `
+    -AdminUnitId '<entra-administrative-unit-guid>' `
+    -AwsWindowsGroupPrefix 'MDfS-AWS-Windows-' `
+    -AwsLinuxGroupPrefix 'MDfS-AWS-Linux-' `
+    -GcpWindowsGroupPrefix 'MDfS-GCP-Windows-' `
+    -GcpLinuxGroupPrefix 'MDfS-GCP-Linux-' `
+    -AzureWindowsGroupPrefix 'MDfS-Azure-Windows-' `
+    -AzureLinuxGroupPrefix 'MDfS-Azure-Linux-' `
+    -ReportClientId '<report-app-client-id>' `
+    -ReportClientSecret $secret
+```
+
+#### Option B: Deploy via Azure Portal Button + Upload Function Code Packages
+1. Click **Deploy to Azure** to provision the Function Apps, Storage Accounts, Service Bus queue, and Application Insights:
+
+   [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2Fentragroup-sync%2Fazuredeploy.json)
+
+2. Upload the pre-built PowerShell Function packages (`packages/worker.zip` and `packages/report.zip`):
+   ```powershell
+   az functionapp deployment source config-zip --resource-group '<resource-group>' --name '<worker-app-name>' --src .\entragroup-sync\packages\worker.zip
+   az functionapp deployment source config-zip --resource-group '<resource-group>' --name '<report-app-name>' --src .\entragroup-sync\packages\report.zip
+   ```
+3. *(Optional for Option B)* Deploy the Subscription Event Grid trigger & `Reader` role (`infra/subscription.bicep`) so machines sync immediately when `entraiddeviceid` Machine Configuration assignments or `MDE.Windows`/`MDE.Linux` extensions finish:
+   ```powershell
+   $subId = '<subscription-guid>'
+   $rg = '<resource-group>'
+   $workerName = '<worker-app-name>'
+   $workerPrincipalId = az functionapp identity show -g $rg -n $workerName --query principalId -o tsv
+   $workerFuncId = "/subscriptions/$subId/resourceGroups/$rg/providers/Microsoft.Web/sites/$workerName/functions/ArcEvent"
+
+   az deployment sub create --location eastus --template-file .\entragroup-sync\infra\subscription.bicep `
+       --parameters workerPrincipalId=$workerPrincipalId workerFunctionId=$workerFuncId eventSubscriptionName="mdemdcsync-events"
+   ```
+
+---
+
+### Step 4: Configure the Web Portal Redirect URI
+
+1. In Microsoft Entra ID &rarr; **App registrations** &rarr; select your Report App registration &rarr; **Authentication**.
+2. Click **Add a platform** &rarr; **Web** and add the Redirect URI:
+   ```text
+   https://<report-app-name>.azurewebsites.net/.auth/login/aad/callback
+   ```
+
+---
+
+### Step 5: Grant Permissions to the Worker Managed Identity
+
+The Worker Function App's System-Assigned Managed Identity needs:
+1. **Azure `Reader`** on your target Subscription(s) or Management Group(s) so Azure Resource Graph can discover servers and `GuestConfigurationResources`.
+2. **Microsoft Graph (`ThreatHunting.Read.All` & `Device.Read.All`) + Administrative Unit `Groups Administrator`** (`Grant-GraphPermissions.ps1`).
+
+```powershell
+# 1. Get the Worker Function App's Managed Identity Principal ID
+$workerPrincipalId = az functionapp identity show --resource-group '<resource-group>' --name '<worker-app-name>' --query principalId -o tsv
+
+# 2. Assign Azure Reader on your target Subscription or Management Group (if not already assigned by Deploy.ps1)
+az role assignment create --assignee-object-id $workerPrincipalId --assignee-principal-type ServicePrincipal --role 'Reader' --scope '/subscriptions/<subscription-guid>'
+# Or at Management Group scope:
+# az role assignment create --assignee-object-id $workerPrincipalId --assignee-principal-type ServicePrincipal --role 'Reader' --scope '/providers/Microsoft.Management/managementGroups/<management-group-id>'
+
+# 3. Grant Microsoft Graph permissions + Administrative Unit Groups Administrator role
+.\entragroup-sync\Grant-GraphPermissions.ps1 `
+    -WorkerPrincipalId $workerPrincipalId `
+    -Mode Enforce `
+    -AdminUnitId '<entra-administrative-unit-guid>'
+```
+
+---
+
+### Step 6: Verify in the Web Portal & Switch to `Enforce` Mode
+
+1. **Open the Web Portal:** Navigate to **`https://<report-app-name>.azurewebsites.net/`**.
+2. **Verify Permissions (`05 Permissions & readiness`):**
+   - Open **`https://<report-app-name>.azurewebsites.net/permissions.html`** to confirm all Azure RBAC, Microsoft Graph, and Administrative Unit checks show **Granted / Verified**.
+3. **Review Audit Results (`01 Device inventory` & `02 Cloud & group report`):**
+   - Verify discovered servers, their **Correlation method** (`MDE AadDeviceId`, `Machine Configuration (intuneDeviceId)`, or `MicrosoftSense (Hostname & OS)`), and target Entra ID groups (`WouldAdd` / `WouldCreateGroupAndAdd`).
+4. **Enable Group Synchronization (`Enforce` Mode):**
+   - When ready to automatically create missing Active/Passive groups in your Administrative Unit and add verified devices, set `SYNC_MODE=Enforce`:
+   ```powershell
+   az functionapp config appsettings set --resource-group '<resource-group>' --name '<worker-app-name>' --settings SYNC_MODE=Enforce
+   ```
+
+---
 
 ## Architecture & Group Evaluation Workflow
 
 ![Azure Arc to Entra Security Group Synchronization Architecture](infra/architecture.archify.svg)
+
+### 3-Tier Microsoft Entra ID Device Correlation Chain
+
+![3-Tier Microsoft Entra ID Device Correlation Chain](infra/correlation.archify.svg)
+
+| Priority | Correlation Method (`Correlation method` column) | How It Works | When It Is Used |
+| --- | --- | --- | --- |
+| **Tier 1** | **`MDE AadDeviceId`** (`MdeAadDeviceId`) | Reads `AadDeviceId` from MDE Advanced Hunting (`DeviceInfo`) and queries `GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'`. | Primary method for Microsoft Entra joined or hybrid joined servers where MDE directly reports `AadDeviceId`. |
+| **Tier 2** | **`Machine Configuration (intuneDeviceId)`** (`GuestConfigurationIntuneDeviceId`) | Reads `intuneDeviceId=<guid>` from `GuestConfigurationResources` (`entraiddeviceid` on Windows reading `HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload`; `entraiddeviceidlinux` on Linux reading `/var/opt/microsoft/mdatp/wdavstate`) and queries `GET /v1.0/devices?$filter=deviceId eq '{intuneDeviceId}'`. | Used when `AadDeviceId` is empty in MDE (workgroup / AWS / GCP / Linux servers enrolled via MDE Security Settings Management) and the Azure Machine Configuration assignment has reported back. |
+| **Tier 3** | **`MicrosoftSense (Hostname & OS)`** (`MicrosoftSenseHostnameAndOS`) | Queries `GET /v1.0/devices?$filter=displayName eq '{hostname}'` across candidate hostnames (`ComputerName`, `MdeDeviceName`, `Fqdn`, `MachineName`) and requires a unique match on `operatingSystem` (`Windows` / `Linux`) and `managementType == 'MicrosoftSense'`. | Automatic fallback when `AadDeviceId` is empty and the Machine Configuration assignment has not yet reported. |
 
 ### Group Membership Evaluation Flow
 
@@ -18,100 +168,39 @@ Correlates Azure Arc-enabled servers and Azure Native Virtual Machines (Windows 
 | Gate | Evaluation Criteria | Pass Outcome | Fail / Stop Outcome (No Group Write) |
 | --- | --- | --- | --- |
 | **Gate 1: Scope Rule** | Resource is `HybridCompute/machines`, `Compute/virtualMachines`, `ClassicCompute/virtualMachines`, or `virtualMachineScaleSets/virtualMachines` (`!Compute.AKS`), and `(Sub in SUB_IDS OR MG_IDS) AND (RG_NAMES empty OR matching RG)` | Proceed to Gate 2 | Ignored / rejected outside scope |
-| **Gate 2: ARM State** | Arc `properties.status == "Connected"` or Azure VM / VMSS `PowerState` is running (not `deallocated` or `stopped`) | Extract OS, `SubscriptionName`, and `AccountId` / `ProjectId` tags | `ArcMissing` (HTTP 404) or `ArcNotConnected` |
+| **Gate 2: ARM State** | Arc `properties.status == "Connected"` or Azure VM / VMSS `PowerState` is running (not `deallocated` or `stopped`) | Extract OS, `SubscriptionName`, `GuestConfigEntraDeviceId`, and `AccountId` / `ProjectId` tags | `ArcMissing` (HTTP 404) or `ArcNotConnected` |
 | **Gate 3: MDE Match** | Latest `DeviceInfo` row per `DeviceId` (7d) where `AzureResourceId =~ id` (or `AzureVmId =~ vmId`), `OnboardingStatus == "Onboarded"`, `MergedToDeviceId == ""`, `Timestamp <= SYNC_FRESHNESS_HOURS` (24h), and **count == 1** | Proceed to Gate 4 (even if `AadDeviceId` is empty on MDE-managed servers) | `PendingMde` (0), `StaleEvidence` (>24h), `Ambiguous` (>1), or `InvalidEntraIdentifier` |
 | **Gate 4: 3-Tier Entra ID Correlation** | **Tier 1 (`MdeAadDeviceId`):** `GET /devices?$filter=deviceId eq '{AadDeviceId}'`<br>**Tier 2 (`GuestConfigurationIntuneDeviceId`):** Joins `GuestConfigurationResources` (`entraiddeviceid` / `entraiddeviceidlinux` assignment reason `intuneDeviceId=<guid>`) &rarr; `GET /devices?$filter=deviceId eq '{intuneDeviceId}'`<br>**Tier 3 (`MicrosoftSenseHostnameAndOS`):** `GET /devices?$filter=displayName eq '{hostname}'` matching `operatingSystem` and `managementType == "MicrosoftSense"` | Extract Entra directory **object `id`** (`accountEnabled == true`) | `NoEntraDevice`, `EntraDeviceNotFound` (0), `Ambiguous` (>1), or `EntraDeviceDisabled` |
 | **Gate 5: Cloud, OS & Default Mode** | Resolves OS (`Windows` vs `Linux`), Cloud (`AWS` via `AccountId` tag, `GCP` via `ProjectId` tag, or `Azure` via `SubscriptionName`; AWS & GCP excluded from Azure Subscription groups), and `SYNC_DEFAULT_GROUP_MODE` (`Passive` by default, or `Active`) | Inspect existing group memberships (inside `SYNC_ADMIN_UNIT_ID` when configured); if already in Active when default is Passive (or Passive when default is Active), do not add to counterpart group | `GroupNotConfigured` or `MissingCloudIdentifier` |
 | **Gate 6: Per-Account Active/Passive Group & Flags** | **AWS Win / Lin:** `<Prefix>{Passive|Active}-<AccountId>`<br>**GCP Win / Lin:** `<Prefix>{Passive|Active}-<ProjectId>`<br>**Azure Win / Lin:** `<Prefix>{Passive|Active}-<SubscriptionName>` | `Audit` = `WouldAdd`; `Enforce` = `POST /members/$ref` + read-back (`Verified`); evaluates compliance flags (AV mode mismatch `Should be Active`, `Multiple groups`, `Wrong group`) | `GroupNotFound` or `Failed` |
 
-1. **Discovery:** Runs on a 30-minute timer (`Inventory`) and in near-real-time via Event Grid (`ArcEvent`) when an `entraiddeviceid` / `entraiddeviceidlinux` **Azure Machine Configuration assignment** (`Microsoft.GuestConfiguration/guestConfigurationAssignments/write`) or the `MDE.Windows` / `MDE.Linux` extension completes (`provisioningState == "Succeeded"`), querying/queueing `microsoft.hybridcompute/machines`, running non-AKS Azure Native VMs (`microsoft.compute/virtualmachines`, `microsoft.classiccompute/virtualmachines`), and running non-AKS Virtual Machine Scale Set instances (`microsoft.compute/virtualmachinescalesets/virtualmachines`) to Azure Service Bus.
-2. **Correlation:** Queries MDE Advanced Hunting (`DeviceInfo`, `DeviceNetworkInfo`, `DeviceTvmSecureConfigurationAssessment`) via Microsoft Graph and resolves the Entra device object ID using the 3-tier correlation chain (1. MDE `AadDeviceId` &rarr; 2. Machine Configuration `intuneDeviceId` from `GuestConfigurationResources` &rarr; 3. `MicrosoftSense` hostname + OS fallback).
-3. **Group Sync:** Verifies or adds the Entra device to the target security group inside the configured Administrative Unit and writes state, history (with per-run execution transcripts), and execution logs to Azure Table Storage.
-4. **Portal:** A separate read-only Function App (protected by Entra Easy Auth + `Report.Reader` role) serves the **Cloud Server Correlation** inventory UI, Cloud & Group coverage report (`/coverage.html`), Managed Identity Permissions & Readiness validator (`/permissions.html`), history drawer, Function App telemetry, and full API/query reference (`/docs.html`).
+---
 
-## Quick Start
+## Estimated Monthly Azure Cost
 
-### 1. Create the Report App Registration
+The solution is designed to run on lightweight Azure resources. Below is the estimated monthly cost in **East US (Pay-As-You-Go USD)** for a typical environment (e.g., **100 to 1,000 servers** synced every 30 minutes):
 
-1. In Microsoft Entra ID **App registrations**, create a single-tenant app registration and a client secret.
-2. Add an app role with value `Report.Reader` (for **Users/Groups**) and assign your report readers under **Enterprise applications**.
+### 1. Core Infrastructure Cost (`entragroup-sync/azuredeploy.json`)
 
-### 2. Deploy
+| Azure Resource | Default SKU / Tier | Estimated Monthly Cost (USD) | Notes |
+| --- | --- | --- | --- |
+| **App Service Plan** (`<prefix>-plan`, hosts both `worker` & `report` Function Apps) | **`B1` (Basic, 1 instance)** *(default)*<br>*(Optional: `S1` Standard or `P1v3` Premium)* | **~$54.75 / mo**<br>*(or ~$73/mo on `S1`, ~$138/mo on `P1v3`)* | Both the Worker and Report Function Apps share the same single App Service Plan (`serverFarmId`) at no extra per-app compute charge. |
+| **Azure Service Bus** (`<prefix>-bus`, `machines` queue) | **Standard** | **~$10.00 / mo** | ~$9.81 base fee + $0.05 per million messaging operations (1,000 servers × 48 runs/day ≈ 1.4M ops/mo ≈ $0.01). |
+| **3 × Azure Storage Accounts** (`sync<suffix>`, `worker<suffix>`, `report<suffix>`) | **Standard LRS (`StorageV2`)** | **~$0.50 – $2.00 / mo** | Table Storage (`machines` state, history, and logs) + Function host leases cost fractions of a cent per GB and ~$0.00036 per 10,000 transactions. |
+| **Application Insights & Log Analytics** (`<prefix>-insights`, `<prefix>-logs`) | **Pay-As-You-Go (`PerGB2018`, 30-day retention)** | **$0.00 – $5.00 / mo** | The first **5 GB/month** of Log Analytics ingestion per billing account is **free**; typical worker trace volume is <1–2 GB/month. |
+| **Azure Event Grid** (`Microsoft.EventGrid/eventSubscriptions`) | **System Topic** | **$0.00 / mo** | First **100,000 operations/month** are **free** ($0.60 per million after). |
+| **Microsoft Graph & Azure Resource Graph APIs** | **Included** | **$0.00 / mo** | No per-query charges for Azure Resource Graph, Defender Advanced Hunting, or Entra ID Graph API calls. |
+| **Total Core Infrastructure** | **Default (`B1` Plan)** | **~$65 – $72 / month** | Fixed baseline cost for the entire synchronization and reporting platform. |
 
-**Option A — Full End-to-End Deployment (`Deploy.ps1`, recommended):**
-Deploys the ARM template, builds and publishes the `worker.zip` and `report.zip` PowerShell Function packages, and configures Event Grid subscriptions:
+### 2. Azure Machine Configuration (Guest Configuration) Cost (`entraiddeviceid` / `entraiddeviceidlinux`)
 
-```powershell
-$secret = Read-Host 'Report client secret' -AsSecureString
-$deployment = .\Deploy.ps1 `
-    -ResourceGroupName 'rg-arc-entra-sync' `
-    -NamePrefix 'arcgroupsync' `
-    -SubscriptionIds @('<subscription-guid>') `
-    -ManagementGroupIds @('<optional-mg-id>') `
-    -ResourceGroupNames @('<optional-rg-name>') `
-    -AwsWindowsGroupPrefix 'MDfS-AWS-Windows-' `
-    -AwsLinuxGroupPrefix 'MDfS-AWS-Linux-' `
-    -GcpWindowsGroupPrefix 'MDfS-GCP-Windows-' `
-    -GcpLinuxGroupPrefix 'MDfS-GCP-Linux-' `
-    -AzureWindowsGroupPrefix 'MDfS-Azure-Windows-' `
-    -AzureLinuxGroupPrefix 'MDfS-Azure-Linux-' `
-    -ReportClientId '<report-app-client-guid>' `
-    -ReportClientSecret $secret
-```
+| Server Type | Azure Machine Configuration Pricing | Notes |
+| --- | --- | --- |
+| **Azure Native Virtual Machines & VMSS** | **$0.00 / mo (Included)** | Azure Machine Configuration is **free** for native Azure Virtual Machines and Virtual Machine Scale Sets. |
+| **Azure Arc-Enabled Servers** *(with Microsoft Defender for Servers Plan 2)* | **$0.00 / mo (Included)** | Included at no additional charge when **Microsoft Defender for Servers Plan 2** (or Azure Automanage / Windows Server Pay-As-You-Go / Software Assurance with Azure Hybrid Benefit) is enabled on the Arc server. |
+| **Azure Arc-Enabled Servers** *(without Defender for Servers Plan 2 or SA/AHB)* | **~$6.00 / server / mo** *(if `IncludeArcMachines = true`)* | Standard Azure Machine Configuration price for Arc-enabled servers when not covered by Defender for Servers Plan 2 or Windows Server SA/AHB. *(If you do not want to use Machine Configuration on Arc servers, Tier 1 `MDE AadDeviceId` and Tier 3 `MicrosoftSense (Hostname & OS)` fallback correlate Arc servers at **$0/mo** without Guest Configuration.)* |
 
-**Option B — If you deployed using the "Deploy to Azure" button (`azuredeploy.json`):**
-The ARM template creates the Azure infrastructure (`worker` and `report` Function Apps, Service Bus, Storage, and Easy Auth), and you then publish the PowerShell Function code packages (`worker.zip` and `report.zip`) to the two Function Apps:
-
-```powershell
-$packages = .\Build-Packages.ps1
-az functionapp deployment source config-zip --resource-group '<resource-group>' --name '<worker-app-name>' --src ($packages | Where-Object Name -eq 'worker.zip').FullName
-az functionapp deployment source config-zip --resource-group '<resource-group>' --name '<report-app-name>' --src ($packages | Where-Object Name -eq 'report.zip').FullName
-```
-
-After deployment:
-1. Add the returned `ReportRedirectUri` (`https://<report-app>.azurewebsites.net/.auth/login/aad/callback`) as a **Web** redirect URI on the app registration.
-2. Open the report portal directly at the root URL **`https://<report-app>.azurewebsites.net/`** (and **`https://<report-app>.azurewebsites.net/coverage.html`** for the Cloud & Group Report page).
-
-### 3. Grant Worker Permissions (Azure `Reader` RBAC + Microsoft Graph)
-
-#### A. Assign Azure `Reader` Role on Target Subscription(s) or Management Group(s)
-The **Worker Function App's System-Assigned Managed Identity** **must** have the Azure **`Reader`** role assigned on your target **Subscription(s)** or **Management Group(s)** so it can query **Azure Resource Graph** (`Microsoft.ResourceGraph/resources`) and read Azure Arc, Native VM, and VMSS resources. *(Without `Reader` on the target scope, Azure Resource Graph returns 0 rows instead of an error.)*
-
-- `Deploy.ps1` assigns `Reader` automatically via `infra/subscription.bicep`.
-- If you deployed via the **Deploy to Azure** button (`azuredeploy.json`) or added additional subscriptions/management groups, assign `Reader` to the Worker Managed Identity:
-
-```powershell
-# Get the Worker Function App's System-Assigned Managed Identity Principal ID
-$workerPrincipalId = az functionapp identity show --resource-group '<resource-group>' --name '<worker-app-name>' --query principalId -o tsv
-
-# Option 1: Assign Reader at Subscription scope
-az role assignment create --assignee-object-id $workerPrincipalId --assignee-principal-type ServicePrincipal --role 'Reader' --scope '/subscriptions/<subscription-guid>'
-
-# Option 2: Assign Reader at Management Group scope
-az role assignment create --assignee-object-id $workerPrincipalId --assignee-principal-type ServicePrincipal --role 'Reader' --scope '/providers/Microsoft.Management/managementGroups/<management-group-id>'
-```
-
-#### B. Grant Microsoft Graph & Entra Permissions
-
-```powershell
-# Audit mode (read-only)
-.\Grant-GraphPermissions.ps1 -WorkerPrincipalId $workerPrincipalId -Mode Audit
-
-# Enforce mode Option A (recommended with Administrative Unit auto-creation: read-only Graph roles + Groups Administrator scoped to the Administrative Unit)
-.\Grant-GraphPermissions.ps1 `
-    -WorkerPrincipalId $workerPrincipalId `
-    -Mode Enforce `
-    -AdminUnitId '<entra-administrative-unit-guid>'
-
-# Enforce mode Option B (pre-created groups: read-only Graph roles + Owner on matching Cloud x OS groups)
-.\Grant-GraphPermissions.ps1 `
-    -WorkerPrincipalId $workerPrincipalId `
-    -Mode Enforce `
-    -AssignGroupOwner `
-    -GroupNamePrefixes @('MDfS-AWS-Windows-', 'MDfS-AWS-Linux-', 'MDfS-GCP-Windows-', 'MDfS-GCP-Linux-', 'MDfS-Azure-Windows-', 'MDfS-Azure-Linux-')
-```
-
-To enable group additions after reviewing audit results, set `SYNC_MODE=Enforce` on the worker Function App (or redeploy with `-SyncMode Enforce`).
+---
 
 ### Required Permissions & RBAC Table
 

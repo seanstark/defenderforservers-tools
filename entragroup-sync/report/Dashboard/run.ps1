@@ -66,7 +66,12 @@ try {
         Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 400 -ContentType 'application/json; charset=utf-8' -Body '{"error":"Invalid continuation cursor."}' -Headers $headers)
         return
     }
-    $cacheKey = "${path}:$([string]$Request.Query.key):${cursor}"
+    $cacheKey = switch ($path) {
+        'data' { "data:$cursor" }
+        'logs' { "logs:$cursor" }
+        'history' { "history:$([string]$Request.Query.key):$cursor" }
+        default { $path }
+    }
     $now = [datetimeoffset]::UtcNow
     if (-not $forceRefresh -and $global:ReportApiCache.ContainsKey($cacheKey) -and $global:ReportApiCache[$cacheKey].Expires -gt $now) {
         $cachedHeaders = @{}

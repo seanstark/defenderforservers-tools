@@ -1067,8 +1067,8 @@ try {
             $healthBody = ConvertFrom-Json -InputObject $global:OutResponses[0].Body -AsHashtable
             $permBody = ConvertFrom-Json -InputObject $global:OutResponses[1].Body -AsHashtable
             Remove-Variable -Name OutResponses -Scope Global -ErrorAction SilentlyContinue
-            Assert-Equal $healthBody.PortalTenant 'trydex.cloud'
-            Assert-Equal $permBody.PortalTenant 'trydex.cloud'
+            Assert-Equal $healthBody.PortalTenant $env:SYNC_TENANT_ID
+            Assert-Equal $permBody.PortalTenant $env:SYNC_TENANT_ID
             Assert-Equal $permBody.Checks.Count 9
         }
         Write-Host "`n$script:Passed passed; $script:Failed failed."
