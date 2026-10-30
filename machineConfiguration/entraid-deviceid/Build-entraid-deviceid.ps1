@@ -174,6 +174,9 @@ foreach ($generatedPolicy in $generatedPolicies) {
     $properties.metadata.guestConfiguration.contentHash = $packageHash
     $properties.metadata.guestConfiguration |
         Add-Member -NotePropertyName version -NotePropertyValue $packageVersion -Force
+    $properties.metadata.guestConfiguration.PSObject.Properties.Remove('enableAutoRemediation')
+    $properties.metadata.guestConfiguration.PSObject.Properties.Remove('autoRemediationAssignmentType')
+    $properties.parameters.PSObject.Properties.Remove('EnableAutoRemediation')
 
     $properties.parameters | Add-Member -NotePropertyName tagName -NotePropertyValue ([ordered] @{
         type = 'string'
@@ -192,10 +195,8 @@ foreach ($generatedPolicy in $generatedPolicies) {
         defaultValue = ''
     })
 
-    foreach ($parameterName in 'IncludeArcMachines', 'EnableAutoRemediation') {
-        if ($properties.parameters.PSObject.Properties[$parameterName]) {
-            $properties.parameters.$parameterName.defaultValue = 'true'
-        }
+    if ($properties.parameters.PSObject.Properties['IncludeArcMachines']) {
+        $properties.parameters.IncludeArcMachines.defaultValue = 'true'
     }
 
     foreach ($parameter in $properties.parameters.PSObject.Properties) {
@@ -275,6 +276,10 @@ foreach ($generatedPolicy in $generatedPolicies) {
     $properties.metadata.requiredProviders = @($properties.metadata.requiredProviders)
     if ($properties.policyRule.then.effect -ne 'auditIfNotExists') {
         $properties.policyRule.then.details.roleDefinitionIds = @($guestConfigurationRoleDefinitionId)
+        $properties.policyRule.then.details.existenceCondition = [ordered] @{
+            field  = 'Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus'
+            equals = 'Compliant'
+        }
     }
 
     foreach ($resource in @($properties.policyRule.then.details.deployment.properties.template.resources)) {

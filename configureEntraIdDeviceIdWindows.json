@@ -10,9 +10,7 @@
       "name": "entraiddeviceid",
       "contentType": "Custom",
       "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-      "contentHash": "55AD26AB2A22CFA4D381E1F64E49797EDC9FE944DDFAA537BF124BD018B47D9B",
-      "enableAutoRemediation": "[parameters('EnableAutoRemediation')]",
-      "autoRemediationAssignmentType": "ApplyAndAutoCorrect",
+      "contentHash": "633D583A261DA8D50AAA1B3A2FC4B7ACA049DAABAF4ECA0497C1F430922E1904",
       "version": "1.0.0"
     }
   },
@@ -22,19 +20,6 @@
       "metadata": {
         "displayName": "Include Arc connected machines",
         "description": "By selecting this option, you agree to be charged monthly per Arc connected machine.",
-        "portalReview": "true"
-      },
-      "allowedValues": [
-        "true",
-        "false"
-      ],
-      "defaultValue": "true"
-    },
-    "EnableAutoRemediation": {
-      "type": "string",
-      "metadata": {
-        "displayName": "Enable Auto Remediation",
-        "description": "When true, the policy will automatically enforce remediation. When false, it will only audit",
         "portalReview": "true"
       },
       "allowedValues": [
@@ -172,19 +157,8 @@
         "type": "Microsoft.GuestConfiguration/guestConfigurationAssignments",
         "name": "[concat('entraiddeviceid$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]",
         "existenceCondition": {
-          "allOf": [
-            {
-              "field": "Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus",
-              "equals": "Compliant"
-            },
-            {
-              "value": "[parameters('EnableAutoRemediation')]",
-              "in": [
-                "true",
-                "false"
-              ]
-            }
-          ]
+          "field": "Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus",
+          "equals": "Compliant"
         },
         "deployment": {
           "properties": {
@@ -232,7 +206,7 @@
                       "name": "entraiddeviceid",
                       "contentType": "Custom",
                       "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-                      "contentHash": "55AD26AB2A22CFA4D381E1F64E49797EDC9FE944DDFAA537BF124BD018B47D9B",
+                      "contentHash": "633D583A261DA8D50AAA1B3A2FC4B7ACA049DAABAF4ECA0497C1F430922E1904",
                       "assignmentType": "Audit",
                       "version": "1.0.0"
                     }
@@ -249,7 +223,7 @@
                       "name": "entraiddeviceid",
                       "contentType": "Custom",
                       "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-                      "contentHash": "55AD26AB2A22CFA4D381E1F64E49797EDC9FE944DDFAA537BF124BD018B47D9B",
+                      "contentHash": "633D583A261DA8D50AAA1B3A2FC4B7ACA049DAABAF4ECA0497C1F430922E1904",
                       "assignmentType": "Audit",
                       "version": "1.0.0"
                     }
@@ -266,7 +240,7 @@
                       "name": "entraiddeviceid",
                       "contentType": "Custom",
                       "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-                      "contentHash": "55AD26AB2A22CFA4D381E1F64E49797EDC9FE944DDFAA537BF124BD018B47D9B",
+                      "contentHash": "633D583A261DA8D50AAA1B3A2FC4B7ACA049DAABAF4ECA0497C1F430922E1904",
                       "assignmentType": "Audit",
                       "version": "1.0.0"
                     }

@@ -39,9 +39,7 @@
             "name": "entraiddeviceidlinux",
             "contentType": "Custom",
             "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-            "contentHash": "B784DC2BB9751741DCB25A2C5FB0697D8C2381C124967198DA0B8A15865B49B0",
-            "enableAutoRemediation": "[[parameters('EnableAutoRemediation')]",
-            "autoRemediationAssignmentType": "ApplyAndAutoCorrect",
+            "contentHash": "596D3FD9D619555EF8E69AA78E3D7C59B6E7259F30D929E5BDDB5035DC56C186",
             "version": "1.0.0"
           },
           "version": "1.0.0"
@@ -52,19 +50,6 @@
             "metadata": {
               "displayName": "Include Arc connected machines",
               "description": "By selecting this option, you agree to be charged monthly per Arc connected machine.",
-              "portalReview": "true"
-            },
-            "allowedValues": [
-              "true",
-              "false"
-            ],
-            "defaultValue": "true"
-          },
-          "EnableAutoRemediation": {
-            "type": "string",
-            "metadata": {
-              "displayName": "Enable Auto Remediation",
-              "description": "When true, the policy will automatically enforce remediation. When false, it will only audit",
               "portalReview": "true"
             },
             "allowedValues": [
@@ -200,19 +185,8 @@
               "type": "Microsoft.GuestConfiguration/guestConfigurationAssignments",
               "name": "[[concat('entraiddeviceidlinux$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]",
               "existenceCondition": {
-                "allOf": [
-                  {
-                    "field": "Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus",
-                    "equals": "Compliant"
-                  },
-                  {
-                    "value": "[[parameters('EnableAutoRemediation')]",
-                    "in": [
-                      "true",
-                      "false"
-                    ]
-                  }
-                ]
+                "field": "Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus",
+                "equals": "Compliant"
               },
               "deployment": {
                 "properties": {
@@ -260,7 +234,7 @@
                             "name": "entraiddeviceidlinux",
                             "contentType": "Custom",
                             "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-                            "contentHash": "B784DC2BB9751741DCB25A2C5FB0697D8C2381C124967198DA0B8A15865B49B0",
+                            "contentHash": "596D3FD9D619555EF8E69AA78E3D7C59B6E7259F30D929E5BDDB5035DC56C186",
                             "assignmentType": "Audit",
                             "version": "1.0.0"
                           }
@@ -277,7 +251,7 @@
                             "name": "entraiddeviceidlinux",
                             "contentType": "Custom",
                             "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-                            "contentHash": "B784DC2BB9751741DCB25A2C5FB0697D8C2381C124967198DA0B8A15865B49B0",
+                            "contentHash": "596D3FD9D619555EF8E69AA78E3D7C59B6E7259F30D929E5BDDB5035DC56C186",
                             "assignmentType": "Audit",
                             "version": "1.0.0"
                           }
@@ -294,7 +268,7 @@
                             "name": "entraiddeviceidlinux",
                             "contentType": "Custom",
                             "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-                            "contentHash": "B784DC2BB9751741DCB25A2C5FB0697D8C2381C124967198DA0B8A15865B49B0",
+                            "contentHash": "596D3FD9D619555EF8E69AA78E3D7C59B6E7259F30D929E5BDDB5035DC56C186",
                             "assignmentType": "Audit",
                             "version": "1.0.0"
                           }

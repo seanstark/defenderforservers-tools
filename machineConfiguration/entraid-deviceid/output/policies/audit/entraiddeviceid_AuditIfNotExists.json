@@ -14,7 +14,7 @@
         "name": "entraiddeviceid",
         "contentType": "Custom",
         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-        "contentHash": "55AD26AB2A22CFA4D381E1F64E49797EDC9FE944DDFAA537BF124BD018B47D9B",
+        "contentHash": "633D583A261DA8D50AAA1B3A2FC4B7ACA049DAABAF4ECA0497C1F430922E1904",
         "version": "1.0.0"
       }
     },
