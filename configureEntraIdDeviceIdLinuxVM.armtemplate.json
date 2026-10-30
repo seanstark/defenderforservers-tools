@@ -2,19 +2,19 @@
   "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "Checks that the MDE.Linux extension is installed and provisioned on native Azure Linux virtual machines, then deploys the entraiddeviceidlinux Azure Machine Configuration assignment to read intuneDeviceId from /var/opt/microsoft/mdatp/wdavstate."
+    "description": "Checks that the MDE.Linux extension is installed and provisioned on native Azure Linux virtual machines, then deploys the entraiddeviceidlinux Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate."
   },
   "parameters": {
     "policyDefinitionName": {
       "type": "string",
-      "defaultValue": "deploy-entraid-deviceid-linux-vm",
+      "defaultValue": "audit-mde-entraid-deviceid-linux-machines",
       "metadata": {
         "description": "Name of the custom Azure Policy definition."
       }
     },
     "policyDefinitionDisplayName": {
       "type": "string",
-      "defaultValue": "Deploy Microsoft Defender for Endpoint SenseCM intuneDeviceId on Linux virtual machines (with MDE.Linux)",
+      "defaultValue": "Audit MDE Entra ID Device ID on Linux machines",
       "metadata": {
         "description": "Display name of the custom Azure Policy definition."
       }
@@ -29,7 +29,7 @@
         "policyType": "Custom",
         "mode": "Indexed",
         "displayName": "[parameters('policyDefinitionDisplayName')]",
-        "description": "Checks that the MDE.Linux extension is installed and provisioned on native Azure Linux virtual machines, then deploys the entraiddeviceidlinux Azure Machine Configuration assignment to read intuneDeviceId from /var/opt/microsoft/mdatp/wdavstate.",
+        "description": "Checks that the MDE.Linux extension is installed and provisioned on native Azure Linux virtual machines, then deploys the entraiddeviceidlinux Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate.",
         "metadata": {
           "category": "Guest Configuration",
           "requiredProviders": [
@@ -39,7 +39,7 @@
             "name": "entraiddeviceidlinux",
             "contentType": "Custom",
             "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-            "contentHash": "C879FA56AE7D70C164974AD90B2BD0117EDF7C42CB8BB5A2990EFE48FD03DCCE",
+            "contentHash": "B784DC2BB9751741DCB25A2C5FB0697D8C2381C124967198DA0B8A15865B49B0",
             "enableAutoRemediation": "[[parameters('EnableAutoRemediation')]",
             "autoRemediationAssignmentType": "ApplyAndAutoCorrect",
             "version": "1.0.0"
@@ -185,7 +185,7 @@
                             "name": "entraiddeviceidlinux",
                             "contentType": "Custom",
                             "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-                            "contentHash": "C879FA56AE7D70C164974AD90B2BD0117EDF7C42CB8BB5A2990EFE48FD03DCCE",
+                            "contentHash": "B784DC2BB9751741DCB25A2C5FB0697D8C2381C124967198DA0B8A15865B49B0",
                             "assignmentType": "Audit",
                             "version": "1.0.0"
                           }

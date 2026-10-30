@@ -1,7 +1,7 @@
 /*
 @TargetNode='localhost'
 @GeneratedBy=seanstark
-@GenerationDate=10/30/2026 08:18:52
+@GenerationDate=10/30/2026 09:28:22
 @GenerationHost=LAPTOP-NLOC0RP2
 */
 
@@ -20,7 +20,7 @@ instance of OMI_ConfigurationDocument
  MinimumCompatibleVersion = "1.0.0";
  CompatibleVersionAdditionalProperties= {"Omi_BaseResource:ConfigurationName"};
  Author="seanstark";
- GenerationDate="10/30/2026 08:18:52";
+ GenerationDate="10/30/2026 09:28:22";
  GenerationHost="LAPTOP-NLOC0RP2";
  Name="entraiddeviceid";
 };

@@ -120,15 +120,15 @@ $commonPolicyParameters = @{
 
 New-GuestConfigurationPolicy @commonPolicyParameters `
     -PolicyId 'c83a51b2-9e47-4c18-a6d3-52f890e14b76' `
-    -DisplayName 'Audit Microsoft Defender for Endpoint SenseCM intuneDeviceId on Linux machines' `
-    -Description 'Audits and reports the intuneDeviceId from /var/opt/microsoft/mdatp/wdavstate (mEnrollmentPayload) by using Azure Machine Configuration.' `
+    -DisplayName 'Audit MDE Entra ID Device ID on Linux machines' `
+    -Description 'Audits and reports the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate (mEnrollmentPayload) by using Azure Machine Configuration.' `
     -Path (Join-Path $policyPath 'audit') `
     -Mode Audit | Out-Host
 
 New-GuestConfigurationPolicy @commonPolicyParameters `
     -PolicyId '19d74e6c-5f32-4a89-8b15-73e620c9a4d8' `
-    -DisplayName 'Deploy Microsoft Defender for Endpoint SenseCM intuneDeviceId audit assignment on Linux machines' `
-    -Description 'Deploys the Azure Machine Configuration assignment that reads and reports intuneDeviceId from /var/opt/microsoft/mdatp/wdavstate (mEnrollmentPayload) on Linux machines.' `
+    -DisplayName 'Audit MDE Entra ID Device ID on Linux machines' `
+    -Description 'Deploys the Azure Machine Configuration assignment that audits and reports the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate (mEnrollmentPayload) on Linux machines.' `
     -Path (Join-Path $policyPath 'configure') `
     -Mode ApplyAndAutoCorrect | Out-Host
 
@@ -308,8 +308,8 @@ $portalPolicy | ConvertTo-Json -Depth 100 | Set-Content -Path $ConfigurePolicyOu
 # Generate dedicated Native Virtual Machines policy (checks MDE.Linux extension is installed) and dedicated Azure Arc policy (checks MDE.Linux extension is installed)
 $vmOnlyPolicy = Get-Content -Raw $configurePolicyPath | ConvertFrom-Json -Depth 100
 $vmOnlyPolicy.name = 'c34a0b56-8d39-4e94-af72-5b13a6c4d9e8'
-$vmOnlyPolicy.properties.displayName = 'Deploy Microsoft Defender for Endpoint SenseCM intuneDeviceId on Linux virtual machines (with MDE.Linux)'
-$vmOnlyPolicy.properties.description = 'Checks that the MDE.Linux extension is installed and provisioned on native Azure Linux virtual machines, then deploys the entraiddeviceidlinux Azure Machine Configuration assignment to read intuneDeviceId from /var/opt/microsoft/mdatp/wdavstate.'
+$vmOnlyPolicy.properties.displayName = 'Audit MDE Entra ID Device ID on Linux machines'
+$vmOnlyPolicy.properties.description = 'Checks that the MDE.Linux extension is installed and provisioned on native Azure Linux virtual machines, then deploys the entraiddeviceidlinux Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate.'
 $vmOnlyPolicy.properties.parameters.PSObject.Properties.Remove('IncludeArcMachines')
 $vmOnlyPolicy.properties.policyRule.if = [ordered] @{
     allOf = @(
@@ -362,8 +362,8 @@ $vmOnlyPolicy | ConvertTo-Json -Depth 100 | Set-Content -Path $vmOnlyPath -Encod
 
 $arcOnlyPolicy = Get-Content -Raw $configurePolicyPath | ConvertFrom-Json -Depth 100
 $arcOnlyPolicy.name = 'd45b1c67-9e40-4f05-b083-6c24b7d5e0f9'
-$arcOnlyPolicy.properties.displayName = 'Deploy Microsoft Defender for Endpoint SenseCM intuneDeviceId on Linux Azure Arc machines (with MDE.Linux)'
-$arcOnlyPolicy.properties.description = 'Checks that the MDE.Linux extension is installed and provisioned on Linux Azure Arc-enabled servers, then deploys the entraiddeviceidlinux Azure Machine Configuration assignment to read intuneDeviceId from /var/opt/microsoft/mdatp/wdavstate.'
+$arcOnlyPolicy.properties.displayName = 'Audit MDE Entra ID Device ID on Linux Arc machines'
+$arcOnlyPolicy.properties.description = 'Checks that the MDE.Linux extension is installed and provisioned on Linux Azure Arc-enabled servers, then deploys the entraiddeviceidlinux Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate.'
 $arcOnlyPolicy.properties.parameters.PSObject.Properties.Remove('IncludeArcMachines')
 $arcOnlyPolicy.properties.policyRule.if = [ordered] @{
     allOf = @(
@@ -500,7 +500,7 @@ Save-PolicyArmTemplate -PolicyProps @{
     parameters = $vmOnlyPolicy.properties.parameters
     policyRule = $vmOnlyPolicy.properties.policyRule
 } -OutputPath (Join-Path $repoRoot 'configureEntraIdDeviceIdLinuxVM.armtemplate.json') `
-  -DefaultName 'deploy-entraid-deviceid-linux-vm' `
+  -DefaultName 'audit-mde-entraid-deviceid-linux-machines' `
   -DefaultDisplayName $vmOnlyPolicy.properties.displayName `
   -Description $vmOnlyPolicy.properties.description
 
@@ -510,7 +510,7 @@ Save-PolicyArmTemplate -PolicyProps @{
     parameters = $arcOnlyPolicy.properties.parameters
     policyRule = $arcOnlyPolicy.properties.policyRule
 } -OutputPath (Join-Path $repoRoot 'configureEntraIdDeviceIdLinuxArc.armtemplate.json') `
-  -DefaultName 'deploy-entraid-deviceid-linux-arc' `
+  -DefaultName 'audit-mde-entraid-deviceid-linux-arc-machines' `
   -DefaultDisplayName $arcOnlyPolicy.properties.displayName `
   -Description $arcOnlyPolicy.properties.description
 
@@ -520,7 +520,7 @@ Save-PolicyArmTemplate -PolicyProps @{
     parameters = $configurePolicyObj.properties.parameters
     policyRule = $configurePolicyObj.properties.policyRule
 } -OutputPath (Join-Path $repoRoot 'configureEntraIdDeviceIdLinux.armtemplate.json') `
-  -DefaultName 'deploy-entraid-deviceid-linux' `
+  -DefaultName 'audit-mde-entraid-deviceid-linux' `
   -DefaultDisplayName $configurePolicyObj.properties.displayName `
   -Description $configurePolicyObj.properties.description
 

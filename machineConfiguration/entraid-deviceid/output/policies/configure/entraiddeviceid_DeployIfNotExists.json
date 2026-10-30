@@ -1,9 +1,9 @@
 {
   "properties": {
-    "displayName": "Deploy Microsoft Defender for Endpoint SenseCM intuneDeviceId audit assignment on Windows machines",
+    "displayName": "Audit MDE Entra ID Device ID on Windows machines",
     "policyType": "Custom",
     "mode": "Indexed",
-    "description": "Deploys the Azure Machine Configuration assignment that reads and reports intuneDeviceId from HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\SenseCM\\MemConfiguration\\EnrollmentPayload on Windows machines.",
+    "description": "Deploys the Azure Machine Configuration assignment that audits and reports the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\SenseCM\\MemConfiguration\\EnrollmentPayload on Windows machines.",
     "metadata": {
       "category": "Guest Configuration",
       "version": "1.0.0",
@@ -14,7 +14,7 @@
         "name": "entraiddeviceid",
         "contentType": "Custom",
         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-        "contentHash": "9F6C278B927C402F8EA81505B24211EDAB379030C2BFE55DF2337C6B1E81CC74",
+        "contentHash": "55AD26AB2A22CFA4D381E1F64E49797EDC9FE944DDFAA537BF124BD018B47D9B",
         "enableAutoRemediation": "[parameters('EnableAutoRemediation')]",
         "autoRemediationAssignmentType": "ApplyAndAutoCorrect",
         "version": "1.0.0"
@@ -236,7 +236,7 @@
                         "name": "entraiddeviceid",
                         "contentType": "Custom",
                         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-                        "contentHash": "9F6C278B927C402F8EA81505B24211EDAB379030C2BFE55DF2337C6B1E81CC74",
+                        "contentHash": "55AD26AB2A22CFA4D381E1F64E49797EDC9FE944DDFAA537BF124BD018B47D9B",
                         "assignmentType": "Audit",
                         "version": "1.0.0"
                       }
@@ -253,7 +253,7 @@
                         "name": "entraiddeviceid",
                         "contentType": "Custom",
                         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-                        "contentHash": "9F6C278B927C402F8EA81505B24211EDAB379030C2BFE55DF2337C6B1E81CC74",
+                        "contentHash": "55AD26AB2A22CFA4D381E1F64E49797EDC9FE944DDFAA537BF124BD018B47D9B",
                         "assignmentType": "Audit",
                         "version": "1.0.0"
                       }
@@ -270,7 +270,7 @@
                         "name": "entraiddeviceid",
                         "contentType": "Custom",
                         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-                        "contentHash": "9F6C278B927C402F8EA81505B24211EDAB379030C2BFE55DF2337C6B1E81CC74",
+                        "contentHash": "55AD26AB2A22CFA4D381E1F64E49797EDC9FE944DDFAA537BF124BD018B47D9B",
                         "assignmentType": "Audit",
                         "version": "1.0.0"
                       }

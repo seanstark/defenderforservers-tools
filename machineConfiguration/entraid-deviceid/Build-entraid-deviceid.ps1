@@ -121,15 +121,15 @@ $commonPolicyParameters = @{
 
 New-GuestConfigurationPolicy @commonPolicyParameters `
     -PolicyId 'd41f9b7e-8a24-43c1-b9e0-61c5a4f82e31' `
-    -DisplayName 'Audit Microsoft Defender for Endpoint SenseCM intuneDeviceId on Windows machines' `
-    -Description 'Audits and reports the intuneDeviceId from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload by using Azure Machine Configuration.' `
+    -DisplayName 'Audit MDE Entra ID Device ID on Windows machines' `
+    -Description 'Audits and reports the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload by using Azure Machine Configuration.' `
     -Path (Join-Path $policyPath 'audit') `
     -Mode Audit | Out-Host
 
 New-GuestConfigurationPolicy @commonPolicyParameters `
     -PolicyId '7a92c4e1-3b58-4d62-9f14-82e7b5c30d94' `
-    -DisplayName 'Deploy Microsoft Defender for Endpoint SenseCM intuneDeviceId audit assignment on Windows machines' `
-    -Description 'Deploys the Azure Machine Configuration assignment that reads and reports intuneDeviceId from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload on Windows machines.' `
+    -DisplayName 'Audit MDE Entra ID Device ID on Windows machines' `
+    -Description 'Deploys the Azure Machine Configuration assignment that audits and reports the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload on Windows machines.' `
     -Path (Join-Path $policyPath 'configure') `
     -Mode ApplyAndAutoCorrect | Out-Host
 
@@ -309,8 +309,8 @@ $portalPolicy | ConvertTo-Json -Depth 100 | Set-Content -Path $ConfigurePolicyOu
 # Generate dedicated Native Virtual Machines policy (checks MDE.Windows extension is installed) and dedicated Azure Arc policy (checks MDE.Windows extension is installed)
 $vmOnlyPolicy = Get-Content -Raw $configurePolicyPath | ConvertFrom-Json -Depth 100
 $vmOnlyPolicy.name = 'a12e8f34-6b19-4c72-8d50-3f91e4a2b7c6'
-$vmOnlyPolicy.properties.displayName = 'Deploy Microsoft Defender for Endpoint SenseCM intuneDeviceId on Windows virtual machines (with MDE.Windows)'
-$vmOnlyPolicy.properties.description = 'Checks that the MDE.Windows extension is installed and provisioned on native Azure Windows virtual machines, then deploys the entraiddeviceid Azure Machine Configuration assignment to read intuneDeviceId from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload.'
+$vmOnlyPolicy.properties.displayName = 'Audit MDE Entra ID Device ID on Windows machines'
+$vmOnlyPolicy.properties.description = 'Checks that the MDE.Windows extension is installed and provisioned on native Azure Windows virtual machines, then deploys the entraiddeviceid Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload.'
 $vmOnlyPolicy.properties.parameters.PSObject.Properties.Remove('IncludeArcMachines')
 $vmOnlyPolicy.properties.policyRule.if = [ordered] @{
     allOf = @(
@@ -363,8 +363,8 @@ $vmOnlyPolicy | ConvertTo-Json -Depth 100 | Set-Content -Path $vmOnlyPath -Encod
 
 $arcOnlyPolicy = Get-Content -Raw $configurePolicyPath | ConvertFrom-Json -Depth 100
 $arcOnlyPolicy.name = 'b23f9a45-7c28-4d83-9e61-4a02f5b3c8d7'
-$arcOnlyPolicy.properties.displayName = 'Deploy Microsoft Defender for Endpoint SenseCM intuneDeviceId on Windows Azure Arc machines (with MDE.Windows)'
-$arcOnlyPolicy.properties.description = 'Checks that the MDE.Windows extension is installed and provisioned on Windows Azure Arc-enabled servers, then deploys the entraiddeviceid Azure Machine Configuration assignment to read intuneDeviceId from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload.'
+$arcOnlyPolicy.properties.displayName = 'Audit MDE Entra ID Device ID on Windows Arc machines'
+$arcOnlyPolicy.properties.description = 'Checks that the MDE.Windows extension is installed and provisioned on Windows Azure Arc-enabled servers, then deploys the entraiddeviceid Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload.'
 $arcOnlyPolicy.properties.parameters.PSObject.Properties.Remove('IncludeArcMachines')
 $arcOnlyPolicy.properties.policyRule.if = [ordered] @{
     allOf = @(
@@ -501,7 +501,7 @@ Save-PolicyArmTemplate -PolicyProps @{
     parameters = $vmOnlyPolicy.properties.parameters
     policyRule = $vmOnlyPolicy.properties.policyRule
 } -OutputPath (Join-Path $repoRoot 'configureEntraIdDeviceIdWindowsVM.armtemplate.json') `
-  -DefaultName 'deploy-entraid-deviceid-windows-vm' `
+  -DefaultName 'audit-mde-entraid-deviceid-windows-machines' `
   -DefaultDisplayName $vmOnlyPolicy.properties.displayName `
   -Description $vmOnlyPolicy.properties.description
 
@@ -511,7 +511,7 @@ Save-PolicyArmTemplate -PolicyProps @{
     parameters = $arcOnlyPolicy.properties.parameters
     policyRule = $arcOnlyPolicy.properties.policyRule
 } -OutputPath (Join-Path $repoRoot 'configureEntraIdDeviceIdWindowsArc.armtemplate.json') `
-  -DefaultName 'deploy-entraid-deviceid-windows-arc' `
+  -DefaultName 'audit-mde-entraid-deviceid-windows-arc-machines' `
   -DefaultDisplayName $arcOnlyPolicy.properties.displayName `
   -Description $arcOnlyPolicy.properties.description
 
@@ -521,7 +521,7 @@ Save-PolicyArmTemplate -PolicyProps @{
     parameters = $configurePolicyObj.properties.parameters
     policyRule = $configurePolicyObj.properties.policyRule
 } -OutputPath (Join-Path $repoRoot 'configureEntraIdDeviceIdWindows.armtemplate.json') `
-  -DefaultName 'deploy-entraid-deviceid-windows' `
+  -DefaultName 'audit-mde-entraid-deviceid-windows' `
   -DefaultDisplayName $configurePolicyObj.properties.displayName `
   -Description $configurePolicyObj.properties.description
 

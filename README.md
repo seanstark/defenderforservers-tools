@@ -42,11 +42,11 @@ The `entraid-deviceid` (Windows) and `entraid-deviceid-linux` (Linux) Azure Mach
 
 - **Windows (`machineConfiguration/entraid-deviceid/`):** Reads `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration` &rarr; `EnrollmentPayload` and outputs `intuneDeviceId=<guid>`.
 - **Linux (`machineConfiguration/entraid-deviceid-linux/`):** Reads `/var/opt/microsoft/mdatp/wdavstate` &rarr; `mEnrollmentPayload` and outputs `intuneDeviceId=<guid>`.
-- **4 Dedicated Azure Policies (Windows/Linux × Native VMs/Azure Arc):**
-  - `configureEntraIdDeviceIdWindowsVM.armtemplate.json` (`entraiddeviceid_VirtualMachines_DeployIfNotExists.json`)
-  - `configureEntraIdDeviceIdWindowsArc.armtemplate.json` (`entraiddeviceid_AzureArc_DeployIfNotExists.json`)
-  - `configureEntraIdDeviceIdLinuxVM.armtemplate.json` (`entraiddeviceidlinux_VirtualMachines_DeployIfNotExists.json`)
-  - `configureEntraIdDeviceIdLinuxArc.armtemplate.json` (`entraiddeviceidlinux_AzureArc_DeployIfNotExists.json`)
+- **4 Dedicated Azure Policies:**
+  - **Audit MDE Entra ID Device ID on Windows machines** (`configureEntraIdDeviceIdWindowsVM.armtemplate.json`)
+  - **Audit MDE Entra ID Device ID on Windows Arc machines** (`configureEntraIdDeviceIdWindowsArc.armtemplate.json`)
+  - **Audit MDE Entra ID Device ID on Linux machines** (`configureEntraIdDeviceIdLinuxVM.armtemplate.json`)
+  - **Audit MDE Entra ID Device ID on Linux Arc machines** (`configureEntraIdDeviceIdLinuxArc.armtemplate.json`)
 
 [View the SenseCM Entra ID device ID guide](machineConfiguration/ENTRAID-DEVICEID-SOLUTION.md)
 
