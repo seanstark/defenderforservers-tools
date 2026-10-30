@@ -529,5 +529,54 @@ Save-PolicyArmTemplate -PolicyProps @{
   -DefaultDisplayName $configurePolicyObj.properties.displayName `
   -Description $configurePolicyObj.properties.description
 
+$winArmPath = Join-Path $repoRoot 'configureEntraIdDeviceIdWindows.armtemplate.json'
+if (Test-Path -LiteralPath $winArmPath -PathType Leaf) {
+    $winArm = Get-Content -Raw $winArmPath | ConvertFrom-Json -Depth 100
+    $linArm = Get-Content -Raw (Join-Path $repoRoot 'configureEntraIdDeviceIdLinux.armtemplate.json') | ConvertFrom-Json -Depth 100
+    $winResource = $winArm.resources[0]
+    $winResource.name = "[parameters('windowsPolicyDefinitionName')]"
+    $winResource.properties.displayName = "[parameters('windowsPolicyDefinitionDisplayName')]"
+    $linResource = $linArm.resources[0]
+    $linResource.name = "[parameters('linuxPolicyDefinitionName')]"
+    $linResource.properties.displayName = "[parameters('linuxPolicyDefinitionDisplayName')]"
+
+    $combinedBothTemplate = [ordered] @{
+        '$schema' = 'https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#'
+        contentVersion = '1.0.0.0'
+        metadata = [ordered] @{
+            description = 'Deploys both the Windows and Linux combined MDE Entra ID Device ID Azure Policy definitions (Audit MDE Entra ID Device ID on Windows machines and Audit MDE Entra ID Device ID on Linux machines).'
+        }
+        parameters = [ordered] @{
+            windowsPolicyDefinitionName = [ordered] @{
+                type = 'string'
+                defaultValue = 'audit-mde-entraid-deviceid-windows'
+                metadata = [ordered] @{ description = 'Name of the Windows custom Azure Policy definition.' }
+            }
+            windowsPolicyDefinitionDisplayName = [ordered] @{
+                type = 'string'
+                defaultValue = 'Audit MDE Entra ID Device ID on Windows machines'
+                metadata = [ordered] @{ description = 'Display name of the Windows custom Azure Policy definition.' }
+            }
+            linuxPolicyDefinitionName = [ordered] @{
+                type = 'string'
+                defaultValue = 'audit-mde-entraid-deviceid-linux'
+                metadata = [ordered] @{ description = 'Name of the Linux custom Azure Policy definition.' }
+            }
+            linuxPolicyDefinitionDisplayName = [ordered] @{
+                type = 'string'
+                defaultValue = 'Audit MDE Entra ID Device ID on Linux machines'
+                metadata = [ordered] @{ description = 'Display name of the Linux custom Azure Policy definition.' }
+            }
+        }
+        resources = @(
+            $winResource,
+            $linResource
+        )
+    }
+    $combinedBothPath = Join-Path $repoRoot 'configureEntraIdDeviceId.armtemplate.json'
+    $combinedBothTemplate | ConvertTo-Json -Depth 100 | Set-Content -Path $combinedBothPath -Encoding utf8
+    Write-Host "Combined Windows + Linux ARM template written to '$combinedBothPath'."
+}
+
 Write-Host "Policy definitions created under '$policyPath'."
 Write-Host "Portal-ready configure policy written to '$ConfigurePolicyOutputPath'."

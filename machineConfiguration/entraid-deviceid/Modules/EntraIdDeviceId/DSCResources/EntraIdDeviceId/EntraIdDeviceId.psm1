@@ -1,4 +1,7 @@
-$registrySubKey = 'SOFTWARE\Microsoft\SenseCM\MemConfiguration'
+$registrySubKeys = @(
+    'SOFTWARE\Microsoft\SenseCM',
+    'SOFTWARE\Microsoft\SenseCM\MemConfiguration'
+)
 $registryValueName = 'EnrollmentPayload'
 
 function Get-EnrollmentPayloadState {
@@ -7,17 +10,45 @@ function Get-EnrollmentPayloadState {
     param()
 
     $baseKey = $null
-    $registryKey = $null
 
     try {
         $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
             [Microsoft.Win32.RegistryHive]::LocalMachine,
             [Microsoft.Win32.RegistryView]::Registry64
         )
-        $registryKey = $baseKey.OpenSubKey($registrySubKey)
-        if ($null -eq $registryKey) {
+        $anyKeyFound = $false
+        $matchedSubKey = $registrySubKeys[0]
+        $rawValue = ''
+        $valueType = ''
+        $valueFound = $false
+
+        foreach ($subKeyPath in $registrySubKeys) {
+            $registryKey = $null
+            try {
+                $registryKey = $baseKey.OpenSubKey($subKeyPath)
+                if ($null -ne $registryKey) {
+                    $anyKeyFound = $true
+                    $matchedSubKey = $subKeyPath
+                    $valueNames = @($registryKey.GetValueNames())
+                    if ($registryValueName -in $valueNames) {
+                        $valueType = $registryKey.GetValueKind($registryValueName).ToString()
+                        $rawValue = [string] $registryKey.GetValue($registryValueName)
+                        $valueFound = $true
+                        break
+                    }
+                }
+            }
+            finally {
+                if ($null -ne $registryKey) {
+                    $registryKey.Dispose()
+                }
+            }
+        }
+
+        if (-not $anyKeyFound) {
             return @{
                 Status         = 'KeyNotPresent'
+                SubKey         = $registrySubKeys[0]
                 RawValue       = ''
                 IntuneDeviceId = ''
                 ErrorCode      = ''
@@ -26,10 +57,10 @@ function Get-EnrollmentPayloadState {
             }
         }
 
-        $valueNames = @($registryKey.GetValueNames())
-        if ($registryValueName -notin $valueNames) {
+        if (-not $valueFound) {
             return @{
                 Status         = 'ValueNotPresent'
+                SubKey         = $matchedSubKey
                 RawValue       = ''
                 IntuneDeviceId = ''
                 ErrorCode      = ''
@@ -38,11 +69,10 @@ function Get-EnrollmentPayloadState {
             }
         }
 
-        $valueType = $registryKey.GetValueKind($registryValueName).ToString()
-        $rawValue = [string] $registryKey.GetValue($registryValueName)
         if ($valueType -ne [Microsoft.Win32.RegistryValueKind]::String.ToString()) {
             return @{
                 Status         = 'WrongType'
+                SubKey         = $matchedSubKey
                 RawValue       = $rawValue
                 IntuneDeviceId = ''
                 ErrorCode      = ''
@@ -57,6 +87,7 @@ function Get-EnrollmentPayloadState {
         catch {
             return @{
                 Status         = 'InvalidJson'
+                SubKey         = $matchedSubKey
                 RawValue       = $rawValue
                 IntuneDeviceId = ''
                 ErrorCode      = ''
@@ -76,6 +107,7 @@ function Get-EnrollmentPayloadState {
         if ([string]::IsNullOrWhiteSpace($intuneDeviceId)) {
             return @{
                 Status         = 'IntuneDeviceIdMissing'
+                SubKey         = $matchedSubKey
                 RawValue       = $rawValue
                 IntuneDeviceId = ''
                 ErrorCode      = $errorCode
@@ -86,6 +118,7 @@ function Get-EnrollmentPayloadState {
 
         return @{
             Status         = 'Present'
+            SubKey         = $matchedSubKey
             RawValue       = $rawValue
             IntuneDeviceId = $intuneDeviceId
             ErrorCode      = $errorCode
@@ -96,6 +129,7 @@ function Get-EnrollmentPayloadState {
     catch {
         return @{
             Status         = 'ReadError'
+            SubKey         = $registrySubKeys[0]
             RawValue       = ''
             IntuneDeviceId = ''
             ErrorCode      = ''
@@ -105,9 +139,6 @@ function Get-EnrollmentPayloadState {
         }
     }
     finally {
-        if ($null -ne $registryKey) {
-            $registryKey.Dispose()
-        }
         if ($null -ne $baseKey) {
             $baseKey.Dispose()
         }
@@ -123,41 +154,42 @@ function Get-TargetResource {
     )
 
     $state = Get-EnrollmentPayloadState
+    $subKey = if ($state.SubKey) { $state.SubKey } else { $registrySubKeys[0] }
     $reason = switch ($state.Status) {
         'KeyNotPresent' {
             @{
                 Code   = 'EntraIdDeviceId:EntraIdDeviceId:KeyNotPresent'
-                Phrase = "Registry key HKEY_LOCAL_MACHINE\$registrySubKey is not present."
+                Phrase = "Registry key HKEY_LOCAL_MACHINE\$subKey is not present."
             }
         }
         'ValueNotPresent' {
             @{
                 Code   = 'EntraIdDeviceId:EntraIdDeviceId:ValueNotPresent'
-                Phrase = "Registry value HKEY_LOCAL_MACHINE\$registrySubKey\$registryValueName is not present."
+                Phrase = "Registry value HKEY_LOCAL_MACHINE\$subKey\$registryValueName is not present."
             }
         }
         'WrongType' {
             @{
                 Code   = 'EntraIdDeviceId:EntraIdDeviceId:WrongType'
-                Phrase = "Registry value HKEY_LOCAL_MACHINE\$registrySubKey\$registryValueName has type '$($state.Type)'. Expected REG_SZ JSON payload."
+                Phrase = "Registry value HKEY_LOCAL_MACHINE\$subKey\$registryValueName has type '$($state.Type)'. Expected REG_SZ JSON payload."
             }
         }
         'InvalidJson' {
             @{
                 Code   = 'EntraIdDeviceId:EntraIdDeviceId:InvalidJson'
-                Phrase = "Registry value HKEY_LOCAL_MACHINE\$registrySubKey\$registryValueName does not contain valid JSON. $($state.Error)"
+                Phrase = "Registry value HKEY_LOCAL_MACHINE\$subKey\$registryValueName does not contain valid JSON. $($state.Error)"
             }
         }
         'IntuneDeviceIdMissing' {
             @{
                 Code   = 'EntraIdDeviceId:EntraIdDeviceId:IntuneDeviceIdMissing'
-                Phrase = "EnrollmentPayload in HKEY_LOCAL_MACHINE\$registrySubKey\$registryValueName does not contain a non-empty intuneDeviceId value (errorCode='$($state.ErrorCode)', message='$($state.Message)')."
+                Phrase = "EnrollmentPayload in HKEY_LOCAL_MACHINE\$subKey\$registryValueName does not contain a non-empty intuneDeviceId value (errorCode='$($state.ErrorCode)', message='$($state.Message)')."
             }
         }
         'ReadError' {
             @{
                 Code   = 'EntraIdDeviceId:EntraIdDeviceId:ReadError'
-                Phrase = "Unable to read HKEY_LOCAL_MACHINE\$registrySubKey\$registryValueName. $($state.Error)"
+                Phrase = "Unable to read HKEY_LOCAL_MACHINE\$subKey\$registryValueName. $($state.Error)"
             }
         }
         default {
@@ -199,7 +231,8 @@ function Set-TargetResource {
         return
     }
 
-    throw "HKEY_LOCAL_MACHINE\$registrySubKey\$registryValueName is managed by Microsoft Defender for Endpoint Security Settings Management (SenseCM) and cannot be synthesized manually (current status: $($state.Status))."
+    $subKey = if ($state.SubKey) { $state.SubKey } else { $registrySubKeys[0] }
+    throw "HKEY_LOCAL_MACHINE\$subKey\$registryValueName is managed by Microsoft Defender for Endpoint Security Settings Management (SenseCM) and cannot be synthesized manually (current status: $($state.Status))."
 }
 
 Export-ModuleMember -Function Get-TargetResource, Test-TargetResource, Set-TargetResource

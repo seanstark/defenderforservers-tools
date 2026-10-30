@@ -13,7 +13,7 @@
         "name": "entraiddeviceidlinux",
         "contentType": "Custom",
         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-        "contentHash": "596D3FD9D619555EF8E69AA78E3D7C59B6E7259F30D929E5BDDB5035DC56C186",
+        "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
         "version": "1.0.0"
       },
       "version": "1.0.0"
@@ -210,7 +210,7 @@
                         "name": "entraiddeviceidlinux",
                         "contentType": "Custom",
                         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-                        "contentHash": "596D3FD9D619555EF8E69AA78E3D7C59B6E7259F30D929E5BDDB5035DC56C186",
+                        "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
                         "assignmentType": "Audit",
                         "version": "1.0.0"
                       }
@@ -227,7 +227,7 @@
                         "name": "entraiddeviceidlinux",
                         "contentType": "Custom",
                         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-                        "contentHash": "596D3FD9D619555EF8E69AA78E3D7C59B6E7259F30D929E5BDDB5035DC56C186",
+                        "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
                         "assignmentType": "Audit",
                         "version": "1.0.0"
                       }
@@ -244,7 +244,7 @@
                         "name": "entraiddeviceidlinux",
                         "contentType": "Custom",
                         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-                        "contentHash": "596D3FD9D619555EF8E69AA78E3D7C59B6E7259F30D929E5BDDB5035DC56C186",
+                        "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
                         "assignmentType": "Audit",
                         "version": "1.0.0"
                       }

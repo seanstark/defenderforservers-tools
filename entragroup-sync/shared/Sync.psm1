@@ -1303,7 +1303,7 @@ function Save-MachineState {
         'ComputerName', 'Fqdn', 'SubscriptionName', 'ManagementGroup', 'CloudProvider', 'MdeSensorHealth', 'MdeOnboardingStatus',
         'MdeAntivirusMode', 'VirtualMachineId', 'ArcExtensions', 'DefenderExtensionStatus', 'IPAddresses', 'InventoryStatus', 'InventoryErrors',
         'MdeDeviceTags', 'MdeManualTags', 'MdeDynamicTags', 'MdeRegistryTags', 'MdeDeviceGroup', 'AzureTags',
-        'ArcLastReportedAt', 'ArcAddedAt')
+        'ArcLastReportedAt', 'ArcAddedAt', 'EntraCorrelationPath', 'EntraDiagnostic', 'GuestConfigEntraDeviceId')
     $changed = $null -eq $Previous -or $State['Action'] -in @('AddedAndVerified', 'PresentAfterConcurrentWrite')
     if (-not $changed) {
         foreach ($field in $fields) {

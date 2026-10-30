@@ -8,12 +8,24 @@ This Azure Machine Configuration solution reads that `intuneDeviceId` from Windo
 
 | Platform | Machine Configuration Package | Source Location on Endpoint | Output in `GuestConfigurationResources` |
 | --- | --- | --- | --- |
-| **Windows** | `machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip` | Registry key: `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration`<br>Value name: `EnrollmentPayload` (`REG_SZ` JSON) | `Reasons[0].Phrase`: `intuneDeviceId=<guid>`<br>`IntuneDeviceId`: `<guid>` |
+| **Windows** | `machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip` | Registry key: `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM`<br>Value name: `EnrollmentPayload` (`REG_SZ` JSON) | `Reasons[0].Phrase`: `intuneDeviceId=<guid>`<br>`IntuneDeviceId`: `<guid>` |
 | **Linux** | `machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip` | File path: `/var/opt/microsoft/mdatp/wdavstate`<br>Property: `mEnrollmentPayload` (escaped JSON) | `Reasons[0].Phrase`: `intuneDeviceId=<guid>`<br>`IntuneDeviceId`: `<guid>` |
 
 ---
 
-## Deploy and Assign the 4 Azure Policy Definitions
+## Combined Policies (Native VMs + Azure Arc in a Single Policy)
+
+Deploy both the Windows and Linux combined policies (covering Native Azure Virtual Machines, VMSS, and Azure Arc-enabled servers) together in a single deployment, or deploy each OS policy individually at subscription scope:
+
+| Policy Display Name | ARM Template | Portal Policy JSON | Deployment |
+| --- | --- | --- | --- |
+| **Deploy Both Windows & Linux Combined Policies Together** | `configureEntraIdDeviceId.armtemplate.json` | `configureEntraIdDeviceIdWindows.json` + `configureEntraIdDeviceIdLinux.json` | [![Deploy Windows and Linux combined policies to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceId.armtemplate.json) |
+| **Audit MDE Entra ID Device ID on Windows machines** *(VMs + Arc)* | `configureEntraIdDeviceIdWindows.armtemplate.json` | `configureEntraIdDeviceIdWindows.json` | [![Deploy Windows combined policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceIdWindows.armtemplate.json) |
+| **Audit MDE Entra ID Device ID on Linux machines** *(VMs + Arc)* | `configureEntraIdDeviceIdLinux.armtemplate.json` | `configureEntraIdDeviceIdLinux.json` | [![Deploy Linux combined policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceIdLinux.armtemplate.json) |
+
+---
+
+## Deploy and Assign the 4 Dedicated Azure Policy Definitions (Split by Native VMs vs. Azure Arc)
 
 Each of the 4 `DeployIfNotExists` policies checks that the `MDE.Windows` or `MDE.Linux` extension is installed (`provisioningState` in `['Succeeded', 'Provisioning succeeded']`) before deploying the Machine Configuration assignment onto the parent VM or Azure Arc machine.
 
@@ -25,13 +37,6 @@ Deploy each custom policy definition independently at subscription scope:
 | **2** | **Audit MDE Entra ID Device ID on Windows Arc machines** | Azure Arc-Enabled Servers (`Microsoft.HybridCompute/machines/extensions`) | `MDE.Windows` | `configureEntraIdDeviceIdWindowsArc.armtemplate.json` | [![Deploy Audit MDE Entra ID Device ID on Windows Arc machines to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceIdWindowsArc.armtemplate.json) |
 | **3** | **Audit MDE Entra ID Device ID on Linux machines** | Native Azure Virtual Machines (`Microsoft.Compute/virtualMachines/extensions`) | `MDE.Linux` | `configureEntraIdDeviceIdLinuxVM.armtemplate.json` | [![Deploy Audit MDE Entra ID Device ID on Linux machines to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceIdLinuxVM.armtemplate.json) |
 | **4** | **Audit MDE Entra ID Device ID on Linux Arc machines** | Azure Arc-Enabled Servers (`Microsoft.HybridCompute/machines/extensions`) | `MDE.Linux` | `configureEntraIdDeviceIdLinuxArc.armtemplate.json` | [![Deploy Audit MDE Entra ID Device ID on Linux Arc machines to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceIdLinuxArc.armtemplate.json) |
-
-### Combined Policies (Native VMs + Azure Arc in a Single Policy)
-
-| Policy Display Name | ARM Template | Portal Policy JSON | Deployment |
-| --- | --- | --- | --- |
-| **Audit MDE Entra ID Device ID on Windows machines** | `configureEntraIdDeviceIdWindows.armtemplate.json` | `configureEntraIdDeviceIdWindows.json` | [![Deploy Windows combined policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceIdWindows.armtemplate.json) |
-| **Audit MDE Entra ID Device ID on Linux machines** | `configureEntraIdDeviceIdLinux.armtemplate.json` | `configureEntraIdDeviceIdLinux.json` | [![Deploy Linux combined policy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2FconfigureEntraIdDeviceIdLinux.armtemplate.json) |
 
 ### Portal Policy Definition JSON Paths
 

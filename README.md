@@ -40,9 +40,13 @@ Supported targets include applicable Azure virtual machines, virtual machine sca
 
 The `entraid-deviceid` (Windows) and `entraid-deviceid-linux` (Linux) Azure Machine Configuration solutions extract and report the MDE Security Settings Management (`MicrosoftSense`) `intuneDeviceId` (which maps directly to the Entra ID `deviceId`) from endpoints that are onboarded to Defender for Endpoint after verifying that `MDE.Windows` or `MDE.Linux` is installed:
 
-- **Windows (`machineConfiguration/entraid-deviceid/`):** Reads `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration` &rarr; `EnrollmentPayload` and outputs `intuneDeviceId=<guid>`.
+- **Windows (`machineConfiguration/entraid-deviceid/`):** Reads `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM` &rarr; `EnrollmentPayload` and outputs `intuneDeviceId=<guid>`.
 - **Linux (`machineConfiguration/entraid-deviceid-linux/`):** Reads `/var/opt/microsoft/mdatp/wdavstate` &rarr; `mEnrollmentPayload` and outputs `intuneDeviceId=<guid>`.
-- **4 Dedicated Azure Policies:**
+- **Combined Windows & Linux Deployment (Native VMs + Azure Arc):**
+  - **Deploy Both Windows & Linux Combined Policies Together:** [`configureEntraIdDeviceId.armtemplate.json`](configureEntraIdDeviceId.armtemplate.json)
+  - **Windows Combined Policy (`Audit MDE Entra ID Device ID on Windows machines`):** [`configureEntraIdDeviceIdWindows.armtemplate.json`](configureEntraIdDeviceIdWindows.armtemplate.json)
+  - **Linux Combined Policy (`Audit MDE Entra ID Device ID on Linux machines`):** [`configureEntraIdDeviceIdLinux.armtemplate.json`](configureEntraIdDeviceIdLinux.armtemplate.json)
+- **4 Dedicated Azure Policies (Split by Native VMs vs. Azure Arc):**
   - **Audit MDE Entra ID Device ID on Windows machines** (`configureEntraIdDeviceIdWindowsVM.armtemplate.json`)
   - **Audit MDE Entra ID Device ID on Windows Arc machines** (`configureEntraIdDeviceIdWindowsArc.armtemplate.json`)
   - **Audit MDE Entra ID Device ID on Linux machines** (`configureEntraIdDeviceIdLinuxVM.armtemplate.json`)

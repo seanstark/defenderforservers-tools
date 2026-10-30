@@ -1,0 +1,563 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Deploys both the Windows and Linux combined MDE Entra ID Device ID Azure Policy definitions (Audit MDE Entra ID Device ID on Windows machines and Audit MDE Entra ID Device ID on Linux machines)."
+  },
+  "parameters": {
+    "windowsPolicyDefinitionName": {
+      "type": "string",
+      "defaultValue": "audit-mde-entraid-deviceid-windows",
+      "metadata": {
+        "description": "Name of the Windows custom Azure Policy definition."
+      }
+    },
+    "windowsPolicyDefinitionDisplayName": {
+      "type": "string",
+      "defaultValue": "Audit MDE Entra ID Device ID on Windows machines",
+      "metadata": {
+        "description": "Display name of the Windows custom Azure Policy definition."
+      }
+    },
+    "linuxPolicyDefinitionName": {
+      "type": "string",
+      "defaultValue": "audit-mde-entraid-deviceid-linux",
+      "metadata": {
+        "description": "Name of the Linux custom Azure Policy definition."
+      }
+    },
+    "linuxPolicyDefinitionDisplayName": {
+      "type": "string",
+      "defaultValue": "Audit MDE Entra ID Device ID on Linux machines",
+      "metadata": {
+        "description": "Display name of the Linux custom Azure Policy definition."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Authorization/policyDefinitions",
+      "apiVersion": "2023-04-01",
+      "name": "[parameters('windowsPolicyDefinitionName')]",
+      "properties": {
+        "policyType": "Custom",
+        "mode": "Indexed",
+        "displayName": "[parameters('windowsPolicyDefinitionDisplayName')]",
+        "description": "Deploys the Azure Machine Configuration assignment that audits and reports the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\SenseCM\\EnrollmentPayload on Windows machines.",
+        "metadata": {
+          "category": "Guest Configuration",
+          "version": "1.0.1",
+          "requiredProviders": [
+            "Microsoft.GuestConfiguration"
+          ],
+          "guestConfiguration": {
+            "name": "entraiddeviceid",
+            "contentType": "Custom",
+            "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
+            "contentHash": "FF3CC37961DDC8490ABED183834D6B8D573C0A1EB635BD940F9D0FBAA0A1EF4D",
+            "version": "1.0.1"
+          }
+        },
+        "parameters": {
+          "IncludeArcMachines": {
+            "type": "string",
+            "metadata": {
+              "displayName": "Include Arc connected machines",
+              "description": "By selecting this option, you agree to be charged monthly per Arc connected machine.",
+              "portalReview": "true"
+            },
+            "allowedValues": [
+              "true",
+              "false"
+            ],
+            "defaultValue": "true"
+          },
+          "tagName": {
+            "type": "string",
+            "metadata": {
+              "displayName": "Optional Azure tag name",
+              "description": "Name of the Azure resource tag used to filter machines. Leave blank to include all eligible Windows machines.",
+              "portalReview": "true"
+            },
+            "defaultValue": ""
+          },
+          "tagValue": {
+            "type": "string",
+            "metadata": {
+              "displayName": "Optional Azure tag value",
+              "description": "Required value for the Azure resource tag. Used only when a tag name is provided.",
+              "portalReview": "true"
+            },
+            "defaultValue": ""
+          }
+        },
+        "policyRule": {
+          "if": {
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "allOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "field": "type",
+                            "equals": "Microsoft.Compute/virtualMachines"
+                          },
+                          {
+                            "field": "type",
+                            "equals": "Microsoft.Compute/virtualMachineScaleSets"
+                          }
+                        ]
+                      },
+                      {
+                        "field": "tags['aks-managed-orchestrator']",
+                        "exists": "false"
+                      },
+                      {
+                        "field": "tags['aks-managed-poolName']",
+                        "exists": "false"
+                      },
+                      {
+                        "anyOf": [
+                          {
+                            "field": "Microsoft.Compute/virtualMachines/osProfile.windowsConfiguration",
+                            "exists": true
+                          },
+                          {
+                            "field": "Microsoft.Compute/virtualMachines/storageProfile.osDisk.osType",
+                            "like": "Windows*"
+                          },
+                          {
+                            "field": "Microsoft.Compute/VirtualMachineScaleSets/osProfile.windowsConfiguration",
+                            "exists": true
+                          },
+                          {
+                            "field": "Microsoft.Compute/virtualMachineScaleSets/virtualMachineProfile.storageProfile.osDisk.osType",
+                            "like": "Windows*"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "allOf": [
+                      {
+                        "value": "[[parameters('IncludeArcMachines')]",
+                        "equals": "true"
+                      },
+                      {
+                        "anyOf": [
+                          {
+                            "allOf": [
+                              {
+                                "field": "type",
+                                "equals": "Microsoft.HybridCompute/machines"
+                              },
+                              {
+                                "field": "Microsoft.HybridCompute/machines/osType",
+                                "like": "windows*"
+                              }
+                            ]
+                          },
+                          {
+                            "allOf": [
+                              {
+                                "field": "type",
+                                "equals": "Microsoft.ConnectedVMwarevSphere/virtualMachines"
+                              },
+                              {
+                                "field": "Microsoft.ConnectedVMwarevSphere/virtualMachines/osProfile.osType",
+                                "like": "windows*"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "anyOf": [
+                  {
+                    "value": "[[empty(parameters('tagName'))]",
+                    "equals": true
+                  },
+                  {
+                    "field": "[[concat('tags[', parameters('tagName'), ']')]",
+                    "equals": "[[parameters('tagValue')]"
+                  }
+                ]
+              }
+            ]
+          },
+          "then": {
+            "effect": "deployIfNotExists",
+            "details": {
+              "roleDefinitionIds": "[createArray('/providers/Microsoft.Authorization/roleDefinitions/088ab73d-1256-47ae-bea9-9de8e7131f31')]",
+              "type": "Microsoft.GuestConfiguration/guestConfigurationAssignments",
+              "name": "[[concat('entraiddeviceid$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]",
+              "existenceCondition": {
+                "field": "Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus",
+                "equals": "Compliant"
+              },
+              "deployment": {
+                "properties": {
+                  "mode": "incremental",
+                  "parameters": {
+                    "vmName": {
+                      "value": "[[field('name')]"
+                    },
+                    "location": {
+                      "value": "[[field('location')]"
+                    },
+                    "type": {
+                      "value": "[[field('type')]"
+                    },
+                    "assignmentName": {
+                      "value": "[[concat('entraiddeviceid$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]"
+                    }
+                  },
+                  "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                      "vmName": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "assignmentName": {
+                        "type": "string"
+                      }
+                    },
+                    "resources": [
+                      {
+                        "condition": "[[equals(toLower(parameters('type')), toLower('Microsoft.Compute/virtualMachines'))]",
+                        "apiVersion": "2024-04-05",
+                        "type": "Microsoft.Compute/virtualMachines/providers/guestConfigurationAssignments",
+                        "name": "[[concat(parameters('vmName'), '/Microsoft.GuestConfiguration/', parameters('assignmentName'))]",
+                        "location": "[[parameters('location')]",
+                        "properties": {
+                          "guestConfiguration": {
+                            "name": "entraiddeviceid",
+                            "contentType": "Custom",
+                            "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
+                            "contentHash": "FF3CC37961DDC8490ABED183834D6B8D573C0A1EB635BD940F9D0FBAA0A1EF4D",
+                            "assignmentType": "Audit",
+                            "version": "1.0.1"
+                          }
+                        }
+                      },
+                      {
+                        "condition": "[[equals(toLower(parameters('type')), toLower('Microsoft.HybridCompute/machines'))]",
+                        "apiVersion": "2024-04-05",
+                        "type": "Microsoft.HybridCompute/machines/providers/guestConfigurationAssignments",
+                        "name": "[[concat(parameters('vmName'), '/Microsoft.GuestConfiguration/', parameters('assignmentName'))]",
+                        "location": "[[parameters('location')]",
+                        "properties": {
+                          "guestConfiguration": {
+                            "name": "entraiddeviceid",
+                            "contentType": "Custom",
+                            "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
+                            "contentHash": "FF3CC37961DDC8490ABED183834D6B8D573C0A1EB635BD940F9D0FBAA0A1EF4D",
+                            "assignmentType": "Audit",
+                            "version": "1.0.1"
+                          }
+                        }
+                      },
+                      {
+                        "condition": "[[equals(toLower(parameters('type')), toLower('Microsoft.Compute/virtualMachineScaleSets'))]",
+                        "apiVersion": "2024-04-05",
+                        "type": "Microsoft.Compute/virtualMachineScaleSets/providers/guestConfigurationAssignments",
+                        "name": "[[concat(parameters('vmName'), '/Microsoft.GuestConfiguration/', parameters('assignmentName'))]",
+                        "location": "[[parameters('location')]",
+                        "properties": {
+                          "guestConfiguration": {
+                            "name": "entraiddeviceid",
+                            "contentType": "Custom",
+                            "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
+                            "contentHash": "FF3CC37961DDC8490ABED183834D6B8D573C0A1EB635BD940F9D0FBAA0A1EF4D",
+                            "assignmentType": "Audit",
+                            "version": "1.0.1"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/policyDefinitions",
+      "apiVersion": "2023-04-01",
+      "name": "[parameters('linuxPolicyDefinitionName')]",
+      "properties": {
+        "policyType": "Custom",
+        "mode": "Indexed",
+        "displayName": "[parameters('linuxPolicyDefinitionDisplayName')]",
+        "description": "Deploys the Azure Machine Configuration assignment that audits and reports the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate (mEnrollmentPayload) on Linux machines.",
+        "metadata": {
+          "category": "Guest Configuration",
+          "requiredProviders": [
+            "Microsoft.GuestConfiguration"
+          ],
+          "guestConfiguration": {
+            "name": "entraiddeviceidlinux",
+            "contentType": "Custom",
+            "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
+            "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
+            "version": "1.0.0"
+          },
+          "version": "1.0.0"
+        },
+        "parameters": {
+          "IncludeArcMachines": {
+            "type": "string",
+            "metadata": {
+              "displayName": "Include Arc connected machines",
+              "description": "By selecting this option, you agree to be charged monthly per Arc connected machine.",
+              "portalReview": "true"
+            },
+            "allowedValues": [
+              "true",
+              "false"
+            ],
+            "defaultValue": "true"
+          },
+          "tagName": {
+            "type": "string",
+            "metadata": {
+              "displayName": "Optional Azure tag name",
+              "description": "Name of the Azure resource tag used to filter machines. Leave blank to include all eligible Linux machines.",
+              "portalReview": "true"
+            },
+            "defaultValue": ""
+          },
+          "tagValue": {
+            "type": "string",
+            "metadata": {
+              "displayName": "Optional Azure tag value",
+              "description": "Required value for the Azure resource tag. Used only when a tag name is provided.",
+              "portalReview": "true"
+            },
+            "defaultValue": ""
+          }
+        },
+        "policyRule": {
+          "if": {
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "allOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "field": "type",
+                            "equals": "Microsoft.Compute/virtualMachines"
+                          },
+                          {
+                            "field": "type",
+                            "equals": "Microsoft.Compute/virtualMachineScaleSets"
+                          }
+                        ]
+                      },
+                      {
+                        "field": "tags['aks-managed-orchestrator']",
+                        "exists": "false"
+                      },
+                      {
+                        "field": "tags['aks-managed-poolName']",
+                        "exists": "false"
+                      },
+                      {
+                        "anyOf": [
+                          {
+                            "field": "Microsoft.Compute/virtualMachines/osProfile.linuxConfiguration",
+                            "exists": true
+                          },
+                          {
+                            "field": "Microsoft.Compute/virtualMachines/storageProfile.osDisk.osType",
+                            "like": "Linux*"
+                          },
+                          {
+                            "field": "Microsoft.Compute/virtualMachineScaleSets/osProfile.linuxConfiguration",
+                            "exists": true
+                          },
+                          {
+                            "field": "Microsoft.Compute/virtualMachineScaleSets/virtualMachineProfile.storageProfile.osDisk.osType",
+                            "like": "Linux*"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "allOf": [
+                      {
+                        "value": "[[parameters('IncludeArcMachines')]",
+                        "equals": "true"
+                      },
+                      {
+                        "anyOf": [
+                          {
+                            "allOf": [
+                              {
+                                "field": "type",
+                                "equals": "Microsoft.HybridCompute/machines"
+                              },
+                              {
+                                "field": "Microsoft.HybridCompute/machines/osType",
+                                "like": "linux*"
+                              }
+                            ]
+                          },
+                          {
+                            "allOf": [
+                              {
+                                "field": "type",
+                                "equals": "Microsoft.ConnectedVMwarevSphere/virtualMachines"
+                              },
+                              {
+                                "field": "Microsoft.ConnectedVMwarevSphere/virtualMachines/osProfile.osType",
+                                "like": "linux*"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "anyOf": [
+                  {
+                    "value": "[[empty(parameters('tagName'))]",
+                    "equals": true
+                  },
+                  {
+                    "field": "[[concat('tags[', parameters('tagName'), ']')]",
+                    "equals": "[[parameters('tagValue')]"
+                  }
+                ]
+              }
+            ]
+          },
+          "then": {
+            "effect": "deployIfNotExists",
+            "details": {
+              "roleDefinitionIds": "[createArray('/providers/Microsoft.Authorization/roleDefinitions/088ab73d-1256-47ae-bea9-9de8e7131f31')]",
+              "type": "Microsoft.GuestConfiguration/guestConfigurationAssignments",
+              "name": "[[concat('entraiddeviceidlinux$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]",
+              "existenceCondition": {
+                "field": "Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus",
+                "equals": "Compliant"
+              },
+              "deployment": {
+                "properties": {
+                  "mode": "incremental",
+                  "parameters": {
+                    "vmName": {
+                      "value": "[[field('name')]"
+                    },
+                    "location": {
+                      "value": "[[field('location')]"
+                    },
+                    "type": {
+                      "value": "[[field('type')]"
+                    },
+                    "assignmentName": {
+                      "value": "[[concat('entraiddeviceidlinux$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]"
+                    }
+                  },
+                  "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                      "vmName": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "assignmentName": {
+                        "type": "string"
+                      }
+                    },
+                    "resources": [
+                      {
+                        "condition": "[[equals(toLower(parameters('type')), toLower('Microsoft.Compute/virtualMachines'))]",
+                        "apiVersion": "2024-04-05",
+                        "type": "Microsoft.Compute/virtualMachines/providers/guestConfigurationAssignments",
+                        "name": "[[concat(parameters('vmName'), '/Microsoft.GuestConfiguration/', parameters('assignmentName'))]",
+                        "location": "[[parameters('location')]",
+                        "properties": {
+                          "guestConfiguration": {
+                            "name": "entraiddeviceidlinux",
+                            "contentType": "Custom",
+                            "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
+                            "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
+                            "assignmentType": "Audit",
+                            "version": "1.0.0"
+                          }
+                        }
+                      },
+                      {
+                        "condition": "[[equals(toLower(parameters('type')), toLower('Microsoft.HybridCompute/machines'))]",
+                        "apiVersion": "2024-04-05",
+                        "type": "Microsoft.HybridCompute/machines/providers/guestConfigurationAssignments",
+                        "name": "[[concat(parameters('vmName'), '/Microsoft.GuestConfiguration/', parameters('assignmentName'))]",
+                        "location": "[[parameters('location')]",
+                        "properties": {
+                          "guestConfiguration": {
+                            "name": "entraiddeviceidlinux",
+                            "contentType": "Custom",
+                            "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
+                            "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
+                            "assignmentType": "Audit",
+                            "version": "1.0.0"
+                          }
+                        }
+                      },
+                      {
+                        "condition": "[[equals(toLower(parameters('type')), toLower('Microsoft.Compute/virtualMachineScaleSets'))]",
+                        "apiVersion": "2024-04-05",
+                        "type": "Microsoft.Compute/virtualMachineScaleSets/providers/guestConfigurationAssignments",
+                        "name": "[[concat(parameters('vmName'), '/Microsoft.GuestConfiguration/', parameters('assignmentName'))]",
+                        "location": "[[parameters('location')]",
+                        "properties": {
+                          "guestConfiguration": {
+                            "name": "entraiddeviceidlinux",
+                            "contentType": "Custom",
+                            "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
+                            "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
+                            "assignmentType": "Audit",
+                            "version": "1.0.0"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

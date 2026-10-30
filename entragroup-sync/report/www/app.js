@@ -36,11 +36,29 @@
     return matched.length ? [...new Set(matched)].join("; ") : "Not installed";
   };
   const missing = "Not available";
+  function correlationMethodFor(machine) {
+    const path = String(machine?.EntraCorrelationPath || "").trim();
+    if (path === "MdeAadDeviceId") return "MDE AadDeviceId";
+    if (path === "GuestConfigurationIntuneDeviceId") return "Machine Configuration (intuneDeviceId)";
+    if (path === "MicrosoftSenseHostnameAndOS") return "MicrosoftSense (Hostname & OS)";
+    if (path === "AadDeviceIdAmbiguous") return "Ambiguous (MDE AadDeviceId)";
+    if (path === "GuestConfigIntuneDeviceIdAmbiguous") return "Ambiguous (Machine Configuration)";
+    if (path === "MicrosoftSenseAmbiguous") return "Ambiguous (MicrosoftSense)";
+    const isCorrelated = Boolean(machine?.EntraObjectId || (machine?.EntraDeviceId && ["Verified", "WouldAdd", "Matched", "GroupNotFound", "MissingCloudIdentifier", "GroupNotConfigured"].includes(machine?.Status)));
+    if (isCorrelated) {
+      if (machine?.GuestConfigEntraDeviceId && String(machine.GuestConfigEntraDeviceId).toLowerCase() === String(machine.EntraDeviceId || "").toLowerCase()) {
+        return "Machine Configuration (intuneDeviceId)";
+      }
+      return "MDE AadDeviceId";
+    }
+    return "Not correlated";
+  }
   const columns = [
     { id: "MachineName", label: "Azure Machine", link: "arc" },
     { id: "MdeDeviceName", label: "MDE Device", link: "mde", value: m => m.MdeDeviceName || m.MdeDeviceId },
     { id: "MdeDeviceId", label: "MDE device ID", link: "mde" },
     { id: "EntraDeviceId", label: "Entra ID Device", link: "entra" },
+    { id: "EntraCorrelationPath", label: "Correlation method", value: m => correlationMethodFor(m) },
     { id: "ManagementGroup", label: "Management Group" },
     { id: "ResourceGroup", label: "Resource Group" },
     { id: "SubscriptionName", label: "Subscription", value: m => m.SubscriptionName ? `${m.SubscriptionName} (${m.SubscriptionId})` : m.SubscriptionId },
@@ -94,7 +112,7 @@
     { id: "Error", label: "Processing error", optional: true }
   ];
   const columnById = new Map(columns.map(column => [column.id, column]));
-  const preferenceKey = "arc-entra-table-v3";
+  const preferenceKey = "arc-entra-table-v4";
   const dataCacheKey = "arc-entra-data-cache-v1";
   const themePreferenceKey = "arc-entra-theme-v2";
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -116,7 +134,7 @@
     updateThemeButton();
   }
   const defaultColumns = [
-    "MachineName", "MdeDeviceName", "EntraDeviceId", "Membership", "MdeOnboardingStatus",
+    "MachineName", "MdeDeviceName", "EntraDeviceId", "EntraCorrelationPath", "Membership", "MdeOnboardingStatus",
     "MdeAntivirusMode", "ArcStatus", "ComputerName", "Fqdn", "OS"
   ];
   const defaults = () => ({
@@ -540,7 +558,7 @@
       ["Entra Device ID", devIdWrap],
       ["Entra Object ID", machine.EntraObjectId || "Not resolved"],
       ["Machine Config intuneDeviceId", machine.GuestConfigEntraDeviceId || "Not reported"],
-      ["Correlation Method", machine.EntraCorrelationPath || (isFound ? "MDE AadDeviceId -> Entra deviceId" : "1. MDE AadDeviceId -> 2. Machine Config intuneDeviceId -> 3. MicrosoftSense Fallback")],
+      ["Correlation Method", correlationMethodFor(machine)],
       ["Hostnames Checked", hostListText],
       ["Expected OS", osNode(machine.OS)],
       ["MDE Device / Status", machine.MdeDeviceId ? `${machine.MdeDeviceName || machine.MdeDeviceId} (${machine.MdeOnboardingStatus || "Onboarded"})` : "No MDE match (PendingMde)"]
@@ -903,7 +921,7 @@
         }
         if (column.id === "MachineName") bindHoverPopover(cell, () => arcHoverSpec(machine));
         else if (column.id === "MdeDeviceName" || column.id === "MdeDeviceId") bindHoverPopover(cell, () => mdeHoverSpec(machine));
-        else if (column.id === "EntraDeviceId" || column.id === "EntraObjectId") bindHoverPopover(cell, () => entraHoverSpec(machine));
+        else if (column.id === "EntraDeviceId" || column.id === "EntraObjectId" || column.id === "EntraCorrelationPath") bindHoverPopover(cell, () => entraHoverSpec(machine));
         if (column === historyColumn) {
           cell.classList.add("device-cell");
           const button = text("button", "", "history-action secondary");
@@ -1107,6 +1125,7 @@
     const correlated = Boolean(machine.MdeDeviceId && machine.EntraDeviceId && ["Verified", "WouldAdd", "Matched"].includes(machine.Status));
     const summaryItems = [
       ["Correlated", text("span", `${correlated ? "Yes" : "No"} (${machine.Status || missing})`, `badge ${machine.Status === "Failed" ? "bad" : correlated ? "good" : "attention"}`)],
+      ["Correlation method", text("span", correlationMethodFor(machine))],
       ["Entra ID Group", groupMembershipNode(machine)],
       ["Group & AV flags", groupFlagsNode(machine)],
       ["MDE onboarded status", (() => {
@@ -1137,6 +1156,8 @@
       ["Arc Connected Machine last state time", displayFor(machine, columnById.get("ArcLastReportedAt"))], ["Arc added", displayFor(machine, columnById.get("ArcAddedAt"))],
       ["MDE device ID", machine.MdeDeviceId], ["MDE last check in time", time(machine.MdeLastSeen)],
       ["Entra device ID", machine.EntraDeviceId], ["Entra object ID", machine.EntraObjectId],
+      ["Correlation method", correlationMethodFor(machine)],
+      ["Machine Config intuneDeviceId", machine.GuestConfigEntraDeviceId || "Not reported"],
       ["Target group ID", machine.GroupId], ["Mode / status", `${machine.Mode} / ${machine.Status}`],
       ["Observed Entra membership", machine.Membership], ["Membership verified", time(machine.MembershipVerifiedAt)],
       ["Snapshot checked", time(machine.LastChecked)], ["First discovered", time(machine.FirstSeen)], ["Latest error", machine.Error || "None"]

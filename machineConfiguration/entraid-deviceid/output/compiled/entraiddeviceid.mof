@@ -1,7 +1,7 @@
 /*
 @TargetNode='localhost'
 @GeneratedBy=seanstark
-@GenerationDate=10/30/2026 10:05:09
+@GenerationDate=10/30/2026 10:53:07
 @GenerationHost=LAPTOP-NLOC0RP2
 */
 
@@ -11,7 +11,7 @@ SourceInfo = "::5::9::EntraIdDeviceId";
  ModuleName = "EntraIdDeviceId";
  Name = "EnrollmentPayload";
  ResourceID = "[EntraIdDeviceId]entraiddeviceid";
- ModuleVersion = "1.0.0";
+ ModuleVersion = "1.0.1";
  ConfigurationName = "entraiddeviceid";
 };
 instance of OMI_ConfigurationDocument
@@ -20,7 +20,7 @@ instance of OMI_ConfigurationDocument
  MinimumCompatibleVersion = "1.0.0";
  CompatibleVersionAdditionalProperties= {"Omi_BaseResource:ConfigurationName"};
  Author="seanstark";
- GenerationDate="10/30/2026 10:05:09";
+ GenerationDate="10/30/2026 10:53:07";
  GenerationHost="LAPTOP-NLOC0RP2";
  Name="entraiddeviceid";
 };

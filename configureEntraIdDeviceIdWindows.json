@@ -2,7 +2,7 @@
   "mode": "Indexed",
   "metadata": {
     "category": "Guest Configuration",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "requiredProviders": [
       "Microsoft.GuestConfiguration"
     ],
@@ -10,8 +10,8 @@
       "name": "entraiddeviceid",
       "contentType": "Custom",
       "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-      "contentHash": "633D583A261DA8D50AAA1B3A2FC4B7ACA049DAABAF4ECA0497C1F430922E1904",
-      "version": "1.0.0"
+      "contentHash": "FF3CC37961DDC8490ABED183834D6B8D573C0A1EB635BD940F9D0FBAA0A1EF4D",
+      "version": "1.0.1"
     }
   },
   "parameters": {
@@ -206,9 +206,9 @@
                       "name": "entraiddeviceid",
                       "contentType": "Custom",
                       "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-                      "contentHash": "633D583A261DA8D50AAA1B3A2FC4B7ACA049DAABAF4ECA0497C1F430922E1904",
+                      "contentHash": "FF3CC37961DDC8490ABED183834D6B8D573C0A1EB635BD940F9D0FBAA0A1EF4D",
                       "assignmentType": "Audit",
-                      "version": "1.0.0"
+                      "version": "1.0.1"
                     }
                   }
                 },
@@ -223,9 +223,9 @@
                       "name": "entraiddeviceid",
                       "contentType": "Custom",
                       "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-                      "contentHash": "633D583A261DA8D50AAA1B3A2FC4B7ACA049DAABAF4ECA0497C1F430922E1904",
+                      "contentHash": "FF3CC37961DDC8490ABED183834D6B8D573C0A1EB635BD940F9D0FBAA0A1EF4D",
                       "assignmentType": "Audit",
-                      "version": "1.0.0"
+                      "version": "1.0.1"
                     }
                   }
                 },
@@ -240,9 +240,9 @@
                       "name": "entraiddeviceid",
                       "contentType": "Custom",
                       "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
-                      "contentHash": "633D583A261DA8D50AAA1B3A2FC4B7ACA049DAABAF4ECA0497C1F430922E1904",
+                      "contentHash": "FF3CC37961DDC8490ABED183834D6B8D573C0A1EB635BD940F9D0FBAA0A1EF4D",
                       "assignmentType": "Audit",
-                      "version": "1.0.0"
+                      "version": "1.0.1"
                     }
                   }
                 }

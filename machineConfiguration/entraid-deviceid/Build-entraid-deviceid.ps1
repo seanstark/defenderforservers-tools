@@ -20,7 +20,7 @@ if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt
 }
 
 $configurationName = 'entraiddeviceid'
-$packageVersion = '1.0.0'
+$packageVersion = '1.0.1'
 $guestConfigurationRoleDefinitionId = '/providers/Microsoft.Authorization/roleDefinitions/088ab73d-1256-47ae-bea9-9de8e7131f31'
 $configurationPath = Join-Path $PSScriptRoot 'entraid-deviceid.ps1'
 $modulePath = Join-Path $PSScriptRoot 'Modules'
@@ -122,14 +122,14 @@ $commonPolicyParameters = @{
 New-GuestConfigurationPolicy @commonPolicyParameters `
     -PolicyId 'd41f9b7e-8a24-43c1-b9e0-61c5a4f82e31' `
     -DisplayName 'Audit MDE Entra ID Device ID on Windows machines' `
-    -Description 'Audits and reports the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload by using Azure Machine Configuration.' `
+    -Description 'Audits and reports the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload by using Azure Machine Configuration.' `
     -Path (Join-Path $policyPath 'audit') `
     -Mode Audit | Out-Host
 
 New-GuestConfigurationPolicy @commonPolicyParameters `
     -PolicyId '7a92c4e1-3b58-4d62-9f14-82e7b5c30d94' `
     -DisplayName 'Audit MDE Entra ID Device ID on Windows machines' `
-    -Description 'Deploys the Azure Machine Configuration assignment that audits and reports the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload on Windows machines.' `
+    -Description 'Deploys the Azure Machine Configuration assignment that audits and reports the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload on Windows machines.' `
     -Path (Join-Path $policyPath 'configure') `
     -Mode ApplyAndAutoCorrect | Out-Host
 
@@ -315,7 +315,7 @@ $portalPolicy | ConvertTo-Json -Depth 100 | Set-Content -Path $ConfigurePolicyOu
 $vmOnlyPolicy = Get-Content -Raw $configurePolicyPath | ConvertFrom-Json -Depth 100
 $vmOnlyPolicy.name = 'a12e8f34-6b19-4c72-8d50-3f91e4a2b7c6'
 $vmOnlyPolicy.properties.displayName = 'Audit MDE Entra ID Device ID on Windows machines'
-$vmOnlyPolicy.properties.description = 'Checks that the MDE.Windows extension is installed and provisioned on native Azure Windows virtual machines, then deploys the entraiddeviceid Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload.'
+$vmOnlyPolicy.properties.description = 'Checks that the MDE.Windows extension is installed and provisioned on native Azure Windows virtual machines, then deploys the entraiddeviceid Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload.'
 $vmOnlyPolicy.properties.parameters.PSObject.Properties.Remove('IncludeArcMachines')
 $vmOnlyPolicy.properties.policyRule.if = [ordered] @{
     allOf = @(
@@ -369,7 +369,7 @@ $vmOnlyPolicy | ConvertTo-Json -Depth 100 | Set-Content -Path $vmOnlyPath -Encod
 $arcOnlyPolicy = Get-Content -Raw $configurePolicyPath | ConvertFrom-Json -Depth 100
 $arcOnlyPolicy.name = 'b23f9a45-7c28-4d83-9e61-4a02f5b3c8d7'
 $arcOnlyPolicy.properties.displayName = 'Audit MDE Entra ID Device ID on Windows Arc machines'
-$arcOnlyPolicy.properties.description = 'Checks that the MDE.Windows extension is installed and provisioned on Windows Azure Arc-enabled servers, then deploys the entraiddeviceid Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\MemConfiguration\EnrollmentPayload.'
+$arcOnlyPolicy.properties.description = 'Checks that the MDE.Windows extension is installed and provisioned on Windows Azure Arc-enabled servers, then deploys the entraiddeviceid Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload.'
 $arcOnlyPolicy.properties.parameters.PSObject.Properties.Remove('IncludeArcMachines')
 $arcOnlyPolicy.properties.policyRule.if = [ordered] @{
     allOf = @(
