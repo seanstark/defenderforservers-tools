@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "16775146741013876353"
+      "templateHash": "1723302859829007035"
     }
   },
   "parameters": {
@@ -14,46 +14,122 @@
       "minLength": 3,
       "maxLength": 18,
       "metadata": {
-        "description": "Lowercase letters, digits, and hyphens. Names must be globally unique where applicable."
+        "description": "Resource Naming Prefix: Short prefix (3 to 18 lowercase letters, numbers, or hyphens, such as arcgroupsync) used to name the Worker Function App, Report Function App, Service Bus namespace, Storage Accounts, and Application Insights."
       }
     },
     "location": {
       "type": "string",
-      "defaultValue": "[resourceGroup().location]"
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Deployment Region: Azure region where the Function Apps, Service Bus, Storage Accounts, and Log Analytics workspace will be deployed. Defaults to the current Resource Group location."
+      }
     },
     "tenantId": {
       "type": "string",
-      "defaultValue": "[tenant().tenantId]"
+      "defaultValue": "[tenant().tenantId]",
+      "metadata": {
+        "description": "Microsoft Entra Tenant ID: The GUID of your Microsoft Entra ID tenant where devices, security groups, and report sign-in are located. Defaults to the deployment tenant ID."
+      }
     },
     "subscriptionIds": {
       "type": "array",
-      "defaultValue": []
+      "defaultValue": [],
+      "metadata": {
+        "description": "Scoped Azure Subscription IDs: List of Azure Subscription GUIDs to scan for Azure Arc servers, Azure Native VMs, and VMSS instances. Provide at least one Subscription ID or Management Group ID."
+      }
     },
     "managementGroupIds": {
       "type": "array",
-      "defaultValue": []
+      "defaultValue": [],
+      "metadata": {
+        "description": "Scoped Azure Management Group IDs: Optional list of Azure Management Group IDs (such as mg-prod) whose member subscriptions will be automatically discovered and scanned. Combined with subscriptionIds using OR."
+      }
     },
     "resourceGroupNames": {
       "type": "array",
-      "defaultValue": []
+      "defaultValue": [],
+      "metadata": {
+        "description": "Scoped Resource Group Names: Optional list of Resource Group names (such as rg-arc-servers) to restrict discovery. Leave empty to include all resource groups in the scoped subscriptions and management groups."
+      }
     },
-    "targetGroupId": {
+    "awsWindowsGroupPrefix": {
       "type": "string",
-      "defaultValue": ""
+      "defaultValue": "",
+      "metadata": {
+        "description": "AWS Windows Group Naming Prefix: Prefix for AWS Windows Entra ID security groups (such as MDfS-AWS-Windows-). The worker appends Passive-AccountId or Active-AccountId using the AWS AccountId resource tag."
+      }
     },
-    "windowsTargetGroupId": {
+    "awsLinuxGroupPrefix": {
       "type": "string",
-      "defaultValue": ""
+      "defaultValue": "",
+      "metadata": {
+        "description": "AWS Linux Group Naming Prefix: Prefix for AWS Linux Entra ID security groups (such as MDfS-AWS-Linux-). The worker appends Passive-AccountId or Active-AccountId using the AWS AccountId resource tag."
+      }
     },
-    "linuxTargetGroupId": {
+    "gcpWindowsGroupPrefix": {
       "type": "string",
-      "defaultValue": ""
+      "defaultValue": "",
+      "metadata": {
+        "description": "GCP Windows Group Naming Prefix: Prefix for GCP Windows Entra ID security groups (such as MDfS-GCP-Windows-). The worker appends Passive-ProjectId or Active-ProjectId using the GCP ProjectId resource tag."
+      }
+    },
+    "gcpLinuxGroupPrefix": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "GCP Linux Group Naming Prefix: Prefix for GCP Linux Entra ID security groups (such as MDfS-GCP-Linux-). The worker appends Passive-ProjectId or Active-ProjectId using the GCP ProjectId resource tag."
+      }
+    },
+    "azureWindowsGroupPrefix": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure Windows Group Naming Prefix: Prefix for Azure Windows Entra ID security groups (such as MDfS-Azure-Windows-). The worker appends Passive-SubscriptionName or Active-SubscriptionName. AWS and GCP Arc machines are automatically excluded."
+      }
+    },
+    "azureLinuxGroupPrefix": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure Linux Group Naming Prefix: Prefix for Azure Linux Entra ID security groups (such as MDfS-Azure-Linux-). The worker appends Passive-SubscriptionName or Active-SubscriptionName. AWS and GCP Arc machines are automatically excluded."
+      }
+    },
+    "defaultGroupMode": {
+      "type": "string",
+      "defaultValue": "Passive",
+      "allowedValues": [
+        "Passive",
+        "Active"
+      ],
+      "metadata": {
+        "description": "Default Antivirus Group Mode: Controls whether correlated devices are added to their Passive or Active group by default (defaults to Passive). A device already in its Active group is never added to Passive, and a device in Passive is never added to Active."
+      }
+    },
+    "adminUnitId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Entra Administrative Unit ID (Optional): GUID of a Microsoft Entra ID Administrative Unit. When provided (and the worker Managed Identity is granted Groups Administrator on this AU), missing Active and Passive security groups are automatically created inside this AU."
+      }
+    },
+    "autoCreateGroups": {
+      "type": "bool",
+      "defaultValue": "[not(empty(parameters('adminUnitId')))]",
+      "metadata": {
+        "description": "Auto-Create Missing Entra Groups: When true (and adminUnitId is set), the worker automatically creates missing Active and Passive Cloud and OS security groups inside the Administrative Unit when running in Enforce mode."
+      }
     },
     "reportClientId": {
-      "type": "string"
+      "type": "string",
+      "metadata": {
+        "description": "Report App Registration Client ID: The Application (client) ID GUID of the Microsoft Entra App Registration used to sign in users to the read-only web portal (must define the Report.Reader app role)."
+      }
     },
     "reportClientSecret": {
-      "type": "securestring"
+      "type": "securestring",
+      "metadata": {
+        "description": "Report App Registration Client Secret: The client secret value for the Report App Registration used by Azure App Service Authentication (Easy Auth)."
+      }
     },
     "syncMode": {
       "type": "string",
@@ -61,17 +137,26 @@
       "allowedValues": [
         "Audit",
         "Enforce"
-      ]
+      ],
+      "metadata": {
+        "description": "Synchronization Mode: Audit (default) only evaluates correlation and records WouldAdd without modifying any Entra ID groups. Enforce creates and updates group memberships for verified devices."
+      }
     },
     "schedule": {
       "type": "string",
-      "defaultValue": "0 */30 * * * *"
+      "defaultValue": "0 */30 * * * *",
+      "metadata": {
+        "description": "Inventory Timer Schedule (NCRONTAB): 6-field NCRONTAB expression controlling how often the full Azure Resource Graph inventory runs. Default 0 */30 * * * * runs every 30 minutes."
+      }
     },
     "freshnessHours": {
       "type": "int",
       "defaultValue": 24,
       "minValue": 1,
-      "maxValue": 168
+      "maxValue": 168,
+      "metadata": {
+        "description": "MDE Telemetry Freshness Window (Hours): Maximum age in hours (1 to 168, default 24) for Microsoft Defender for Endpoint DeviceInfo records to be trusted for correlation."
+      }
     },
     "planSku": {
       "type": "string",
@@ -80,13 +165,16 @@
         "B1",
         "S1",
         "P1v3"
-      ]
+      ],
+      "metadata": {
+        "description": "App Service Plan SKU: Hosting tier for the Worker and Report Function Apps (B1 Basic, S1 Standard, or P1v3 Premium v3). Default is B1."
+      }
     },
     "alertActionGroupIds": {
       "type": "array",
       "defaultValue": [],
       "metadata": {
-        "description": "Existing action groups for operational notifications. Empty means alerts have no notification recipients."
+        "description": "Alert Action Group Resource IDs (Optional): List of Azure Monitor Action Group resource IDs to notify when dead-letter queue, failed run, or stale inventory alerts fire. Leave empty for no notification recipients."
       }
     }
   },
@@ -99,7 +187,7 @@
     "tableContributor": "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3",
     "tableReader": "76199698-9eea-4c19-bc75-cec21354c6b6",
     "busSender": "69a216fc-b8fb-44d8-bc22-1f3c2cd27a39",
-    "busReceiver": "4f6c5d74-cffc-4f8c-9ac7-9c1edb143e51",
+    "busReceiver": "4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0",
     "hostRoles": [
       "[variables('blobOwner')]",
       "[variables('queueContributor')]",
@@ -249,9 +337,9 @@
           "minTlsVersion": "1.2",
           "scmMinTlsVersion": "1.2",
           "ftpsState": "Disabled",
-          "powerShellVersion": "7.4",
+          "powerShellVersion": "7.6",
           "use32BitWorkerProcess": false,
-          "appSettings": "[concat(createArray(createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME', 'value', 'powershell'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME_VERSION', 'value', '7.4'), createObject('name', 'AzureWebJobsStorage__accountName', 'value', format('{0}{1}', createArray('worker', 'report')[copyIndex()], variables('suffix'))), createObject('name', 'AzureWebJobsStorage__credential', 'value', 'managedidentity'), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix'))), '2020-02-02').ConnectionString), createObject('name', 'SYNC_STORAGE_ACCOUNT', 'value', format('sync{0}', variables('suffix'))), createObject('name', 'SYNC_TENANT_ID', 'value', parameters('tenantId')), createObject('name', 'SYNC_WORKER_FUNCTION_RESOURCE_ID', 'value', subscriptionResourceId('Microsoft.Web/sites', variables('workerName')))), if(equals(copyIndex(), 0), createArray(createObject('name', 'SYNC_SUBSCRIPTION_IDS', 'value', join(parameters('subscriptionIds'), ',')), createObject('name', 'SYNC_MANAGEMENT_GROUP_IDS', 'value', join(parameters('managementGroupIds'), ',')), createObject('name', 'SYNC_RESOURCE_GROUP_NAMES', 'value', join(parameters('resourceGroupNames'), ',')), createObject('name', 'SYNC_GROUP_ID', 'value', parameters('targetGroupId')), createObject('name', 'SYNC_WINDOWS_GROUP_ID', 'value', if(empty(parameters('windowsTargetGroupId')), parameters('targetGroupId'), parameters('windowsTargetGroupId'))), createObject('name', 'SYNC_LINUX_GROUP_ID', 'value', if(empty(parameters('linuxTargetGroupId')), parameters('targetGroupId'), parameters('linuxTargetGroupId'))), createObject('name', 'SYNC_MODE', 'value', parameters('syncMode')), createObject('name', 'SYNC_FRESHNESS_HOURS', 'value', string(parameters('freshnessHours'))), createObject('name', 'SYNC_SCHEDULE', 'value', parameters('schedule')), createObject('name', 'ServiceBusConnection__fullyQualifiedNamespace', 'value', format('{0}.servicebus.windows.net', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))), createObject('name', 'ServiceBusConnection__credential', 'value', 'managedidentity')), createArray(createObject('name', 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', 'value', parameters('reportClientSecret')))))]"
+          "appSettings": "[concat(createArray(createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME', 'value', 'powershell'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME_VERSION', 'value', '7.6'), createObject('name', 'AzureWebJobsDisableHomepage', 'value', 'true'), createObject('name', 'AzureWebJobsStorage__accountName', 'value', format('{0}{1}', createArray('worker', 'report')[copyIndex()], variables('suffix'))), createObject('name', 'AzureWebJobsStorage__credential', 'value', 'managedidentity'), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix'))), '2020-02-02').ConnectionString), createObject('name', 'SYNC_STORAGE_ACCOUNT', 'value', format('sync{0}', variables('suffix'))), createObject('name', 'SYNC_TENANT_ID', 'value', parameters('tenantId')), createObject('name', 'SYNC_WORKER_FUNCTION_RESOURCE_ID', 'value', resourceId('Microsoft.Web/sites', variables('workerName'))), createObject('name', 'SYNC_APPINSIGHTS_RESOURCE_ID', 'value', resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix'))))), if(equals(copyIndex(), 0), createArray(createObject('name', 'SYNC_SUBSCRIPTION_IDS', 'value', join(parameters('subscriptionIds'), ',')), createObject('name', 'SYNC_MANAGEMENT_GROUP_IDS', 'value', join(parameters('managementGroupIds'), ',')), createObject('name', 'SYNC_RESOURCE_GROUP_NAMES', 'value', join(parameters('resourceGroupNames'), ',')), createObject('name', 'SYNC_AWS_WINDOWS_GROUP_PREFIX', 'value', parameters('awsWindowsGroupPrefix')), createObject('name', 'SYNC_AWS_LINUX_GROUP_PREFIX', 'value', parameters('awsLinuxGroupPrefix')), createObject('name', 'SYNC_GCP_WINDOWS_GROUP_PREFIX', 'value', parameters('gcpWindowsGroupPrefix')), createObject('name', 'SYNC_GCP_LINUX_GROUP_PREFIX', 'value', parameters('gcpLinuxGroupPrefix')), createObject('name', 'SYNC_AZURE_WINDOWS_GROUP_PREFIX', 'value', parameters('azureWindowsGroupPrefix')), createObject('name', 'SYNC_AZURE_LINUX_GROUP_PREFIX', 'value', parameters('azureLinuxGroupPrefix')), createObject('name', 'SYNC_DEFAULT_GROUP_MODE', 'value', parameters('defaultGroupMode')), createObject('name', 'SYNC_ADMIN_UNIT_ID', 'value', parameters('adminUnitId')), createObject('name', 'SYNC_AUTO_CREATE_GROUPS', 'value', string(parameters('autoCreateGroups'))), createObject('name', 'SYNC_MODE', 'value', parameters('syncMode')), createObject('name', 'SYNC_FRESHNESS_HOURS', 'value', string(parameters('freshnessHours'))), createObject('name', 'SYNC_SCHEDULE', 'value', parameters('schedule')), createObject('name', 'ServiceBusConnection__fullyQualifiedNamespace', 'value', format('{0}.servicebus.windows.net', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))), createObject('name', 'ServiceBusConnection__credential', 'value', 'managedidentity')), createArray(createObject('name', 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', 'value', parameters('reportClientSecret')))))]"
         }
       },
       "dependsOn": [
@@ -535,7 +623,7 @@
     },
     "reportUrl": {
       "type": "string",
-      "value": "[format('https://{0}/api/report/', reference(resourceId('Microsoft.Web/sites', if(equals(1, 0), variables('workerName'), variables('reportName'))), '2023-12-01').defaultHostName)]"
+      "value": "[format('https://{0}/', reference(resourceId('Microsoft.Web/sites', if(equals(1, 0), variables('workerName'), variables('reportName'))), '2023-12-01').defaultHostName)]"
     },
     "reportRedirectUri": {
       "type": "string",

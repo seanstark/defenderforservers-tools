@@ -2,15 +2,15 @@
 param(
     [Parameter(Mandatory)][guid]$WorkerPrincipalId,
     [ValidateSet('Audit', 'Enforce')][string]$Mode = 'Audit',
-    [guid]$TargetGroupId = [guid]::Empty,
-    [guid]$WindowsTargetGroupId = [guid]::Empty,
-    [guid]$LinuxTargetGroupId = [guid]::Empty,
+    [guid]$AdminUnitId = [guid]::Empty,
+    [guid[]]$TargetGroupIds = @(),
+    [string[]]$GroupNamePrefixes = @(),
     [switch]$AssignGroupOwner
 )
 $ErrorActionPreference = 'Stop'
-$ownerGroupIds = @(@($TargetGroupId, $WindowsTargetGroupId, $LinuxTargetGroupId) | Where-Object { $_ -ne [guid]::Empty } | Sort-Object -Unique)
-if ($AssignGroupOwner -and -not $ownerGroupIds.Count) {
-    throw 'Specify -TargetGroupId, -WindowsTargetGroupId, and/or -LinuxTargetGroupId when using -AssignGroupOwner.'
+$ownerGroupIds = @($TargetGroupIds | Where-Object { $_ -ne [guid]::Empty } | ForEach-Object { $_.ToString() } | Sort-Object -Unique)
+if ($AssignGroupOwner -and -not $ownerGroupIds.Count -and -not @($GroupNamePrefixes | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count) {
+    throw 'Specify -TargetGroupIds and/or -GroupNamePrefixes when using -AssignGroupOwner.'
 }
 
 function Invoke-AzJson {
@@ -21,13 +21,15 @@ function Invoke-AzJson {
 }
 $graphAppId = '00000003-0000-0000-c000-000000000000'
 $graph = Invoke-AzJson @('ad', 'sp', 'show', '--id', $graphAppId)
-$permissions = @('ThreatHunting.Read.All', 'Device.Read.All', 'GroupMember.Read.All')
-if ($Mode -eq 'Enforce') {
-    $permissions = if ($AssignGroupOwner) {
-        @('ThreatHunting.Read.All', 'Device.Read.All', 'GroupMember.Read.All')
-    } else {
-        @('ThreatHunting.Read.All', 'Device.ReadWrite.All', 'GroupMember.ReadWrite.All')
-    }
+$permissions = if ($AdminUnitId -ne [guid]::Empty) {
+    # When scoped to an Administrative Unit, the Worker only checks/manages groups inside that Administrative Unit via AU-scoped Groups Administrator.
+    @('ThreatHunting.Read.All', 'Device.Read.All')
+}
+elseif ($Mode -eq 'Enforce' -and -not $AssignGroupOwner) {
+    @('ThreatHunting.Read.All', 'Device.ReadWrite.All', 'GroupMember.ReadWrite.All')
+}
+else {
+    @('ThreatHunting.Read.All', 'Device.Read.All', 'GroupMember.Read.All')
 }
 $uri = "https://graph.microsoft.com/v1.0/servicePrincipals/$WorkerPrincipalId/appRoleAssignments"
 $existing = @()
@@ -54,7 +56,35 @@ foreach ($permission in $permissions) {
         Write-Host "Granted $permission."
     }
 }
+if ($AdminUnitId -ne [guid]::Empty) {
+    # Built-in Entra ID Groups Administrator roleTemplateId: fdd7a751-b60b-444a-984c-02652fe8fa1c
+    $groupsAdminRoleId = 'fdd7a751-b60b-444a-984c-02652fe8fa1c'
+    $scopeId = "/administrativeUnits/$AdminUnitId"
+    $filter = [uri]::EscapeDataString("principalId eq '$WorkerPrincipalId' and roleDefinitionId eq '$groupsAdminRoleId' and directoryScopeId eq '$scopeId'")
+    $existingRole = Invoke-AzJson @('rest', '--method', 'GET', '--url', "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments?`$filter=$filter")
+    if (@($existingRole.value).Count) {
+        Write-Host "Worker principal $WorkerPrincipalId already has Groups Administrator on Administrative Unit $AdminUnitId."
+    }
+    elseif ($PSCmdlet.ShouldProcess("Administrative Unit $AdminUnitId", "Assign Groups Administrator role to worker principal $WorkerPrincipalId")) {
+        $roleBody = @{
+            principalId = $WorkerPrincipalId.ToString()
+            roleDefinitionId = $groupsAdminRoleId
+            directoryScopeId = $scopeId
+        } | ConvertTo-Json -Compress
+        $null = Invoke-AzJson @('rest', '--method', 'POST', '--url', 'https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments', '--body', $roleBody)
+        Write-Host "Assigned Groups Administrator role to $WorkerPrincipalId on Administrative Unit $AdminUnitId."
+    }
+}
 if ($AssignGroupOwner) {
+    foreach ($prefix in @($GroupNamePrefixes | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        $escaped = $prefix.Trim().Replace("'", "''")
+        $filter = [uri]::EscapeDataString("startsWith(displayName,'$escaped')")
+        $groupsPage = Invoke-AzJson @('rest', '--method', 'GET', '--url', "https://graph.microsoft.com/v1.0/groups?`$filter=$filter&`$select=id,displayName")
+        foreach ($g in @($groupsPage.value)) {
+            if ($g.id) { $ownerGroupIds += ([guid]$g.id).ToString() }
+        }
+    }
+    $ownerGroupIds = @($ownerGroupIds | Sort-Object -Unique)
     foreach ($groupId in $ownerGroupIds) {
         $ownersUri = "https://graph.microsoft.com/v1.0/groups/$groupId/owners?`$select=id"
         $ownersPage = Invoke-AzJson @('rest', '--method', 'GET', '--url', $ownersUri)

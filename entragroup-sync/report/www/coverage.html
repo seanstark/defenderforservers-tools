@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cloud &amp; Entra ID group report — Cloud Server Correlation</title>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/coverage.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#coverage-main">Skip to report</a>
+  <header class="app-bar">
+    <a class="app-brand" href="/"><span class="brand-mark" aria-hidden="true">AE</span>Cloud Server Correlation</a>
+    <span class="app-context">Cloud Servers / Entra ID — Cloud &amp; Group Rollup</span>
+    <div class="actions"><span class="read-only">Read-only report</span><button id="theme-toggle" class="secondary theme-toggle" type="button" aria-label="Switch color theme">Dark mode</button><a href="/.auth/logout">Sign out</a></div>
+  </header>
+  <aside class="sidebar" aria-label="Report navigation">
+    <p class="nav-heading">ASSET MANAGEMENT</p>
+    <nav>
+      <a href="/"><span aria-hidden="true">01</span>Device inventory</a>
+      <a class="nav-current" href="/coverage.html" aria-current="page"><span aria-hidden="true">02</span>Cloud &amp; group report</a>
+      <div class="nav-sub" role="group" aria-label="Cloud and group report sections">
+        <a class="nav-child" href="#coverage-accounts">By AWS / GCP / Subscription</a>
+        <a class="nav-child" href="#coverage-groups">Entra ID groups &amp; empty</a>
+        <a class="nav-child" href="#coverage-empty-scopes">Scopes with 0 servers</a>
+      </div>
+      <a href="/#device-status"><span aria-hidden="true">03</span>Status breakdowns</a>
+      <a href="/#processing-health"><span aria-hidden="true">04</span>Function App &amp; logs</a>
+      <a href="/permissions.html"><span aria-hidden="true">05</span>Permissions &amp; readiness</a>
+      <a href="/docs.html"><span aria-hidden="true">06</span>Documentation &amp; APIs</a>
+      <div class="nav-sub" role="group" aria-label="Documentation sections">
+        <a class="nav-child" href="/docs.html#doc-archify">Architecture</a>
+        <a class="nav-child" href="/docs.html#doc-architecture">Workflow</a>
+        <a class="nav-child" href="/docs.html#doc-queries">KQL &amp; ARG queries</a>
+        <a class="nav-child" href="/docs.html#doc-apis">REST APIs</a>
+        <a class="nav-child" href="/docs.html#doc-permissions">Permissions &amp; RBAC</a>
+        <a class="nav-child" href="/docs.html#doc-scopes">Scope &amp; group routing</a>
+        <a class="nav-child" href="/docs.html#doc-troubleshooting">Troubleshooting</a>
+      </div>
+    </nav>
+    <div class="sidebar-note"><strong>Cloud &amp; group coverage</strong><p>AWS Accounts<br>GCP Projects<br>Azure Subscriptions<br>Entra ID security groups</p><span>Add-only synchronization.<br>No devices or members are deleted.</span></div>
+  </aside>
+  <main id="coverage-main" tabindex="-1">
+    <div class="page-heading">
+      <p class="eyebrow">CLOUD &amp; ENTRA ID GROUP ROLLUP</p>
+      <h1 id="coverage-title">Cloud account, subscription &amp; Entra ID group report</h1>
+      <p class="muted">Server totals per AWS Account, GCP Project, and Azure Subscription (MDE onboarding, Entra ID correlation, Active/Passive antivirus mode, and Arc/VM status), member counts per Entra ID group, empty Entra ID groups, and cloud accounts/projects/subscriptions with 0 servers.</p>
+    </div>
+    <p id="error" role="alert" hidden></p>
+    <section id="coverage-summary" class="cards summary-metrics" aria-label="Coverage rollup summary"></section>
+    <section id="coverage-accounts" class="panel function-panel" aria-labelledby="coverage-accounts-heading">
+      <div class="function-header">
+        <div>
+          <p class="eyebrow">CLOUD ACCOUNTS, PROJECTS &amp; SUBSCRIPTIONS</p>
+          <h2 id="coverage-accounts-heading">Servers per AWS Account, GCP Project &amp; Azure Subscription</h2>
+          <p class="muted">Breakdown of total servers, MDE onboarding, Entra ID correlation, Active/Passive mode, and Arc/VM connectivity per cloud scope.</p>
+        </div>
+        <div class="function-header-actions">
+          <button id="refresh-coverage" class="secondary" type="button">Refresh report</button>
+          <span id="updated" class="muted"></span>
+        </div>
+      </div>
+      <nav id="coverage-cloud-tabs" class="inventory-tabs coverage-tabs" aria-label="Filter cloud scopes">
+        <button type="button" data-cloud-filter="all" aria-pressed="true">All cloud scopes</button>
+        <button type="button" data-cloud-filter="AWS" aria-pressed="false">AWS Accounts</button>
+        <button type="button" data-cloud-filter="GCP" aria-pressed="false">GCP Projects</button>
+        <button type="button" data-cloud-filter="Azure" aria-pressed="false">Azure Subscriptions</button>
+        <button type="button" data-cloud-filter="ManagementGroup" aria-pressed="false">Azure Management Groups</button>
+        <button type="button" data-cloud-filter="empty" aria-pressed="false">0 servers only</button>
+      </nav>
+      <div class="filters">
+        <label class="inventory-search">Search accounts, projects, subscriptions, or management groups<input id="coverage-account-search" type="search" placeholder="Search AWS Account ID, GCP Project ID, Azure Subscription, or Management Group..."></label>
+        <label>Management group<select id="coverage-mg-filter"><option value="">All management groups</option></select></label>
+      </div>
+      <div class="table-caption"><p id="coverage-accounts-count" aria-live="polite"></p></div>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Servers per AWS Account, GCP Project, and Azure Subscription">
+        <table>
+          <caption class="sr-only">Server counts and MDE/Entra/Arc breakdown per AWS Account, GCP Project, and Azure Subscription</caption>
+          <thead>
+            <tr>
+              <th scope="col">Cloud Platform</th>
+              <th scope="col">AWS Account / GCP Project / Azure Subscription</th>
+              <th scope="col">Management Group</th>
+              <th scope="col">Total Servers</th>
+              <th scope="col"># Onboarded to MDE</th>
+              <th scope="col"># Correlated to Entra ID</th>
+              <th scope="col"># Not Correlated</th>
+              <th scope="col"># in Active Mode</th>
+              <th scope="col"># in Passive Mode</th>
+              <th scope="col"># by Arc / VM Status</th>
+            </tr>
+          </thead>
+          <tbody id="coverage-accounts-body"></tbody>
+        </table>
+      </div>
+    </section>
+    <section id="coverage-groups" class="panel function-panel" aria-labelledby="coverage-groups-heading">
+      <div class="function-header">
+        <div>
+          <p class="eyebrow">ENTRA ID SECURITY GROUPS</p>
+          <h2 id="coverage-groups-heading">Servers per Entra ID group &amp; groups without members</h2>
+          <p class="muted">Observed device counts per Cloud &times; OS Entra ID security group and identification of empty Entra ID groups (0 members).</p>
+        </div>
+      </div>
+      <nav id="coverage-group-tabs" class="inventory-tabs coverage-tabs" aria-label="Filter Entra ID groups">
+        <button type="button" data-group-filter="all" aria-pressed="true">All Entra ID groups</button>
+        <button type="button" data-group-filter="populated" aria-pressed="false">Groups with members</button>
+        <button type="button" data-group-filter="empty" aria-pressed="false">Groups without members (0)</button>
+      </nav>
+      <div class="filters">
+        <label class="inventory-search">Search Entra ID groups<input id="coverage-group-search" type="search" placeholder="Search group displayName, cloud, OS, mode, or account..."></label>
+      </div>
+      <div class="table-caption"><p id="coverage-groups-count" aria-live="polite"></p></div>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Servers per Entra ID group">
+        <table>
+          <caption class="sr-only">Member counts per Entra ID security group including groups with zero members</caption>
+          <thead>
+            <tr>
+              <th scope="col">Entra ID Group</th>
+              <th scope="col">Cloud Platform</th>
+              <th scope="col">Operating System</th>
+              <th scope="col">Group Mode</th>
+              <th scope="col">Account / Project / Subscription</th>
+              <th scope="col"># in Entra ID Group</th>
+              <th scope="col">Group Status</th>
+            </tr>
+          </thead>
+          <tbody id="coverage-groups-body"></tbody>
+        </table>
+      </div>
+    </section>
+    <section id="coverage-empty-scopes" class="panel function-panel" aria-labelledby="coverage-empty-scopes-heading">
+      <div class="function-header">
+        <div>
+          <p class="eyebrow">EMPTY CLOUD SCOPES</p>
+          <h2 id="coverage-empty-scopes-heading">AWS Accounts, GCP Projects &amp; Azure Subscriptions with no servers</h2>
+          <p class="muted">Configured or discovered AWS Accounts, GCP Projects, and Azure Subscriptions that currently have 0 discovered servers.</p>
+        </div>
+      </div>
+      <div class="table-caption"><p id="coverage-empty-scopes-count" aria-live="polite"></p></div>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Cloud scopes with zero servers">
+        <table>
+          <caption class="sr-only">AWS Accounts, GCP Projects, and Azure Subscriptions with zero servers</caption>
+          <thead>
+            <tr>
+              <th scope="col">Cloud Platform</th>
+              <th scope="col">AWS Account / GCP Project / Azure Subscription</th>
+              <th scope="col">Management Group</th>
+              <th scope="col">Discovery Source</th>
+              <th scope="col">Configured / Observed Entra ID Groups</th>
+              <th scope="col">Server Count</th>
+            </tr>
+          </thead>
+          <tbody id="coverage-empty-scopes-body"></tbody>
+        </table>
+      </div>
+    </section>
+    <footer>Background processing uses a separate managed identity. Times are shown in your local timezone.</footer>
+  </main>
+  <div id="hover-popover" class="hover-popover" role="tooltip" hidden></div>
+</body>
+</html>

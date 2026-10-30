@@ -1,0 +1,169 @@
+{
+  "properties": {
+    "displayName": "Audit Microsoft Defender for Endpoint SenseCM intuneDeviceId on Windows machines",
+    "policyType": "Custom",
+    "mode": "Indexed",
+    "description": "Audits and reports the intuneDeviceId from HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\SenseCM\\MemConfiguration\\EnrollmentPayload by using Azure Machine Configuration.",
+    "metadata": {
+      "category": "Guest Configuration",
+      "version": "1.0.0",
+      "requiredProviders": [
+        "Microsoft.GuestConfiguration"
+      ],
+      "guestConfiguration": {
+        "name": "entraiddeviceid",
+        "contentType": "Custom",
+        "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
+        "contentHash": "9F6C278B927C402F8EA81505B24211EDAB379030C2BFE55DF2337C6B1E81CC74",
+        "version": "1.0.0"
+      }
+    },
+    "parameters": {
+      "IncludeArcMachines": {
+        "type": "string",
+        "metadata": {
+          "displayName": "Include Arc connected machines",
+          "description": "By selecting this option, you agree to be charged monthly per Arc connected machine.",
+          "portalReview": "true"
+        },
+        "allowedValues": [
+          "true",
+          "false"
+        ],
+        "defaultValue": "true"
+      },
+      "tagName": {
+        "type": "string",
+        "metadata": {
+          "displayName": "Optional Azure tag name",
+          "description": "Name of the Azure resource tag used to filter machines. Leave blank to include all eligible Windows machines.",
+          "portalReview": "true"
+        },
+        "defaultValue": ""
+      },
+      "tagValue": {
+        "type": "string",
+        "metadata": {
+          "displayName": "Optional Azure tag value",
+          "description": "Required value for the Azure resource tag. Used only when a tag name is provided.",
+          "portalReview": "true"
+        },
+        "defaultValue": ""
+      }
+    },
+    "policyRule": {
+      "if": {
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "field": "type",
+                        "equals": "Microsoft.Compute/virtualMachines"
+                      },
+                      {
+                        "field": "type",
+                        "equals": "Microsoft.Compute/virtualMachineScaleSets"
+                      }
+                    ]
+                  },
+                  {
+                    "field": "tags['aks-managed-orchestrator']",
+                    "exists": "false"
+                  },
+                  {
+                    "field": "tags['aks-managed-poolName']",
+                    "exists": "false"
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "field": "Microsoft.Compute/virtualMachines/osProfile.windowsConfiguration",
+                        "exists": true
+                      },
+                      {
+                        "field": "Microsoft.Compute/virtualMachines/storageProfile.osDisk.osType",
+                        "like": "Windows*"
+                      },
+                      {
+                        "field": "Microsoft.Compute/VirtualMachineScaleSets/osProfile.windowsConfiguration",
+                        "exists": true
+                      },
+                      {
+                        "field": "Microsoft.Compute/virtualMachineScaleSets/virtualMachineProfile.storageProfile.osDisk.osType",
+                        "like": "Windows*"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "value": "[parameters('IncludeArcMachines')]",
+                    "equals": "true"
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "allOf": [
+                          {
+                            "field": "type",
+                            "equals": "Microsoft.HybridCompute/machines"
+                          },
+                          {
+                            "field": "Microsoft.HybridCompute/machines/osType",
+                            "like": "windows*"
+                          }
+                        ]
+                      },
+                      {
+                        "allOf": [
+                          {
+                            "field": "type",
+                            "equals": "Microsoft.ConnectedVMwarevSphere/virtualMachines"
+                          },
+                          {
+                            "field": "Microsoft.ConnectedVMwarevSphere/virtualMachines/osProfile.osType",
+                            "like": "windows*"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "anyOf": [
+              {
+                "value": "[empty(parameters('tagName'))]",
+                "equals": true
+              },
+              {
+                "field": "[concat('tags[', parameters('tagName'), ']')]",
+                "equals": "[parameters('tagValue')]"
+              }
+            ]
+          }
+        ]
+      },
+      "then": {
+        "effect": "auditIfNotExists",
+        "details": {
+          "type": "Microsoft.GuestConfiguration/guestConfigurationAssignments",
+          "name": "[concat('entraiddeviceid$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]",
+          "existenceCondition": {
+            "field": "Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus",
+            "equals": "Compliant"
+          }
+        }
+      }
+    }
+  },
+  "name": "d41f9b7e-8a24-43c1-b9e0-61c5a4f82e31"
+}

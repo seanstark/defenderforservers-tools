@@ -5,9 +5,15 @@ param(
     [guid[]]$SubscriptionIds = @(),
     [ValidatePattern('^[A-Za-z0-9._()-]{1,90}$')][string[]]$ManagementGroupIds = @(),
     [ValidatePattern('^[A-Za-z0-9._()-]{1,90}$')][string[]]$ResourceGroupNames = @(),
-    [guid]$TargetGroupId = [guid]::Empty,
-    [guid]$WindowsTargetGroupId = [guid]::Empty,
-    [guid]$LinuxTargetGroupId = [guid]::Empty,
+    [string]$AwsWindowsGroupPrefix = '',
+    [string]$AwsLinuxGroupPrefix = '',
+    [string]$GcpWindowsGroupPrefix = '',
+    [string]$GcpLinuxGroupPrefix = '',
+    [string]$AzureWindowsGroupPrefix = '',
+    [string]$AzureLinuxGroupPrefix = '',
+    [ValidateSet('Passive', 'Active')][string]$DefaultGroupMode = 'Passive',
+    [guid]$AdminUnitId = [guid]::Empty,
+    [bool]$AutoCreateGroups = $false,
     [Parameter(Mandatory)][guid]$ReportClientId,
     [Parameter(Mandatory)][securestring]$ReportClientSecret,
     [ValidateSet('Audit', 'Enforce')][string]$SyncMode = 'Audit',
@@ -20,8 +26,8 @@ $ErrorActionPreference = 'Stop'
 if (-not $SubscriptionIds.Count -and -not $ManagementGroupIds.Count) {
     throw 'At least one source subscription (-SubscriptionIds) or management group (-ManagementGroupIds) is required.'
 }
-if ($TargetGroupId -eq [guid]::Empty -and ($WindowsTargetGroupId -eq [guid]::Empty -or $LinuxTargetGroupId -eq [guid]::Empty)) {
-    throw 'Specify -TargetGroupId or both -WindowsTargetGroupId and -LinuxTargetGroupId.'
+if (-not ($AwsWindowsGroupPrefix -or $AwsLinuxGroupPrefix -or $GcpWindowsGroupPrefix -or $GcpLinuxGroupPrefix -or $AzureWindowsGroupPrefix -or $AzureLinuxGroupPrefix)) {
+    throw 'Specify at least one cloud OS group prefix (-AwsWindowsGroupPrefix, -AwsLinuxGroupPrefix, -GcpWindowsGroupPrefix, -GcpLinuxGroupPrefix, -AzureWindowsGroupPrefix, or -AzureLinuxGroupPrefix).'
 }
 
 function Invoke-Az {
@@ -63,9 +69,15 @@ $parameters = @{
     subscriptionIds = @{ value = @($SubscriptionIds | ForEach-Object ToString) }
     managementGroupIds = @{ value = @($ManagementGroupIds) }
     resourceGroupNames = @{ value = @($ResourceGroupNames) }
-    targetGroupId = @{ value = if ($TargetGroupId -ne [guid]::Empty) { $TargetGroupId.ToString() } else { '' } }
-    windowsTargetGroupId = @{ value = if ($WindowsTargetGroupId -ne [guid]::Empty) { $WindowsTargetGroupId.ToString() } else { '' } }
-    linuxTargetGroupId = @{ value = if ($LinuxTargetGroupId -ne [guid]::Empty) { $LinuxTargetGroupId.ToString() } else { '' } }
+    awsWindowsGroupPrefix = @{ value = $AwsWindowsGroupPrefix }
+    awsLinuxGroupPrefix = @{ value = $AwsLinuxGroupPrefix }
+    gcpWindowsGroupPrefix = @{ value = $GcpWindowsGroupPrefix }
+    gcpLinuxGroupPrefix = @{ value = $GcpLinuxGroupPrefix }
+    azureWindowsGroupPrefix = @{ value = $AzureWindowsGroupPrefix }
+    azureLinuxGroupPrefix = @{ value = $AzureLinuxGroupPrefix }
+    defaultGroupMode = @{ value = $DefaultGroupMode }
+    adminUnitId = @{ value = if ($AdminUnitId -ne [guid]::Empty) { $AdminUnitId.ToString() } else { '' } }
+    autoCreateGroups = @{ value = [bool]($AutoCreateGroups -or ($AdminUnitId -ne [guid]::Empty)) }
     reportClientId = @{ value = $ReportClientId.ToString() }
     syncMode = @{ value = $SyncMode }; schedule = @{ value = $Schedule }
     freshnessHours = @{ value = $FreshnessHours }; planSku = @{ value = $PlanSku }

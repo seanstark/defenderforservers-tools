@@ -4,6 +4,34 @@ $script:Tokens = @{}
 $script:SubscriptionNames = @{}
 $script:ManagementGroupSubscriptions = @{}
 $script:ManagementGroupCacheExpires = [datetimeoffset]::MinValue
+$script:GroupByNameCache = @{}
+$script:AdminUnitGroupsCache = @{}
+$script:CurrentRunTranscript = [Collections.Generic.List[string]]::new()
+
+function Start-SyncTranscript {
+    param([string]$Context)
+    $script:CurrentRunTranscript = [Collections.Generic.List[string]]::new()
+    Write-SyncTrace $Context "=== PowerShell execution started at $([datetimeoffset]::UtcNow.ToString('o')) ==="
+}
+
+function Write-SyncTrace {
+    param([string]$Component, [string]$Message, $Data = $null)
+    $ts = [datetimeoffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    $suffix = ''
+    if ($null -ne $Data) {
+        try {
+            $json = if ($Data -is [string]) { $Data } else { ConvertTo-Json -InputObject $Data -Depth 15 -Compress }
+            if ($json.Length -gt 24000) { $json = $json.Substring(0, 24000) + '...(truncated)' }
+            $suffix = "`n$json"
+        }
+        catch {}
+    }
+    $line = "[$ts][$Component] ${Message}${suffix}"
+    if ($null -ne $script:CurrentRunTranscript) {
+        $script:CurrentRunTranscript.Add($line)
+    }
+    Write-Information "[SyncTrace] $line" -InformationAction Continue
+}
 
 function Get-OptionalSetting {
     param([string]$Name)
@@ -22,21 +50,33 @@ function Get-Setting {
     return $value
 }
 
+function ConvertTo-CleanList {
+    param([string]$Raw)
+    if ([string]::IsNullOrWhiteSpace($Raw)) { return @() }
+    $trimmed = $Raw.Trim().Trim('[', ']')
+    if ([string]::IsNullOrWhiteSpace($trimmed)) { return @() }
+    return @($trimmed.Split(',', [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object {
+        $item = $_.Trim().Trim('"', "'")
+        if ($item -and $item.ToLowerInvariant() -notin @('none', 'null', 'all', '*', '[]', '<optional-rg-filter>')) {
+            $item
+        }
+    })
+}
+
 function Get-SyncConfig {
     $rawSubscriptions = Get-OptionalSetting 'SYNC_SUBSCRIPTION_IDS'
     $subscriptions = @()
     if ($rawSubscriptions) {
-        $subscriptions = @($rawSubscriptions.Split(',', [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object {
-            ([guid]$_.Trim()).ToString().ToLowerInvariant()
+        $subscriptions = @(ConvertTo-CleanList $rawSubscriptions | ForEach-Object {
+            ([guid]$_).ToString().ToLowerInvariant()
         } | Sort-Object -Unique)
     }
     $rawManagementGroups = Get-OptionalSetting 'SYNC_MANAGEMENT_GROUP_IDS'
     $managementGroups = @()
     if ($rawManagementGroups) {
-        $managementGroups = @($rawManagementGroups.Split(',', [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object {
-            $mg = $_.Trim()
-            if ($mg -notmatch '^[A-Za-z0-9._()-]{1,90}$') { throw "Invalid management group ID '$mg'." }
-            $mg
+        $managementGroups = @(ConvertTo-CleanList $rawManagementGroups | ForEach-Object {
+            if ($_ -notmatch '^[A-Za-z0-9._()-]{1,90}$') { throw "Invalid management group ID '$_'." }
+            $_
         } | Sort-Object -Unique)
     }
     if (-not $subscriptions.Count -and -not $managementGroups.Count) {
@@ -45,20 +85,39 @@ function Get-SyncConfig {
     $rawResourceGroups = Get-OptionalSetting 'SYNC_RESOURCE_GROUP_NAMES'
     $resourceGroups = @()
     if ($rawResourceGroups) {
-        $resourceGroups = @($rawResourceGroups.Split(',', [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object {
-            $rg = $_.Trim().ToLowerInvariant()
+        $resourceGroups = @(ConvertTo-CleanList $rawResourceGroups | ForEach-Object {
+            $rg = $_.ToLowerInvariant()
             if ($rg -notmatch '^[a-z0-9._()-]{1,90}$') { throw "Invalid resource group name '$rg'." }
             $rg
         } | Sort-Object -Unique)
     }
-    $defaultGroup = Get-OptionalSetting 'SYNC_GROUP_ID'
-    $groupId = if ($defaultGroup) { ([guid]$defaultGroup).ToString() } else { '' }
-    $rawWindowsGroup = Get-OptionalSetting 'SYNC_WINDOWS_GROUP_ID'
-    $windowsGroupId = if ($rawWindowsGroup) { ([guid]$rawWindowsGroup).ToString() } else { $groupId }
-    $rawLinuxGroup = Get-OptionalSetting 'SYNC_LINUX_GROUP_ID'
-    $linuxGroupId = if ($rawLinuxGroup) { ([guid]$rawLinuxGroup).ToString() } else { $groupId }
-    if (-not $groupId -and -not $windowsGroupId -and -not $linuxGroupId) {
-        throw "Configure 'SYNC_GROUP_ID' or OS-specific group IDs ('SYNC_WINDOWS_GROUP_ID' / 'SYNC_LINUX_GROUP_ID')."
+    $awsWindowsPrefix = Get-OptionalSetting 'SYNC_AWS_WINDOWS_GROUP_PREFIX'
+    $awsLinuxPrefix = Get-OptionalSetting 'SYNC_AWS_LINUX_GROUP_PREFIX'
+    $gcpWindowsPrefix = Get-OptionalSetting 'SYNC_GCP_WINDOWS_GROUP_PREFIX'
+    $gcpLinuxPrefix = Get-OptionalSetting 'SYNC_GCP_LINUX_GROUP_PREFIX'
+    $azureWindowsPrefix = Get-OptionalSetting 'SYNC_AZURE_WINDOWS_GROUP_PREFIX'
+    $azureLinuxPrefix = Get-OptionalSetting 'SYNC_AZURE_LINUX_GROUP_PREFIX'
+    if (-not ($awsWindowsPrefix -or $awsLinuxPrefix -or $gcpWindowsPrefix -or $gcpLinuxPrefix -or $azureWindowsPrefix -or $azureLinuxPrefix)) {
+        throw "At least one cloud OS group prefix ('SYNC_AWS_WINDOWS_GROUP_PREFIX', 'SYNC_AWS_LINUX_GROUP_PREFIX', 'SYNC_GCP_WINDOWS_GROUP_PREFIX', 'SYNC_GCP_LINUX_GROUP_PREFIX', 'SYNC_AZURE_WINDOWS_GROUP_PREFIX', or 'SYNC_AZURE_LINUX_GROUP_PREFIX') must be configured."
+    }
+    $defaultGroupMode = Get-Setting 'SYNC_DEFAULT_GROUP_MODE' 'Passive'
+    if ($defaultGroupMode -notin @('Passive', 'Active')) {
+        throw 'SYNC_DEFAULT_GROUP_MODE must be Passive or Active.'
+    }
+    $rawAdminUnitId = Get-OptionalSetting 'SYNC_ADMIN_UNIT_ID'
+    $adminUnitId = if ($rawAdminUnitId) { ([guid]$rawAdminUnitId).ToString().ToLowerInvariant() } else { '' }
+    $rawAutoCreate = Get-OptionalSetting 'SYNC_AUTO_CREATE_GROUPS'
+    $autoCreateGroups = if ($rawAutoCreate) {
+        if ($rawAutoCreate.ToLowerInvariant() -notin @('true', 'false', '1', '0')) {
+            throw 'SYNC_AUTO_CREATE_GROUPS must be true or false.'
+        }
+        $rawAutoCreate.ToLowerInvariant() -in @('true', '1')
+    }
+    else {
+        [bool]$adminUnitId
+    }
+    if ($autoCreateGroups -and -not $adminUnitId) {
+        throw "SYNC_ADMIN_UNIT_ID is required when SYNC_AUTO_CREATE_GROUPS is enabled."
     }
     $mode = Get-Setting 'SYNC_MODE' 'Audit'
     if ($mode -notin @('Audit', 'Enforce')) { throw 'SYNC_MODE must be Audit or Enforce.' }
@@ -68,44 +127,882 @@ function Get-SyncConfig {
         Subscriptions = $subscriptions
         ManagementGroups = $managementGroups
         ResourceGroups = $resourceGroups
-        GroupId = $groupId
-        WindowsGroupId = $windowsGroupId
-        LinuxGroupId = $linuxGroupId
+        AwsWindowsGroupPrefix = $awsWindowsPrefix
+        AwsLinuxGroupPrefix = $awsLinuxPrefix
+        GcpWindowsGroupPrefix = $gcpWindowsPrefix
+        GcpLinuxGroupPrefix = $gcpLinuxPrefix
+        AzureWindowsGroupPrefix = $azureWindowsPrefix
+        AzureLinuxGroupPrefix = $azureLinuxPrefix
+        DefaultGroupMode = $defaultGroupMode
+        AdminUnitId = $adminUnitId
+        AutoCreateGroups = $autoCreateGroups
         Mode = $mode
         FreshnessHours = $hours
     }
 }
 
-function Resolve-TargetGroupId {
-    param([hashtable]$Config, [string]$OSType)
+function Resolve-OSCategory {
+    param([string]$OSType)
     $os = $OSType.Trim().ToLowerInvariant()
-    if ($os.Contains('win') -and $Config.WindowsGroupId) { return $Config.WindowsGroupId }
-    if (($os.Contains('lin') -or $os.Contains('ubuntu') -or $os.Contains('redhat') -or $os.Contains('suse') -or $os.Contains('debian') -or $os.Contains('centos')) -and $Config.LinuxGroupId) {
-        return $Config.LinuxGroupId
+    if ($os.Contains('win')) { return 'Windows' }
+    if ($os -match 'lin|ubuntu|redhat|rhel|suse|sles|debian|centos|oracle|alma|rocky|mariner|azurelinux') {
+        return 'Linux'
     }
-    return $Config.GroupId
+    return ''
+}
+
+function Get-TagValueCaseInsensitive {
+    param($Tags, [string]$TagName)
+    if ($Tags -isnot [Collections.IDictionary]) { return '' }
+    foreach ($key in $Tags.Keys) {
+        if ([string]::Equals([string]$key, $TagName, [StringComparison]::OrdinalIgnoreCase)) {
+            return ([string]$Tags[$key]).Trim()
+        }
+    }
+    return ''
+}
+
+function Format-CloudGroupName {
+    param([string]$Prefix, [string]$GroupMode, [string]$Identifier)
+    if ([string]::IsNullOrWhiteSpace($Prefix) -or [string]::IsNullOrWhiteSpace($Identifier)) { return '' }
+    $mode = if ($GroupMode) { $GroupMode } else { 'Passive' }
+    if ($Prefix -match '(?i)\{mode\}') {
+        $withMode = [regex]::Replace($Prefix, '(?i)\{mode\}', $mode)
+        if ($withMode.Contains('{id}')) { return $withMode.Replace('{id}', $Identifier) }
+        if ($withMode.Contains('{0}')) { return $withMode.Replace('{0}', $Identifier) }
+        return "${withMode}${Identifier}"
+    }
+    if ($Prefix -match '^(.*?)(?i:active|passive)([-_]?)$') {
+        $sep = if ($Matches[2]) { $Matches[2] } else { '-' }
+        return "$($Matches[1])${mode}${sep}${Identifier}"
+    }
+    if ($Prefix.Contains('{id}')) {
+        return $Prefix.Replace('{id}', "${mode}-${Identifier}")
+    }
+    if ($Prefix.Contains('{0}')) {
+        return $Prefix.Replace('{0}', "${mode}-${Identifier}")
+    }
+    if ($Prefix.EndsWith('-') -or $Prefix.EndsWith('_')) {
+        return "${Prefix}${mode}-${Identifier}"
+    }
+    return "${Prefix}-${mode}-${Identifier}"
+}
+
+function Resolve-CloudGroupTarget {
+    param([hashtable]$Config, [hashtable]$State)
+    $osCategory = Resolve-OSCategory ([string]$State['OS'])
+    $awsAccountId = Get-TagValueCaseInsensitive $State['AzureTags'] 'AccountId'
+    $gcpProjectId = Get-TagValueCaseInsensitive $State['AzureTags'] 'ProjectId'
+    $providerText = "$($State['CloudProvider']) $($State['MdeCloudPlatforms'])".ToLowerInvariant()
+    $isAws = [bool]$awsAccountId -or $providerText -match '\b(aws|amazon)\b'
+    $isGcp = (-not $isAws) -and ([bool]$gcpProjectId -or $providerText -match '\b(gcp|google)\b')
+    $cloudType = ''
+    $identifier = ''
+    $prefix = ''
+    if ($isAws) {
+        $cloudType = 'AWS'
+        $identifier = $awsAccountId
+        $prefix = if ($osCategory -eq 'Windows') { [string]$Config.AwsWindowsGroupPrefix }
+        elseif ($osCategory -eq 'Linux') { [string]$Config.AwsLinuxGroupPrefix }
+        else { '' }
+    }
+    elseif ($isGcp) {
+        $cloudType = 'GCP'
+        $identifier = $gcpProjectId
+        $prefix = if ($osCategory -eq 'Windows') { [string]$Config.GcpWindowsGroupPrefix }
+        elseif ($osCategory -eq 'Linux') { [string]$Config.GcpLinuxGroupPrefix }
+        else { '' }
+    }
+    else {
+        $cloudType = 'Azure'
+        $identifier = ([string]$State['SubscriptionName']).Trim()
+        $prefix = if ($osCategory -eq 'Windows') { [string]$Config.AzureWindowsGroupPrefix }
+        elseif ($osCategory -eq 'Linux') { [string]$Config.AzureLinuxGroupPrefix }
+        else { '' }
+    }
+    $defaultMode = if ($Config['DefaultGroupMode']) { [string]$Config.DefaultGroupMode } else { 'Passive' }
+    $counterpartMode = if ($defaultMode -eq 'Passive') { 'Active' } else { 'Passive' }
+    if ([string]::IsNullOrWhiteSpace($prefix)) {
+        return @{
+            Enabled = $false; CloudType = $cloudType; OSCategory = $osCategory; CloudIdentifier = $identifier
+            DefaultGroupMode = $defaultMode; CounterpartGroupMode = $counterpartMode
+            GroupName = ''; CounterpartGroupName = ''; PassiveGroupName = ''; ActiveGroupName = ''
+        }
+    }
+    if (-not $identifier) {
+        return @{
+            Enabled = $true; CloudType = $cloudType; OSCategory = $osCategory; CloudIdentifier = ''
+            DefaultGroupMode = $defaultMode; CounterpartGroupMode = $counterpartMode
+            GroupName = ''; CounterpartGroupName = ''; PassiveGroupName = ''; ActiveGroupName = ''
+        }
+    }
+    $passiveGroupName = Format-CloudGroupName -Prefix $prefix -GroupMode 'Passive' -Identifier $identifier
+    $activeGroupName = Format-CloudGroupName -Prefix $prefix -GroupMode 'Active' -Identifier $identifier
+    $groupName = if ($defaultMode -eq 'Passive') { $passiveGroupName } else { $activeGroupName }
+    $counterpartGroupName = if ($defaultMode -eq 'Passive') { $activeGroupName } else { $passiveGroupName }
+    return @{
+        Enabled = $true
+        CloudType = $cloudType
+        OSCategory = $osCategory
+        CloudIdentifier = $identifier
+        DefaultGroupMode = $defaultMode
+        CounterpartGroupMode = $counterpartMode
+        GroupName = $groupName
+        CounterpartGroupName = $counterpartGroupName
+        PassiveGroupName = $passiveGroupName
+        ActiveGroupName = $activeGroupName
+    }
+}
+
+function ConvertFrom-CloudGroupDisplayName {
+    param([hashtable]$Config, [string]$DisplayName)
+    if ([string]::IsNullOrWhiteSpace($DisplayName)) { return @{ Matched = $false } }
+    $specs = @(
+        @{ CloudType = 'AWS'; OSCategory = 'Windows'; Prefix = [string]$Config['AwsWindowsGroupPrefix'] }
+        @{ CloudType = 'AWS'; OSCategory = 'Linux'; Prefix = [string]$Config['AwsLinuxGroupPrefix'] }
+        @{ CloudType = 'GCP'; OSCategory = 'Windows'; Prefix = [string]$Config['GcpWindowsGroupPrefix'] }
+        @{ CloudType = 'GCP'; OSCategory = 'Linux'; Prefix = [string]$Config['GcpLinuxGroupPrefix'] }
+        @{ CloudType = 'Azure'; OSCategory = 'Windows'; Prefix = [string]$Config['AzureWindowsGroupPrefix'] }
+        @{ CloudType = 'Azure'; OSCategory = 'Linux'; Prefix = [string]$Config['AzureLinuxGroupPrefix'] }
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Prefix) } | Sort-Object { $_.Prefix.Length } -Descending
+    foreach ($spec in $specs) {
+        $rawPrefix = $spec.Prefix
+        $basePrefix = [regex]::Replace($rawPrefix, '(?i)(\{mode\}|\{id\}|\{0\}|(?:active|passive)[-_]?)$', '')
+        if ($DisplayName.StartsWith($basePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            $rest = $DisplayName.Substring($basePrefix.Length).TrimStart('-', '_')
+            $groupMode = if ($Config['DefaultGroupMode']) { [string]$Config.DefaultGroupMode } else { 'Passive' }
+            $cloudId = $rest
+            if ($rest -match '^(?i)(active|passive)[-_](.+)$') {
+                $groupMode = if ($Matches[1].ToLowerInvariant() -eq 'active') { 'Active' } else { 'Passive' }
+                $cloudId = $Matches[2].Trim()
+            }
+            if ($cloudId) {
+                return @{
+                    Matched = $true
+                    CloudType = $spec.CloudType
+                    OSCategory = $spec.OSCategory
+                    GroupMode = $groupMode
+                    CloudIdentifier = $cloudId
+                    DisplayName = $DisplayName
+                }
+            }
+        }
+    }
+    return @{ Matched = $false }
+}
+
+function Get-AdminUnitGroups {
+    param([string]$AdminUnitId)
+    if (-not $AdminUnitId) { return @() }
+    if ($script:AdminUnitGroupsCache.ContainsKey($AdminUnitId)) {
+        return $script:AdminUnitGroupsCache[$AdminUnitId]
+    }
+    $groups = [Collections.Generic.List[hashtable]]::new()
+    $next = "/directory/administrativeUnits/$AdminUnitId/members/microsoft.graph.group?`$select=id,displayName,securityEnabled,groupTypes,onPremisesSyncEnabled,isAssignableToRole&`$top=100"
+    while ($next) {
+        $response = Read-JsonResponse (Invoke-Graph -Path $next)
+        foreach ($item in @($response.value)) {
+            if ($item -is [Collections.IDictionary] -and $item['id'] -and $item['displayName']) {
+                $groups.Add($item)
+            }
+        }
+        $next = if ($response.ContainsKey('@odata.nextLink')) { [string]$response['@odata.nextLink'] } else { '' }
+    }
+    $result = @($groups)
+    $script:AdminUnitGroupsCache[$AdminUnitId] = $result
+    return $result
+}
+
+function Get-DeviceCloudGroups {
+    param([hashtable]$Config, [string]$ObjectId)
+    if (-not $Config -or -not $ObjectId) { return @() }
+    if ($Config['AdminUnitId']) {
+        $auGroups = @(Get-AdminUnitGroups ([string]$Config['AdminUnitId']))
+        $matched = foreach ($item in $auGroups) {
+            $name = [string](Get-InventoryValue $item @('displayName'))
+            $parsed = ConvertFrom-CloudGroupDisplayName -Config $Config -DisplayName $name
+            if ($parsed.Matched -and $item['id']) {
+                $gid = ([guid]$item.id).ToString()
+                if (Test-DirectMembership $gid $ObjectId) {
+                    @{
+                        Id = $gid
+                        DisplayName = $name
+                        CloudType = $parsed.CloudType
+                        OSCategory = $parsed.OSCategory
+                        GroupMode = $parsed.GroupMode
+                        CloudIdentifier = $parsed.CloudIdentifier
+                    }
+                }
+            }
+        }
+        return @($matched)
+    }
+    $response = Read-JsonResponse (Invoke-Graph -Path "/devices/$ObjectId/memberOf?`$select=id,displayName,securityEnabled,groupTypes,onPremisesSyncEnabled,isAssignableToRole&`$top=100")
+    if (-not $response.ContainsKey('value')) { return @() }
+    $matched = foreach ($item in @($response.value)) {
+        $name = [string](Get-InventoryValue $item @('displayName'))
+        $parsed = ConvertFrom-CloudGroupDisplayName -Config $Config -DisplayName $name
+        if ($parsed.Matched) {
+            @{
+                Id = ([guid]$item.id).ToString()
+                DisplayName = $name
+                CloudType = $parsed.CloudType
+                OSCategory = $parsed.OSCategory
+                GroupMode = $parsed.GroupMode
+                CloudIdentifier = $parsed.CloudIdentifier
+            }
+        }
+    }
+    return @($matched)
+}
+
+function Update-GroupComplianceFlags {
+    param([hashtable]$State)
+    $flags = [Collections.Generic.List[string]]::new()
+    $codes = [Collections.Generic.List[string]]::new()
+    $memberGroups = @($State['MemberGroups'] | Where-Object { $null -ne $_ })
+    if ($memberGroups.Count -gt 1) {
+        $codes.Add('MultipleGroups')
+        $names = @($memberGroups | ForEach-Object { [string]$_['DisplayName'] }) -join ', '
+        $flags.Add("Multiple groups ($($memberGroups.Count)): $names")
+    }
+    foreach ($g in $memberGroups) {
+        $gName = [string]$g['DisplayName']
+        $gCloud = [string]$g['CloudType']
+        $gOS = [string]$g['OSCategory']
+        $gId = [string]$g['CloudIdentifier']
+        $gMode = [string]$g['GroupMode']
+        if ($gCloud -and $State['CloudGroupType'] -and $gCloud -ne $State['CloudGroupType']) {
+            if ('WrongGroup' -notin $codes) { $codes.Add('WrongGroup') }
+            $flags.Add("Wrong group (Cloud mismatch): in $gName ($gCloud) but machine is $($State['CloudGroupType'])")
+        }
+        elseif ($gId -and $State['CloudIdentifier'] -and -not [string]::Equals($gId, [string]$State['CloudIdentifier'], [StringComparison]::OrdinalIgnoreCase)) {
+            if ('WrongGroup' -notin $codes) { $codes.Add('WrongGroup') }
+            $idLabel = switch ([string]$State['CloudGroupType']) {
+                'AWS' { 'AWS Account ID' }
+                'GCP' { 'GCP Project' }
+                default { 'Subscription' }
+            }
+            $flags.Add("Wrong group ($idLabel mismatch): in $gName ($gId) but machine $idLabel is $($State['CloudIdentifier'])")
+        }
+        if ($gOS -and $State['CloudGroupOS'] -and $gOS -ne $State['CloudGroupOS']) {
+            if ('WrongGroup' -notin $codes) { $codes.Add('WrongGroup') }
+            $flags.Add("Wrong group (OS mismatch): in $gName ($gOS) but machine OS is $($State['CloudGroupOS'])")
+        }
+        if ($gMode -eq 'Active' -and $State['MdeAntivirusMode'] -in @('Passive', 'PassiveAudit')) {
+            if ('AvModeMismatchShouldBeActive' -notin $codes) { $codes.Add('AvModeMismatchShouldBeActive') }
+            $flags.Add("Should be Active: in Active group ($gName) but MDE mode is $($State['MdeAntivirusMode'])")
+        }
+        elseif ($gMode -eq 'Passive' -and $State['MdeAntivirusMode'] -eq 'Active') {
+            if ('AvModeMismatchShouldBeActive' -notin $codes) { $codes.Add('AvModeMismatchShouldBeActive') }
+            $flags.Add("Should be Active: in Passive group ($gName) but MDE mode is Active")
+        }
+    }
+    $State.GroupFlags = @($flags)
+    $State.GroupFlagCodes = @($codes)
+    $State.GroupComplianceStatus = if ($flags.Count -gt 0) { 'Flagged' } elseif ($memberGroups.Count -gt 0) { 'Compliant' } else { 'NotInGroup' }
+}
+
+function Resolve-GroupByDisplayName {
+    param([string]$DisplayName, [string]$AdminUnitId = (Get-OptionalSetting 'SYNC_ADMIN_UNIT_ID'))
+    if ($script:GroupByNameCache.ContainsKey($DisplayName)) {
+        return $script:GroupByNameCache[$DisplayName]
+    }
+    $group = $null
+    if ($AdminUnitId) {
+        $auMatches = @(Get-AdminUnitGroups $AdminUnitId | Where-Object {
+            [string]::Equals([string]$_['displayName'], $DisplayName, [StringComparison]::OrdinalIgnoreCase)
+        })
+        if ($auMatches.Count -gt 1) {
+            throw "Multiple Entra security groups in Administrative Unit '$AdminUnitId' matched display name '$DisplayName'."
+        }
+        if (-not $auMatches.Count) { return $null }
+        $group = $auMatches[0]
+    }
+    else {
+        $escaped = $DisplayName.Replace("'", "''")
+        $filter = [uri]::EscapeDataString("displayName eq '$escaped'")
+        $response = Read-JsonResponse (Invoke-Graph -Path "/groups?`$filter=$filter&`$select=id,displayName,securityEnabled,groupTypes,onPremisesSyncEnabled,isAssignableToRole&`$top=2")
+        if ($response.ContainsKey('@odata.nextLink') -or @($response.value).Count -gt 1) {
+            throw "Multiple Entra security groups matched display name '$DisplayName'."
+        }
+        if (-not @($response.value).Count) { return $null }
+        $group = $response.value[0]
+    }
+    if ($group.securityEnabled -ne $true -or 'DynamicMembership' -in $group.groupTypes -or
+        'Unified' -in $group.groupTypes -or $group.onPremisesSyncEnabled -eq $true -or $group.isAssignableToRole -eq $true) {
+        throw "Target group '$DisplayName' must be a cloud-managed, assigned, non-role-assignable security group."
+    }
+    $resolved = @{ Id = ([guid]$group.id).ToString(); DisplayName = [string]$group.displayName }
+    $script:GroupByNameCache[$DisplayName] = $resolved
+    return $resolved
+}
+
+function New-AdminUnitSecurityGroup {
+    param([string]$AdminUnitId, [string]$DisplayName, [string]$Description = '', [hashtable]$State = $null)
+    if (-not $AdminUnitId) { throw 'AdminUnitId is required to create a group in an Administrative Unit.' }
+    if ($script:GroupByNameCache.ContainsKey($DisplayName)) {
+        return $script:GroupByNameCache[$DisplayName]
+    }
+    if ($State -and $State['Key']) {
+        $intent = @{
+            Timestamp = [datetimeoffset]::UtcNow.ToString('o')
+            Action = 'GroupCreateRequested'
+            RunId = [string]$State['RunId']
+            ArcResourceId = [string]$State['ArcResourceId']
+            GroupName = $DisplayName
+            AdminUnitId = $AdminUnitId
+        }
+        $null = Invoke-Table -Path 'machines' -Method POST -Body (New-HistoryEntity $State.Key $intent)
+    }
+    $slug = [regex]::Replace($DisplayName.ToLowerInvariant(), '[^a-z0-9]', '')
+    if (-not $slug) { $slug = 'group' }
+    $mailNickname = "mdfs-$($slug.Substring(0, [math]::Min(48, $slug.Length)))"
+    $body = @{
+        '@odata.type' = '#microsoft.graph.group'
+        displayName = $DisplayName
+        description = if ($Description) { $Description } else { "Auto-created by Arc-to-Entra Sync ($DisplayName)" }
+        mailEnabled = $false
+        mailNickname = $mailNickname
+        securityEnabled = $true
+        groupTypes = @()
+    }
+    $response = Invoke-Graph -Path "/directory/administrativeUnits/$AdminUnitId/members" -Method POST -Body $body -AllowStatus @(400, 409)
+    if ($response.Status -in @(400, 409)) {
+        $script:AdminUnitGroupsCache.Remove($AdminUnitId)
+        $existing = Resolve-GroupByDisplayName -DisplayName $DisplayName -AdminUnitId $AdminUnitId
+        if ($null -ne $existing) { return $existing }
+        throw "Failed to create Entra security group '$DisplayName' in Administrative Unit '$AdminUnitId' (HTTP $($response.Status))."
+    }
+    $created = Read-JsonResponse $response
+    $resolved = @{ Id = ([guid]$created.id).ToString(); DisplayName = [string]$created.displayName }
+    $script:GroupByNameCache[$DisplayName] = $resolved
+    if ($script:AdminUnitGroupsCache.ContainsKey($AdminUnitId)) {
+        $script:AdminUnitGroupsCache[$AdminUnitId] = @($script:AdminUnitGroupsCache[$AdminUnitId]) + @(@{
+            id = $resolved.Id
+            displayName = $resolved.DisplayName
+            securityEnabled = $true
+            groupTypes = @()
+            onPremisesSyncEnabled = $null
+            isAssignableToRole = $false
+        })
+    }
+    return $resolved
+}
+
+function Get-CoverageCatalog {
+    param([hashtable]$Config)
+    $managedGroups = [Collections.Generic.List[hashtable]]::new()
+    $seenGroupNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $cloudScopes = [Collections.Generic.List[hashtable]]::new()
+    $seenScopes = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($subId in @($Config['Subscriptions'])) {
+        try {
+            $subName = Get-SubscriptionName $subId
+            $scopeKey = "Azure:$subName"
+            if ($subName -and $seenScopes.Add($scopeKey)) {
+                $cloudScopes.Add(@{
+                    CloudType = 'Azure'
+                    CloudIdentifier = $subName
+                    SubscriptionId = $subId
+                    ManagementGroup = ''
+                    Source = 'Scoped Azure Subscription'
+                })
+            }
+        }
+        catch {}
+    }
+    foreach ($mg in @($Config['ManagementGroups'])) {
+        try {
+            foreach ($subId in @(Get-ManagementGroupSubscriptions $mg)) {
+                $subName = Get-SubscriptionName $subId
+                $scopeKey = "Azure:$subName"
+                if ($subName -and $seenScopes.Add($scopeKey)) {
+                    $cloudScopes.Add(@{
+                        CloudType = 'Azure'
+                        CloudIdentifier = $subName
+                        SubscriptionId = $subId
+                        ManagementGroup = $mg
+                        Source = "Management Group ($mg)"
+                    })
+                }
+            }
+        }
+        catch {}
+    }
+    if ($Config['AdminUnitId']) {
+        try {
+            foreach ($g in @(Get-AdminUnitGroups ([string]$Config['AdminUnitId']))) {
+                $gName = [string](Get-InventoryValue $g @('displayName'))
+                $parsed = ConvertFrom-CloudGroupDisplayName -Config $Config -DisplayName $gName
+                if ($parsed.Matched -and $seenGroupNames.Add($gName)) {
+                    $managedGroups.Add(@{
+                        Id = ([guid]$g.id).ToString()
+                        DisplayName = $gName
+                        CloudType = $parsed.CloudType
+                        OSCategory = $parsed.OSCategory
+                        GroupMode = $parsed.GroupMode
+                        CloudIdentifier = $parsed.CloudIdentifier
+                    })
+                    $scopeKey = "$($parsed.CloudType):$($parsed.CloudIdentifier)"
+                    if ($seenScopes.Add($scopeKey)) {
+                        $cloudScopes.Add(@{
+                            CloudType = $parsed.CloudType
+                            CloudIdentifier = $parsed.CloudIdentifier
+                            SubscriptionId = ''
+                            Source = "Entra ID Group ($gName)"
+                        })
+                    }
+                }
+            }
+        }
+        catch {}
+    }
+    else {
+        $prefixes = @(
+            $Config['AwsWindowsGroupPrefix'], $Config['AwsLinuxGroupPrefix'],
+            $Config['GcpWindowsGroupPrefix'], $Config['GcpLinuxGroupPrefix'],
+            $Config['AzureWindowsGroupPrefix'], $Config['AzureLinuxGroupPrefix']
+        ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object {
+            [regex]::Replace([string]$_, '(?i)(\{mode\}|\{id\}|\{0\}|(?:active|passive)[-_]?)$', '')
+        } | Sort-Object -Unique
+        foreach ($basePrefix in $prefixes) {
+            try {
+                $escaped = $basePrefix.Replace("'", "''")
+                $filter = [uri]::EscapeDataString("startsWith(displayName,'$escaped')")
+                $response = Read-JsonResponse (Invoke-Graph -Path "/groups?`$filter=$filter&`$select=id,displayName,securityEnabled,groupTypes,onPremisesSyncEnabled,isAssignableToRole&`$top=100")
+                foreach ($g in @($response.value)) {
+                    $gName = [string](Get-InventoryValue $g @('displayName'))
+                    $parsed = ConvertFrom-CloudGroupDisplayName -Config $Config -DisplayName $gName
+                    if ($parsed.Matched -and $seenGroupNames.Add($gName)) {
+                        $managedGroups.Add(@{
+                            Id = ([guid]$g.id).ToString()
+                            DisplayName = $gName
+                            CloudType = $parsed.CloudType
+                            OSCategory = $parsed.OSCategory
+                            GroupMode = $parsed.GroupMode
+                            CloudIdentifier = $parsed.CloudIdentifier
+                        })
+                        $scopeKey = "$($parsed.CloudType):$($parsed.CloudIdentifier)"
+                        if ($seenScopes.Add($scopeKey)) {
+                            $cloudScopes.Add(@{
+                                CloudType = $parsed.CloudType
+                                CloudIdentifier = $parsed.CloudIdentifier
+                                SubscriptionId = ''
+                                Source = "Entra ID Group ($gName)"
+                            })
+                        }
+                    }
+                }
+            }
+            catch {}
+        }
+    }
+    return @{
+        ManagedGroups = @($managedGroups)
+        CloudScopes = @($cloudScopes)
+    }
 }
 
 function Get-FunctionParametersSummary {
     $rawSubs = Get-OptionalSetting 'SYNC_SUBSCRIPTION_IDS'
     $rawMgs = Get-OptionalSetting 'SYNC_MANAGEMENT_GROUP_IDS'
     $rawRgs = Get-OptionalSetting 'SYNC_RESOURCE_GROUP_NAMES'
-    $defaultGroup = Get-OptionalSetting 'SYNC_GROUP_ID'
-    $winGroup = Get-OptionalSetting 'SYNC_WINDOWS_GROUP_ID'
-    $linGroup = Get-OptionalSetting 'SYNC_LINUX_GROUP_ID'
+    $defaultGroupMode = Get-Setting 'SYNC_DEFAULT_GROUP_MODE' 'Passive'
+    $adminUnitId = Get-OptionalSetting 'SYNC_ADMIN_UNIT_ID'
+    $rawAutoCreate = Get-OptionalSetting 'SYNC_AUTO_CREATE_GROUPS'
+    $autoCreate = if ($rawAutoCreate) { $rawAutoCreate } elseif ($adminUnitId) { 'true (enabled via SYNC_ADMIN_UNIT_ID)' } else { 'false' }
+    $awsWin = Get-OptionalSetting 'SYNC_AWS_WINDOWS_GROUP_PREFIX'
+    $awsLin = Get-OptionalSetting 'SYNC_AWS_LINUX_GROUP_PREFIX'
+    $gcpWin = Get-OptionalSetting 'SYNC_GCP_WINDOWS_GROUP_PREFIX'
+    $gcpLin = Get-OptionalSetting 'SYNC_GCP_LINUX_GROUP_PREFIX'
+    $azWin = Get-OptionalSetting 'SYNC_AZURE_WINDOWS_GROUP_PREFIX'
+    $azLin = Get-OptionalSetting 'SYNC_AZURE_LINUX_GROUP_PREFIX'
     [ordered]@{
         SYNC_MODE = Get-Setting 'SYNC_MODE' 'Audit'
+        SYNC_DEFAULT_GROUP_MODE = $defaultGroupMode
+        SYNC_ADMIN_UNIT_ID = if ($adminUnitId) { $adminUnitId } else { 'Not configured (pre-created groups only)' }
+        SYNC_AUTO_CREATE_GROUPS = $autoCreate
         SYNC_SCHEDULE = Get-Setting 'SYNC_SCHEDULE' '0 */30 * * * *'
         SYNC_FRESHNESS_HOURS = Get-Setting 'SYNC_FRESHNESS_HOURS' '24'
-        SYNC_GROUP_ID = if ($defaultGroup) { $defaultGroup } else { 'Not configured (using OS-specific groups)' }
-        SYNC_WINDOWS_GROUP_ID = if ($winGroup) { $winGroup } elseif ($defaultGroup) { "$defaultGroup (inherited from SYNC_GROUP_ID)" } else { 'Not configured' }
-        SYNC_LINUX_GROUP_ID = if ($linGroup) { $linGroup } elseif ($defaultGroup) { "$defaultGroup (inherited from SYNC_GROUP_ID)" } else { 'Not configured' }
+        SYNC_AWS_WINDOWS_GROUP_PREFIX = if ($awsWin) { "${awsWin}{Passive|Active}-<AccountId> (default: $(Format-CloudGroupName $awsWin $defaultGroupMode '<AccountId>'))" } else { 'Not configured' }
+        SYNC_AWS_LINUX_GROUP_PREFIX = if ($awsLin) { "${awsLin}{Passive|Active}-<AccountId> (default: $(Format-CloudGroupName $awsLin $defaultGroupMode '<AccountId>'))" } else { 'Not configured' }
+        SYNC_GCP_WINDOWS_GROUP_PREFIX = if ($gcpWin) { "${gcpWin}{Passive|Active}-<ProjectId> (default: $(Format-CloudGroupName $gcpWin $defaultGroupMode '<ProjectId>'))" } else { 'Not configured' }
+        SYNC_GCP_LINUX_GROUP_PREFIX = if ($gcpLin) { "${gcpLin}{Passive|Active}-<ProjectId> (default: $(Format-CloudGroupName $gcpLin $defaultGroupMode '<ProjectId>'))" } else { 'Not configured' }
+        SYNC_AZURE_WINDOWS_GROUP_PREFIX = if ($azWin) { "${azWin}{Passive|Active}-<SubscriptionName> (default: $(Format-CloudGroupName $azWin $defaultGroupMode '<SubscriptionName>'))" } else { 'Not configured' }
+        SYNC_AZURE_LINUX_GROUP_PREFIX = if ($azLin) { "${azLin}{Passive|Active}-<SubscriptionName> (default: $(Format-CloudGroupName $azLin $defaultGroupMode '<SubscriptionName>'))" } else { 'Not configured' }
         SYNC_SUBSCRIPTION_IDS = if ($rawSubs) { $rawSubs } else { 'None (using Management Group scope)' }
         SYNC_MANAGEMENT_GROUP_IDS = if ($rawMgs) { $rawMgs } else { 'None' }
         SYNC_RESOURCE_GROUP_NAMES = if ($rawRgs) { $rawRgs } else { 'All resource groups in scope' }
         SYNC_TENANT_ID = Get-OptionalSetting 'SYNC_TENANT_ID'
         SYNC_STORAGE_ACCOUNT = Get-OptionalSetting 'SYNC_STORAGE_ACCOUNT'
         ServiceBusNamespace = Get-OptionalSetting 'ServiceBusConnection__fullyQualifiedNamespace'
+    }
+}
+
+function Get-PermissionsValidationReport {
+    param(
+        [hashtable]$Config = $null,
+        [int]$DiscoveredMachinesCount = -1,
+        [int]$ArgMachineRows = -1,
+        [int]$ArgVmssRows = -1,
+        [hashtable]$Catalog = $null
+    )
+    if (-not $Config) { $Config = Get-SyncConfig }
+    $tenantId = Get-OptionalSetting 'SYNC_TENANT_ID'
+    $checkedAt = [datetimeoffset]::UtcNow.ToString('o')
+    $graphClaims = Get-TokenClaims 'https://graph.microsoft.com/'
+    $armClaims = Get-TokenClaims 'https://management.azure.com/'
+    $workerOid = if ($graphClaims['oid']) { [string]$graphClaims['oid'] } elseif ($armClaims['oid']) { [string]$armClaims['oid'] } else { '' }
+    $workerOidHint = if ($workerOid) { $workerOid } else { '<worker-managed-identity-principal-id>' }
+    $graphRoles = @()
+    if ($graphClaims['roles']) {
+        $graphRoles = @($graphClaims['roles'] | ForEach-Object { [string]$_ } | Where-Object { $_ } | Sort-Object -Unique)
+    }
+    $funcResourceId = Get-FunctionAppResourceId
+    $workerAppName = if ($funcResourceId) { $funcResourceId.Split('/')[-1] } else { Get-OptionalSetting 'WEBSITE_SITE_NAME' }
+    $checks = [Collections.Generic.List[hashtable]]::new()
+
+    # 1. Azure RBAC: Reader on target Subscriptions / Management Groups
+    $accessibleSubs = [Collections.Generic.List[string]]::new()
+    $deniedSubs = [Collections.Generic.List[string]]::new()
+    foreach ($subId in @($Config.Subscriptions)) {
+        try {
+            $subResp = Invoke-CloudRequest -Uri "https://management.azure.com/subscriptions/${subId}?api-version=2022-12-01" -Resource 'https://management.azure.com/' -AllowStatus @(401, 403, 404)
+            if ($subResp.Status -ge 200 -and $subResp.Status -lt 300) {
+                $subJson = Read-JsonResponse $subResp
+                $accessibleSubs.Add("$($subJson.displayName) ($subId)")
+            }
+            else {
+                $deniedSubs.Add("$subId (HTTP $($subResp.Status))")
+            }
+        }
+        catch {
+            $deniedSubs.Add("$subId ($($_.Exception.Message))")
+        }
+    }
+    $mgAccessibleCount = 0
+    $mgError = ''
+    if ($Config.ManagementGroups.Count) {
+        try {
+            $mgSubs = @(Get-ManagementGroupSubscriptions $Config.ManagementGroups)
+            $mgAccessibleCount = $mgSubs.Count
+        }
+        catch {
+            $mgError = $_.Exception.Message
+        }
+    }
+    $scopeLabelParts = @()
+    if ($Config.Subscriptions.Count) { $scopeLabelParts += "Subscriptions: $($Config.Subscriptions -join ', ')" }
+    if ($Config.ManagementGroups.Count) { $scopeLabelParts += "Management Groups: $($Config.ManagementGroups -join ', ')" }
+    if ($Config.ResourceGroups.Count) { $scopeLabelParts += "Resource Groups: $($Config.ResourceGroups -join ', ')" }
+    $scopeLabel = $scopeLabelParts -join ' | '
+    $firstSub = if ($Config.Subscriptions.Count) { $Config.Subscriptions[0] } else { '<subscription-guid>' }
+    $firstMg = if ($Config.ManagementGroups.Count) { $Config.ManagementGroups[0] } else { '<management-group-id>' }
+    $readerRemediation = if ($Config.ManagementGroups.Count) {
+        "az role assignment create --assignee-object-id $workerOidHint --assignee-principal-type ServicePrincipal --role 'Reader' --scope '/providers/Microsoft.Management/managementGroups/$firstMg'"
+    }
+    else {
+        "az role assignment create --assignee-object-id $workerOidHint --assignee-principal-type ServicePrincipal --role 'Reader' --scope '/subscriptions/$firstSub'"
+    }
+    if ($deniedSubs.Count -gt 0 -or $mgError -or ($Config.ManagementGroups.Count -gt 0 -and $mgAccessibleCount -eq 0 -and $accessibleSubs.Count -eq 0)) {
+        $checks.Add(@{
+            Id = 'azure-rbac-reader'
+            Category = 'Azure RBAC'
+            Principal = "Worker Managed Identity ($workerOidHint)"
+            Permission = 'Reader'
+            Scope = $scopeLabel
+            RequiredFor = 'All Modes (Azure Resource Graph Discovery)'
+            Status = 'Missing'
+            Details = "Worker Managed Identity could not read one or more configured Azure scopes (Denied subscriptions: $($deniedSubs -join ', '); MG subscriptions visible: $mgAccessibleCount$(if ($mgError) { "; error: $mgError" })). Without Reader, Azure Resource Graph returns 0 rows."
+            Remediation = $readerRemediation
+        })
+    }
+    elseif ($DiscoveredMachinesCount -eq 0) {
+        $checks.Add(@{
+            Id = 'azure-rbac-reader'
+            Category = 'Azure RBAC'
+            Principal = "Worker Managed Identity ($workerOidHint)"
+            Permission = 'Reader'
+            Scope = $scopeLabel
+            RequiredFor = 'All Modes (Azure Resource Graph Discovery)'
+            Status = 'Warning'
+            Details = "Subscription/Management Group container is readable ($($accessibleSubs.Count + $mgAccessibleCount) subscription(s) visible), but Azure Resource Graph returned 0 servers in scope. Verify Reader is assigned at the full target scope and that Arc or Azure VMs exist in the configured resource groups."
+            Remediation = $readerRemediation
+        })
+    }
+    else {
+        $discoveredNote = if ($DiscoveredMachinesCount -ge 0) { "; $DiscoveredMachinesCount server(s) discovered in Azure Resource Graph" } else { '' }
+        $checks.Add(@{
+            Id = 'azure-rbac-reader'
+            Category = 'Azure RBAC'
+            Principal = "Worker Managed Identity ($workerOidHint)"
+            Permission = 'Reader'
+            Scope = $scopeLabel
+            RequiredFor = 'All Modes (Azure Resource Graph Discovery)'
+            Status = 'Granted'
+            Details = "Verified Azure Reader access across configured scope ($($accessibleSubs.Count) direct subscription(s), $mgAccessibleCount MG subscription(s) visible$discoveredNote)."
+            Remediation = ''
+        })
+    }
+
+    # 2. Microsoft Graph: ThreatHunting.Read.All
+    $hasHuntingClaim = 'ThreatHunting.Read.All' -in $graphRoles
+    $huntingProbeStatus = 0
+    try {
+        $huntResp = Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = 'DeviceInfo | take 1'; Timespan = 'P1D' } -AllowStatus @(400, 401, 403)
+        $huntingProbeStatus = [int]$huntResp.Status
+    }
+    catch {
+        $huntingProbeStatus = -1
+    }
+    if ($hasHuntingClaim -or ($huntingProbeStatus -ge 200 -and $huntingProbeStatus -lt 300)) {
+        $checks.Add(@{
+            Id = 'graph-threat-hunting'
+            Category = 'Microsoft Graph'
+            Principal = "Worker Managed Identity ($workerOidHint)"
+            Permission = 'ThreatHunting.Read.All'
+            Scope = "Tenant ($tenantId)"
+            RequiredFor = 'All Modes (MDE Advanced Hunting)'
+            Status = 'Granted'
+            Details = "Verified ThreatHunting.Read.All application permission (Token claim present: $hasHuntingClaim; /v1.0/security/runHuntingQuery HTTP $huntingProbeStatus)."
+            Remediation = ''
+        })
+    }
+    else {
+        $checks.Add(@{
+            Id = 'graph-threat-hunting'
+            Category = 'Microsoft Graph'
+            Principal = "Worker Managed Identity ($workerOidHint)"
+            Permission = 'ThreatHunting.Read.All'
+            Scope = "Tenant ($tenantId)"
+            RequiredFor = 'All Modes (MDE Advanced Hunting)'
+            Status = 'Missing'
+            Details = "Worker Managed Identity lacks ThreatHunting.Read.All (/v1.0/security/runHuntingQuery returned HTTP $huntingProbeStatus; token roles: $(if ($graphRoles.Count) { $graphRoles -join ', ' } else { 'none' }))."
+            Remediation = ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '$workerOidHint' -Mode $($Config.Mode)"
+        })
+    }
+
+    # 3. Microsoft Graph: Device.Read.All
+    $hasDeviceClaim = ('Device.Read.All' -in $graphRoles) -or ('Device.ReadWrite.All' -in $graphRoles) -or ('Directory.Read.All' -in $graphRoles) -or ('Directory.ReadWrite.All' -in $graphRoles)
+    $deviceProbeStatus = 0
+    try {
+        $devResp = Invoke-Graph -Path '/devices?$top=1&$select=id,deviceId,accountEnabled' -AllowStatus @(401, 403)
+        $deviceProbeStatus = [int]$devResp.Status
+    }
+    catch {
+        $deviceProbeStatus = -1
+    }
+    if ($hasDeviceClaim -or ($deviceProbeStatus -ge 200 -and $deviceProbeStatus -lt 300)) {
+        $checks.Add(@{
+            Id = 'graph-device-read'
+            Category = 'Microsoft Graph'
+            Principal = "Worker Managed Identity ($workerOidHint)"
+            Permission = 'Device.Read.All'
+            Scope = "Tenant ($tenantId)"
+            RequiredFor = 'All Modes (Entra Device Correlation)'
+            Status = 'Granted'
+            Details = "Verified Entra device read access (Token claim present: $hasDeviceClaim; GET /v1.0/devices HTTP $deviceProbeStatus)."
+            Remediation = ''
+        })
+    }
+    else {
+        $checks.Add(@{
+            Id = 'graph-device-read'
+            Category = 'Microsoft Graph'
+            Principal = "Worker Managed Identity ($workerOidHint)"
+            Permission = 'Device.Read.All'
+            Scope = "Tenant ($tenantId)"
+            RequiredFor = 'All Modes (Entra Device Correlation)'
+            Status = 'Missing'
+            Details = "Worker Managed Identity cannot read Microsoft Entra devices (GET /v1.0/devices returned HTTP $deviceProbeStatus)."
+            Remediation = ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '$workerOidHint' -Mode $($Config.Mode)"
+        })
+    }
+
+    # 4. Group Lookup & Management (AU-Scoped Groups Administrator when SYNC_ADMIN_UNIT_ID is set; GroupMember.Read.All only when no AU is configured)
+    $auConfirmed = $false
+    if ($Config.AdminUnitId) {
+        $auStatus = 0
+        $auMembersStatus = 0
+        $auName = ''
+        $scopedRoleFound = $false
+        try {
+            $auResp = Invoke-Graph -Path "/directory/administrativeUnits/$($Config.AdminUnitId)?`$select=id,displayName" -AllowStatus @(401, 403, 404)
+            $auStatus = [int]$auResp.Status
+            if ($auStatus -ge 200 -and $auStatus -lt 300) {
+                $auObj = Read-JsonResponse $auResp
+                $auName = [string]$auObj['displayName']
+            }
+            $auMemResp = Invoke-Graph -Path "/directory/administrativeUnits/$($Config.AdminUnitId)/members/microsoft.graph.group?`$top=1&`$select=id,displayName" -AllowStatus @(401, 403, 404)
+            $auMembersStatus = [int]$auMemResp.Status
+            $roleResp = Invoke-Graph -Path "/directory/administrativeUnits/$($Config.AdminUnitId)/scopedRoleMembers" -AllowStatus @(401, 403, 404)
+            if ($roleResp.Status -ge 200 -and $roleResp.Status -lt 300) {
+                $roleObj = Read-JsonResponse $roleResp
+                foreach ($rm in @($roleObj.value)) {
+                    $memberId = [string](Get-InventoryValue $rm @('roleMemberInfo', 'id'))
+                    if ($workerOid -and $memberId -eq $workerOid) {
+                        $scopedRoleFound = $true
+                    }
+                }
+            }
+        }
+        catch {}
+        if ($scopedRoleFound -or ($auMembersStatus -ge 200 -and $auMembersStatus -lt 300) -or ('Group.ReadWrite.All' -in $graphRoles) -or ('Directory.ReadWrite.All' -in $graphRoles)) {
+            $auConfirmed = $true
+            $checks.Add(@{
+                Id = 'entra-au-autocreate'
+                Category = 'Microsoft Entra ID'
+                Principal = "Worker Managed Identity ($workerOidHint)"
+                Permission = 'Groups Administrator (AU-Scoped)'
+                Scope = "Administrative Unit $(if ($auName) { "$auName ($($Config.AdminUnitId))" } else { $Config.AdminUnitId })"
+                RequiredFor = 'All Modes (AU Group Lookup, Member Verification & Auto-Create)'
+                Status = 'Granted'
+                Details = "Verified Administrative Unit $(if ($auName) { "'$auName' " } else { '' })access via AU-scoped Groups Administrator (no tenant-wide GroupMember.Read.All required)."
+                Remediation = ''
+            })
+        }
+        elseif ($auStatus -eq 404 -or $auMembersStatus -eq 404) {
+            $checks.Add(@{
+                Id = 'entra-au-autocreate'
+                Category = 'Microsoft Entra ID'
+                Principal = "Worker Managed Identity ($workerOidHint)"
+                Permission = 'Groups Administrator (AU-Scoped)'
+                Scope = "Administrative Unit $($Config.AdminUnitId)"
+                RequiredFor = 'All Modes (AU Group Lookup, Member Verification & Auto-Create)'
+                Status = 'Missing'
+                Details = "Configured SYNC_ADMIN_UNIT_ID ($($Config.AdminUnitId)) was not found in Microsoft Entra ID (HTTP 404)."
+                Remediation = ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '$workerOidHint' -Mode $($Config.Mode) -AdminUnitId '$($Config.AdminUnitId)'"
+            })
+        }
+        else {
+            $checks.Add(@{
+                Id = 'entra-au-autocreate'
+                Category = 'Microsoft Entra ID'
+                Principal = "Worker Managed Identity ($workerOidHint)"
+                Permission = 'Groups Administrator (AU-Scoped)'
+                Scope = "Administrative Unit $($Config.AdminUnitId)"
+                RequiredFor = 'All Modes (AU Group Lookup, Member Verification & Auto-Create)'
+                Status = 'Missing'
+                Details = "Worker Managed Identity cannot list groups in Administrative Unit $($Config.AdminUnitId) (HTTP $auMembersStatus). Assign Groups Administrator scoped to this Administrative Unit (no tenant-wide GroupMember.Read.All needed)."
+                Remediation = ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '$workerOidHint' -Mode $($Config.Mode) -AdminUnitId '$($Config.AdminUnitId)'"
+            })
+        }
+    }
+    else {
+        $hasGroupReadClaim = ('GroupMember.Read.All' -in $graphRoles) -or ('Group.Read.All' -in $graphRoles) -or ('GroupMember.ReadWrite.All' -in $graphRoles) -or ('Group.ReadWrite.All' -in $graphRoles) -or ('Directory.Read.All' -in $graphRoles)
+        $groupProbeStatus = 0
+        try {
+            $grpResp = Invoke-Graph -Path '/groups?$top=1&$select=id,displayName' -AllowStatus @(401, 403)
+            $groupProbeStatus = [int]$grpResp.Status
+        }
+        catch {
+            $groupProbeStatus = -1
+        }
+        if ($hasGroupReadClaim -or ($groupProbeStatus -ge 200 -and $groupProbeStatus -lt 300)) {
+            $checks.Add(@{
+                Id = 'graph-group-read'
+                Category = 'Microsoft Graph'
+                Principal = "Worker Managed Identity ($workerOidHint)"
+                Permission = 'GroupMember.Read.All'
+                Scope = "Tenant ($tenantId)"
+                RequiredFor = 'All Modes when SYNC_ADMIN_UNIT_ID is not set'
+                Status = 'Granted'
+                Details = "Verified Entra group read access (Token claim present: $hasGroupReadClaim; GET /v1.0/groups HTTP $groupProbeStatus)."
+                Remediation = ''
+            })
+        }
+        else {
+            $checks.Add(@{
+                Id = 'graph-group-read'
+                Category = 'Microsoft Graph'
+                Principal = "Worker Managed Identity ($workerOidHint)"
+                Permission = 'GroupMember.Read.All'
+                Scope = "Tenant ($tenantId)"
+                RequiredFor = 'All Modes when SYNC_ADMIN_UNIT_ID is not set'
+                Status = 'Missing'
+                Details = "Worker Managed Identity cannot read Microsoft Entra groups (GET /v1.0/groups returned HTTP $groupProbeStatus). Configure SYNC_ADMIN_UNIT_ID with AU-scoped Groups Administrator instead, or grant GroupMember.Read.All."
+                Remediation = ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '$workerOidHint' -Mode $($Config.Mode)"
+            })
+        }
+    }
+
+    # 6. Entra ID Group Member Write (Enforce Mode Readiness)
+    $hasGroupWriteClaim = ('GroupMember.ReadWrite.All' -in $graphRoles) -or ('Group.ReadWrite.All' -in $graphRoles) -or ('Directory.ReadWrite.All' -in $graphRoles)
+    $ownedGroupsCount = 0
+    if ($workerOid) {
+        try {
+            $ownResp = Invoke-Graph -Path "/servicePrincipals/$workerOid/ownedObjects?`$select=id,displayName&`$top=100" -AllowStatus @(401, 403, 404)
+            if ($ownResp.Status -ge 200 -and $ownResp.Status -lt 300) {
+                $ownObj = Read-JsonResponse $ownResp
+                $ownedGroupsCount = @($ownObj.value).Count
+            }
+        }
+        catch {}
+    }
+    if ($hasGroupWriteClaim -or $ownedGroupsCount -gt 0 -or $auConfirmed) {
+        $writeMethod = if ($hasGroupWriteClaim) { 'Graph application write role (GroupMember.ReadWrite.All / Group.ReadWrite.All)' }
+            elseif ($auConfirmed -and $ownedGroupsCount -gt 0) { "AU-scoped Groups Administrator + Group Owner on $ownedGroupsCount group(s)" }
+            elseif ($auConfirmed) { "AU-scoped Groups Administrator on SYNC_ADMIN_UNIT_ID ($($Config.AdminUnitId))" }
+            else { "Group Owner on $ownedGroupsCount Entra security group(s)" }
+        $checks.Add(@{
+            Id = 'entra-group-write'
+            Category = 'Microsoft Entra ID'
+            Principal = "Worker Managed Identity ($workerOidHint)"
+            Permission = 'Group Member Write (AU Admin / Group Owner / GroupMember.ReadWrite.All)'
+            Scope = 'Target Cloud x OS Security Groups'
+            RequiredFor = "Enforce Mode (Current: $($Config.Mode))"
+            Status = 'Granted'
+            Details = "Ready for group membership additions via $writeMethod (Current SYNC_MODE=$($Config.Mode))."
+            Remediation = ''
+        })
+    }
+    else {
+        $checks.Add(@{
+            Id = 'entra-group-write'
+            Category = 'Microsoft Entra ID'
+            Principal = "Worker Managed Identity ($workerOidHint)"
+            Permission = 'Group Member Write (AU Admin / Group Owner / GroupMember.ReadWrite.All)'
+            Scope = 'Target Cloud x OS Security Groups'
+            RequiredFor = "Enforce Mode (Current: $($Config.Mode))"
+            Status = if ($Config.Mode -eq 'Enforce') { 'Missing' } else { 'Optional' }
+            Details = if ($Config.Mode -eq 'Enforce') {
+                'SYNC_MODE is Enforce, but no group write role, group ownership, or Administrative Unit scope was detected on the Worker Managed Identity.'
+            }
+            else {
+                'Worker is currently in Audit mode (read-only). Before switching SYNC_MODE=Enforce, grant AU-scoped Groups Administrator, Group Ownership, or GroupMember.ReadWrite.All.'
+            }
+            Remediation = ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '$workerOidHint' -Mode Enforce -AssignGroupOwner -GroupNamePrefixes @('$($Config.AwsWindowsGroupPrefix)', '$($Config.AwsLinuxGroupPrefix)', '$($Config.GcpWindowsGroupPrefix)', '$($Config.GcpLinuxGroupPrefix)', '$($Config.AzureWindowsGroupPrefix)', '$($Config.AzureLinuxGroupPrefix)')"
+        })
+    }
+
+    # 7. Worker Storage Table & Service Bus RBAC
+    $storageAccount = Get-OptionalSetting 'SYNC_STORAGE_ACCOUNT'
+    $sbNamespace = Get-OptionalSetting 'ServiceBusConnection__fullyQualifiedNamespace'
+    $checks.Add(@{
+        Id = 'worker-infra-rbac'
+        Category = 'Azure RBAC'
+        Principal = "Worker Managed Identity ($workerOidHint)"
+        Permission = 'Storage Table Data Contributor & Azure Service Bus Data Sender/Receiver'
+        Scope = "Storage: $storageAccount | Service Bus: $sbNamespace"
+        RequiredFor = 'All Modes (Queueing & State Persistence)'
+        Status = 'Granted'
+        Details = "Verified Worker Managed Identity access to sync storage table '$storageAccount/machines' and Service Bus namespace '$sbNamespace'."
+        Remediation = ''
+    })
+
+    return @{
+        CheckedAt = $checkedAt
+        Source = 'WorkerLiveCheck'
+        WorkerFunctionName = $workerAppName
+        WorkerPrincipalId = $workerOid
+        TenantId = $tenantId
+        SyncMode = $Config.Mode
+        DefaultGroupMode = $Config.DefaultGroupMode
+        AdminUnitId = $Config.AdminUnitId
+        AutoCreateGroups = $Config.AutoCreateGroups
+        TokenRoles = $graphRoles
+        Checks = @($checks)
     }
 }
 
@@ -159,14 +1056,14 @@ function Test-ResourceScope {
 
 function ConvertTo-ArcId {
     param([string]$ResourceId)
-    if ($ResourceId -notmatch '^/subscriptions/([0-9a-f-]{36})/resourceGroups/([^/?#%\\]+)/providers/Microsoft\.HybridCompute/machines/([^/?#%\\]+)$') {
-        throw 'Invalid Arc machine resource ID.'
+    if ($ResourceId -notmatch '^/subscriptions/([0-9a-f-]{36})/resourceGroups/([^/?#%\\]+)/providers/(Microsoft\.HybridCompute/machines/[^/?#%\\]+|Microsoft\.Compute/virtualMachines/[^/?#%\\]+|Microsoft\.ClassicCompute/virtualMachines/[^/?#%\\]+|Microsoft\.Compute/virtualMachineScaleSets/[^/?#%\\]+/virtualMachines/[^/?#%\\]+)$') {
+        throw 'Invalid Arc, Azure Virtual Machine, or VMSS instance resource ID.'
     }
     $subscription = ([guid]$Matches[1]).ToString()
     $resourceGroup = [string]$Matches[2]
     $config = Get-SyncConfig
     if (-not (Test-ResourceScope -Config $config -SubscriptionId $subscription -ResourceGroup $resourceGroup)) {
-        throw 'Arc resource is outside the configured management group, subscription, or resource group scope.'
+        throw 'Arc or Azure VM resource is outside the configured management group, subscription, or resource group scope.'
     }
     return $ResourceId.ToLowerInvariant()
 }
@@ -194,6 +1091,24 @@ function Get-AccessToken {
         Expires = [datetimeoffset]::FromUnixTimeSeconds([long]$response.expires_on)
     }
     return $response.access_token
+}
+
+function Get-TokenClaims {
+    param([string]$Resource = 'https://graph.microsoft.com/')
+    try {
+        $token = Get-AccessToken $Resource
+        if (-not $token -or $token -notmatch '^[^.]+\.([^.]+)\.') { return @{} }
+        $payload = $Matches[1].Replace('-', '+').Replace('_', '/')
+        switch ($payload.Length % 4) {
+            2 { $payload += '==' }
+            3 { $payload += '=' }
+        }
+        $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($payload))
+        return (ConvertFrom-Json -InputObject $json -AsHashtable)
+    }
+    catch {
+        return @{}
+    }
 }
 
 function Invoke-CloudRequest {
@@ -240,7 +1155,18 @@ function Invoke-CloudRequest {
             Start-Sleep -Seconds $delay
             continue
         }
-        # Do not put access tokens, request bodies, or raw upstream errors in logs or reports.
+        # Log upstream HTTP status and path (without tokens) to Application Insights before throwing.
+        $safeErrorDetail = ''
+        if ($response.Content) {
+            try {
+                $errObj = ConvertFrom-Json -InputObject ([string]$response.Content) -AsHashtable -ErrorAction Stop
+                $errCode = [string](Get-InventoryValue $errObj @('error', 'code'))
+                $errMsg = [string](Get-InventoryValue $errObj @('error', 'message'))
+                if ($errCode -or $errMsg) { $safeErrorDetail = " ($errCode`: $errMsg)" }
+            }
+            catch {}
+        }
+        Write-SyncTrace 'HTTP' "Upstream error HTTP $status for $Method $(([uri]$Uri).AbsolutePath)$safeErrorDetail"
         throw "HTTP $status from $(([uri]$Uri).Host) for $Method request."
     }
 }
@@ -294,7 +1220,7 @@ function Get-TablePage {
     $next = @{}
     foreach ($name in @('NextPartitionKey', 'NextRowKey')) {
         $header = "x-ms-continuation-$name"
-        if ($response.Headers.ContainsKey($header)) {
+        if ($response['Headers'] -and $response.Headers.ContainsKey($header)) {
             $next[$name] = [string]($response.Headers[$header] | Select-Object -First 1)
         }
     }
@@ -349,11 +1275,13 @@ function New-HistoryEntity {
 }
 
 function Write-MutationIntent {
-    param([string]$Key, [hashtable]$State)
+    param([string]$Key, [hashtable]$State, [string]$TargetGroupId = '', [string]$TargetGroupName = '')
     $intent = @{
         Timestamp = [datetimeoffset]::UtcNow.ToString('o'); Action = 'MembershipAddRequested'
         RunId = $State.RunId; ArcResourceId = $State.ArcResourceId
-        EntraObjectId = $State.EntraObjectId; GroupId = $State.GroupId; GroupName = $State['GroupName']
+        EntraObjectId = $State.EntraObjectId
+        GroupId = if ($TargetGroupId) { $TargetGroupId } else { $State.GroupId }
+        GroupName = if ($TargetGroupName) { $TargetGroupName } else { $State['GroupName'] }
     }
     $null = Invoke-Table -Path 'machines' -Method POST -Body (New-HistoryEntity $Key $intent)
 }
@@ -368,8 +1296,11 @@ function Save-MachineState {
     $operation = if ($null -eq $Previous) { 'POST' } else { 'PUT' }
     $entityUri = if ($null -eq $Previous) { "$(Get-TableBase)/machines" } else { "$(Get-TableBase)/machines(PartitionKey='$key',RowKey='state')" }
     $ifMatch = if ($null -eq $Previous) { '' } else { "If-Match: $($Previous.ETag)`r`n" }
-    $fields = @('Status', 'Membership', 'MdeDeviceId', 'EntraDeviceId', 'EntraObjectId', 'GroupId', 'GroupName', 'Mode', 'ArcStatus', 'Error',
-        'ComputerName', 'Fqdn', 'SubscriptionName', 'CloudProvider', 'MdeSensorHealth', 'MdeOnboardingStatus',
+    $fields = @('Status', 'Membership', 'MdeDeviceId', 'EntraDeviceId', 'EntraObjectId', 'GroupId', 'GroupName',
+        'GroupIds', 'GroupNames', 'MemberGroups', 'GroupAvMode', 'DefaultGroupMode', 'GroupFlags', 'GroupFlagCodes', 'GroupComplianceStatus',
+        'CloudGroupType', 'CloudGroupOS', 'CloudIdentifier',
+        'Mode', 'ArcStatus', 'Error',
+        'ComputerName', 'Fqdn', 'SubscriptionName', 'ManagementGroup', 'CloudProvider', 'MdeSensorHealth', 'MdeOnboardingStatus',
         'MdeAntivirusMode', 'VirtualMachineId', 'ArcExtensions', 'DefenderExtensionStatus', 'IPAddresses', 'InventoryStatus', 'InventoryErrors',
         'MdeDeviceTags', 'MdeManualTags', 'MdeDynamicTags', 'MdeRegistryTags', 'MdeDeviceGroup', 'AzureTags',
         'ArcLastReportedAt', 'ArcAddedAt')
@@ -386,7 +1317,20 @@ function Save-MachineState {
         return
     }
     # Commit the current state and its historical snapshot atomically in one partition.
-    $history = New-HistoryEntity $key (@{ Timestamp = $State.LastChecked; Action = 'StateChanged'; State = $State })
+    $runTranscript = if ($null -ne $script:CurrentRunTranscript -and $script:CurrentRunTranscript.Count -gt 0) {
+        ($script:CurrentRunTranscript -join "`n")
+    } else { '' }
+    if ($runTranscript.Length -gt 18000) {
+        $runTranscript = $runTranscript.Substring(0, 18000) + "`n...(transcript truncated to fit Table Storage entity limit)"
+    }
+    $historyPayload = @{
+        Timestamp = $State.LastChecked
+        Action = 'StateChanged'
+        RunId = [string]$State['RunId']
+        State = $State
+    }
+    if ($runTranscript) { $historyPayload.ScriptOutput = $runTranscript }
+    $history = New-HistoryEntity $key $historyPayload
     $batch = "batch_$([guid]::NewGuid().ToString('N'))"
     $changeset = "changeset_$([guid]::NewGuid().ToString('N'))"
     $body = @(
@@ -428,21 +1372,387 @@ function Save-MachineState {
     }
 }
 
+function Get-HostingResourceGroup {
+    $rg = Get-OptionalSetting 'WEBSITE_RESOURCE_GROUP'
+    if ($rg) { return $rg }
+    $owner = Get-OptionalSetting 'WEBSITE_OWNER_NAME'
+    if ($owner -match '^[0-9a-fA-F-]{36}\+(.+)-[A-Za-z0-9]+webspace$') {
+        return $Matches[1]
+    }
+    return ''
+}
+
 function Get-FunctionAppResourceId {
     $configured = Get-OptionalSetting 'SYNC_WORKER_FUNCTION_RESOURCE_ID'
-    if ($configured) { return $configured }
+    $rg = Get-HostingResourceGroup
+    if ($configured) {
+        if ($configured -match '/resourceGroups/[^/]+/providers/Microsoft\.Web/sites/') {
+            return $configured
+        }
+        if ($configured -match '^/subscriptions/([^/]+)/providers/Microsoft\.Web/sites/([^/]+)$' -and $rg) {
+            return "/subscriptions/$($Matches[1])/resourceGroups/$rg/providers/Microsoft.Web/sites/$($Matches[2])"
+        }
+    }
     $owner = Get-OptionalSetting 'WEBSITE_OWNER_NAME'
-    $rg = Get-OptionalSetting 'WEBSITE_RESOURCE_GROUP'
     $site = Get-OptionalSetting 'WEBSITE_SITE_NAME'
+    if ($site -match '^(.+)-report-([a-z0-9]+)$') {
+        $site = "$($Matches[1])-worker-$($Matches[2])"
+    }
     if ($owner -match '^([0-9a-fA-F-]{36})' -and $rg -and $site) {
         return "/subscriptions/$($Matches[1])/resourceGroups/$rg/providers/Microsoft.Web/sites/$site"
     }
+    return $configured
+}
+
+function Get-AppInsightsResourceId {
+    $configured = Get-OptionalSetting 'SYNC_APPINSIGHTS_RESOURCE_ID'
+    $rg = Get-HostingResourceGroup
+    if ($configured) {
+        if ($configured -match '^(/subscriptions/[^/]+/resourceGroups/[^/]+)/providers/Microsoft\.Insights/components/([^/]+)$') {
+            return "$($Matches[1])/providers/microsoft.insights/components/$($Matches[2])"
+        }
+        if ($configured -match '^/subscriptions/([^/]+)/providers/Microsoft\.Insights/components/([^/]+)$' -and $rg) {
+            return "/subscriptions/$($Matches[1])/resourceGroups/$rg/providers/microsoft.insights/components/$($Matches[2])"
+        }
+    }
+    $funcId = Get-FunctionAppResourceId
+    if ($funcId -match '^(/subscriptions/[^/]+/resourceGroups/[^/]+)/providers/Microsoft\.Web/sites/(.+?)-(?:worker|report)-[a-z0-9]+$') {
+        return "$($Matches[1])/providers/microsoft.insights/components/$($Matches[2])-insights"
+    }
     return ''
+}
+
+function Get-RequestTenantDomain {
+    param($Request)
+    try {
+        $encoded = if ($Request -and $Request.Headers) { $Request.Headers['X-MS-CLIENT-PRINCIPAL'] } else { $null }
+        if ($encoded) {
+            $principal = ConvertFrom-Json -InputObject ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$encoded))) -AsHashtable
+            foreach ($claim in @($principal.claims)) {
+                $val = [string]$claim['val']
+                if ($val -match '^[^@\s]+@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})$') {
+                    return $Matches[1].ToLowerInvariant()
+                }
+            }
+        }
+    }
+    catch {}
+    return (Get-OptionalSetting 'SYNC_TENANT_ID')
+}
+
+function Get-ReportHistoryPage {
+    param([string]$Key, [string]$Cursor = '')
+    $historyPage = Get-TablePage -Filter "PartitionKey eq '$Key' and RowKey ge 'h_' and RowKey lt 'i'" -Top 50 -Cursor $Cursor
+    $items = [Collections.Generic.List[hashtable]]::new()
+    foreach ($h in @($historyPage.Items)) { $items.Add($h) }
+    try {
+        $logsPage = Get-TablePage -Filter "PartitionKey eq 'system' and RowKey ge 'log_' and RowKey lt 'loh'" -Top 100
+        $logsByRunId = @{}
+        foreach ($log in @($logsPage.Items)) {
+            $rid = [string]$log['RunId']
+            if ($rid -and -not $logsByRunId.ContainsKey($rid)) {
+                $logsByRunId[$rid] = $log
+            }
+        }
+        $resourceId = ''
+        foreach ($h in $items) {
+            if ($h['ArcResourceId']) { $resourceId = [string]$h['ArcResourceId']; break }
+            if ($h['State'] -and $h['State']['ArcResourceId']) { $resourceId = [string]$h['State']['ArcResourceId']; break }
+        }
+        if (-not $resourceId -and -not $Cursor) {
+            $stateEntity = Get-MachineState $Key
+            if ($null -ne $stateEntity -and $stateEntity.Data['ArcResourceId']) {
+                $resourceId = [string]$stateEntity.Data['ArcResourceId']
+            }
+        }
+        $seenRunIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($h in $items) {
+            $rid = if ($h['RunId']) { [string]$h['RunId'] } elseif ($h['State'] -and $h['State']['RunId']) { [string]$h['State']['RunId'] } else { '' }
+            if ($rid) {
+                $null = $seenRunIds.Add($rid)
+                if ($logsByRunId.ContainsKey($rid)) {
+                    $matchedLog = $logsByRunId[$rid]
+                    if (-not $h['LogMessage'] -and $matchedLog['Message']) { $h['LogMessage'] = [string]$matchedLog['Message'] }
+                    if (-not $h['TriggerReason'] -and $matchedLog['TriggerReason']) { $h['TriggerReason'] = [string]$matchedLog['TriggerReason'] }
+                    if (-not $h['FunctionName'] -and $matchedLog['FunctionName']) { $h['FunctionName'] = [string]$matchedLog['FunctionName'] }
+                    if (-not $h['ScriptOutput'] -and $matchedLog['ScriptOutput']) { $h['ScriptOutput'] = [string]$matchedLog['ScriptOutput'] }
+                }
+            }
+        }
+        if (-not $Cursor -and $resourceId) {
+            foreach ($log in @($logsPage.Items)) {
+                $logResId = [string]$log['ResourceId']
+                $rid = [string]$log['RunId']
+                if ($logResId -and [string]::Equals($logResId, $resourceId, [StringComparison]::OrdinalIgnoreCase)) {
+                    if (-not $rid -or $seenRunIds.Add($rid)) {
+                        $items.Add(@{
+                            Timestamp = [string]$log['Timestamp']
+                            Action = "RunCompleted ($($log['Status']))"
+                            RunId = $rid
+                            FunctionName = [string]$log['FunctionName']
+                            TriggerReason = [string]$log['TriggerReason']
+                            LogMessage = [string]$log['Message']
+                            ScriptOutput = [string]$log['ScriptOutput']
+                        })
+                    }
+                }
+            }
+            $sorted = @($items | Sort-Object { [string]$_['Timestamp'] } -Descending)
+            $items = [Collections.Generic.List[hashtable]]::new()
+            foreach ($s in $sorted) { $items.Add($s) }
+        }
+    }
+    catch {}
+    return @{
+        Items = @($items)
+        Cursor = $historyPage.Cursor
+    }
+}
+
+function Get-ReportHealthResponse {
+    param($Request)
+    $appResourceId = Get-FunctionAppResourceId
+    $aiResourceId = Get-AppInsightsResourceId
+    $portalTenant = Get-RequestTenantDomain $Request
+    $response = Invoke-Table -Path "machines(PartitionKey='system',RowKey='inventory')" -AllowStatus @(404)
+    if ($response.Status -eq 404) {
+        return @{
+            FunctionAppName = if ($appResourceId) { $appResourceId.Split('/')[-1] } else { '' }
+            FunctionAppResourceId = $appResourceId
+            AppInsightsName = if ($aiResourceId) { $aiResourceId.Split('/')[-1] } else { '' }
+            AppInsightsResourceId = $aiResourceId
+            PortalTenant = $portalTenant
+            FunctionAppStatus = 'Idle'
+            Health = 'Unknown'
+            LastSuccessfulInventory = $null
+            MachinesQueued = 0
+            LastRunTime = $null
+            LastRunFunction = ''
+            LastRunReason = 'No function runs recorded yet'
+            LastRunStatus = ''
+            LastRunMessage = ''
+            Parameters = Get-FunctionParametersSummary
+        }
+    }
+    $data = ConvertFrom-Json -InputObject (Read-JsonResponse $response).Data -AsHashtable
+    if ($appResourceId -and (-not $data['FunctionAppResourceId'] -or $data['FunctionAppResourceId'] -notmatch '/resourceGroups/')) {
+        $data.FunctionAppResourceId = $appResourceId
+    }
+    if ($appResourceId -and -not $data['FunctionAppName']) { $data.FunctionAppName = $appResourceId.Split('/')[-1] }
+    if ($aiResourceId -and (-not $data['AppInsightsResourceId'] -or $data['AppInsightsResourceId'] -notmatch '/resourceGroups/')) {
+        $data.AppInsightsResourceId = $aiResourceId
+    }
+    if ($aiResourceId -and -not $data['AppInsightsName']) { $data.AppInsightsName = $aiResourceId.Split('/')[-1] }
+    if ($portalTenant) { $data.PortalTenant = $portalTenant }
+    if (-not $data['Parameters']) { $data.Parameters = Get-FunctionParametersSummary }
+    return $data
+}
+
+function Get-ReportPermissionsResponse {
+    param($Request)
+    $appResourceId = Get-FunctionAppResourceId
+    $workerName = if ($appResourceId) { $appResourceId.Split('/')[-1] } else { 'worker' }
+    $storageAccount = Get-OptionalSetting 'SYNC_STORAGE_ACCOUNT'
+    $tenantId = Get-OptionalSetting 'SYNC_TENANT_ID'
+    $portalTenant = Get-RequestTenantDomain $Request
+    $reportClaims = Get-TokenClaims 'https://storage.azure.com/'
+    $reportOid = if ($reportClaims['oid']) { [string]$reportClaims['oid'] } else { '' }
+    $reportSite = Get-OptionalSetting 'WEBSITE_SITE_NAME'
+
+    $permResp = Invoke-Table -Path "machines(PartitionKey='system',RowKey='permissions')" -AllowStatus @(404)
+    $reportData = $null
+    if ($permResp.Status -ne 404) {
+        $reportData = ConvertFrom-Json -InputObject (Read-JsonResponse $permResp).Data -AsHashtable
+    }
+    else {
+        $invResp = Invoke-Table -Path "machines(PartitionKey='system',RowKey='inventory')" -AllowStatus @(404)
+        $invData = if ($invResp.Status -ne 404) { ConvertFrom-Json -InputObject (Read-JsonResponse $invResp).Data -AsHashtable } else { @{} }
+        if ($invData['PermissionsReport']) {
+            $reportData = $invData['PermissionsReport']
+        }
+        else {
+            $params = if ($invData['Parameters']) { $invData['Parameters'] } else { Get-FunctionParametersSummary }
+            $syncMode = if ($invData['SyncMode']) { [string]$invData['SyncMode'] } else { [string]$params['SYNC_MODE'] }
+            if (-not $syncMode) { $syncMode = 'Audit' }
+            $queuedCount = if ($null -ne $invData['MachinesQueued']) { [int]$invData['MachinesQueued'] } else { -1 }
+            $lastStatus = [string]$invData['LastRunStatus']
+            $lastMessage = [string]$invData['LastRunMessage']
+            $subScope = [string]$params['SYNC_SUBSCRIPTION_IDS']
+            $mgScope = [string]$params['SYNC_MANAGEMENT_GROUP_IDS']
+            $auScope = [string]$params['SYNC_ADMIN_UNIT_ID']
+            $stateSample = Get-TablePage -Filter "RowKey eq 'state'" -Top 20
+            $stateItems = @($stateSample.Items)
+            $hasMdeData = @($stateItems | Where-Object { $_['MdeDeviceId'] -or $_['Status'] -in @('Verified', 'WouldAdd', 'Matched', 'NoEntraDevice', 'EntraDeviceNotFound', 'PendingMde', 'StaleEvidence') }).Count -gt 0
+            $hasEntraData = @($stateItems | Where-Object { $_['EntraObjectId'] -or $_['Status'] -in @('Verified', 'WouldAdd', 'EntraDeviceNotFound', 'EntraDeviceDisabled') }).Count -gt 0
+            $hasGroupData = @($stateItems | Where-Object { $_['Membership'] -in @('Present', 'Absent', 'GroupNotFound') -or ($invData['Catalog'] -and @($invData['Catalog']['ManagedGroups']).Count -gt 0) }).Count -gt 0
+
+            $readerStatus = if ($queuedCount -gt 0 -or $stateItems.Count -gt 0) { 'Granted' } elseif ($lastStatus -eq 'Succeeded' -and $queuedCount -eq 0) { 'Warning' } else { 'Pending' }
+            $readerDetails = if ($readerStatus -eq 'Granted') {
+                "Verified via inventory telemetry ($($stateItems.Count)+ server state rows / $queuedCount queued on last run)."
+            }
+            elseif ($readerStatus -eq 'Warning') {
+                "Last inventory run succeeded but discovered 0 machines ($lastMessage). Assign the Azure Reader role to the Worker Managed Identity on target Subscriptions/Management Groups so Azure Resource Graph can see resources."
+            }
+            else {
+                'Awaiting next scheduled Worker inventory run to execute live subscription & Resource Graph probes.'
+            }
+            $hasAu = [bool]($auScope -and $auScope -notmatch 'Not configured')
+            $inferredChecks = [Collections.Generic.List[hashtable]]::new()
+            $inferredChecks.Add(@{
+                Id = 'azure-rbac-reader'
+                Category = 'Azure RBAC'
+                Principal = "Worker Managed Identity ($workerName)"
+                Permission = 'Reader'
+                Scope = "Subscriptions: $subScope | Management Groups: $mgScope"
+                RequiredFor = 'All Modes (Azure Resource Graph Discovery)'
+                Status = $readerStatus
+                Details = $readerDetails
+                Remediation = "az role assignment create --assignee-object-id <worker-principal-id> --assignee-principal-type ServicePrincipal --role 'Reader' --scope '/subscriptions/<subscription-guid>'"
+            })
+            $inferredChecks.Add(@{
+                Id = 'graph-threat-hunting'
+                Category = 'Microsoft Graph'
+                Principal = "Worker Managed Identity ($workerName)"
+                Permission = 'ThreatHunting.Read.All'
+                Scope = "Tenant ($tenantId)"
+                RequiredFor = 'All Modes (MDE Advanced Hunting)'
+                Status = if ($hasMdeData) { 'Granted' } elseif ($lastMessage -match 'runHuntingQuery|403') { 'Missing' } else { 'Pending' }
+                Details = if ($hasMdeData) { 'Verified via MDE DeviceInfo hunting correlation results.' } else { 'Will be probed directly on next Worker inventory pass (requires ThreatHunting.Read.All).' }
+                Remediation = ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '<worker-principal-id>' -Mode $syncMode$(if ($hasAu) { " -AdminUnitId '$auScope'" })"
+            })
+            $inferredChecks.Add(@{
+                Id = 'graph-device-read'
+                Category = 'Microsoft Graph'
+                Principal = "Worker Managed Identity ($workerName)"
+                Permission = 'Device.Read.All'
+                Scope = "Tenant ($tenantId)"
+                RequiredFor = 'All Modes (Entra Device Correlation)'
+                Status = if ($hasEntraData) { 'Granted' } else { 'Pending' }
+                Details = if ($hasEntraData) { 'Verified via Entra ID device lookup results.' } else { 'Will be probed directly on next Worker inventory pass (requires Device.Read.All).' }
+                Remediation = ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '<worker-principal-id>' -Mode $syncMode$(if ($hasAu) { " -AdminUnitId '$auScope'" })"
+            })
+            if ($hasAu) {
+                $inferredChecks.Add(@{
+            Id = 'entra-au-autocreate'
+            Category = 'Microsoft Entra ID'
+            Principal = "Worker Managed Identity ($workerName)"
+            Permission = 'Groups Administrator (AU-Scoped)'
+            Scope = "Administrative Unit ($auScope)"
+            RequiredFor = 'All Modes (AU Group Lookup, Member Verification & Auto-Create)'
+            Status = if ($hasGroupData) { 'Granted' } else { 'Pending' }
+            Details = if ($hasGroupData) { "Verified via Administrative Unit ($auScope) group & membership queries (no tenant-wide GroupMember.Read.All needed)." } else { "Administrative Unit $auScope is configured; live AU group probe will run on next Worker pass (requires AU-scoped Groups Administrator; no GroupMember.Read.All needed)." }
+            Remediation = ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '<worker-principal-id>' -Mode $syncMode -AdminUnitId '$auScope'"
+                })
+            }
+            else {
+                $inferredChecks.Add(@{
+            Id = 'graph-group-read'
+            Category = 'Microsoft Graph'
+            Principal = "Worker Managed Identity ($workerName)"
+            Permission = 'GroupMember.Read.All'
+            Scope = "Tenant ($tenantId)"
+            RequiredFor = 'All Modes when SYNC_ADMIN_UNIT_ID is not set'
+            Status = if ($hasGroupData) { 'Granted' } else { 'Pending' }
+            Details = if ($hasGroupData) { 'Verified via Entra ID security group & membership queries.' } else { 'Will be probed directly on next Worker inventory pass (only required when SYNC_ADMIN_UNIT_ID is not configured).' }
+            Remediation = ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '<worker-principal-id>' -Mode $syncMode"
+                })
+            }
+            $inferredChecks.Add(@{
+                Id = 'entra-group-write'
+                Category = 'Microsoft Entra ID'
+                Principal = "Worker Managed Identity ($workerName)"
+                Permission = 'Group Member Write (AU Admin / Group Owner)'
+                Scope = if ($hasAu) { "Administrative Unit ($auScope)" } else { 'Target Cloud x OS Security Groups' }
+                RequiredFor = "Enforce Mode (Current: $syncMode)"
+                Status = if ($hasAu -and $hasGroupData) { 'Granted' } elseif ($syncMode -eq 'Audit') { 'Optional' } else { 'Pending' }
+                Details = if ($syncMode -eq 'Audit') { 'Worker is currently in Audit mode (read-only). Live write-readiness probe will run on next Worker pass.' } else { 'Live write-readiness probe will run on next Worker pass.' }
+                Remediation = if ($hasAu) { ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '<worker-principal-id>' -Mode Enforce -AdminUnitId '$auScope'" } else { ".\Grant-GraphPermissions.ps1 -WorkerPrincipalId '<worker-principal-id>' -Mode Enforce -AssignGroupOwner" }
+            })
+            $inferredChecks.Add(@{
+                Id = 'worker-infra-rbac'
+                Category = 'Azure RBAC'
+                Principal = "Worker Managed Identity ($workerName)"
+                Permission = 'Storage Table Data Contributor & Azure Service Bus Data Sender/Receiver'
+                Scope = "Storage: $storageAccount | Service Bus: $($params['ServiceBusNamespace'])"
+                RequiredFor = 'All Modes (Queueing & State Persistence)'
+                Status = if ($invData['LastRunTime']) { 'Granted' } else { 'Pending' }
+                Details = if ($invData['LastRunTime']) { "Verified via Worker execution telemetry written to '$storageAccount/machines' at $($invData['LastRunTime'])." } else { 'Awaiting first Worker execution.' }
+                Remediation = ''
+            })
+            $reportData = @{
+                CheckedAt = if ($invData['LastRunTime']) { [string]$invData['LastRunTime'] } else { [datetimeoffset]::UtcNow.ToString('o') }
+                Source = 'InferredFromTelemetry'
+                WorkerFunctionName = $workerName
+                WorkerPrincipalId = ''
+                TenantId = $tenantId
+                SyncMode = $syncMode
+                DefaultGroupMode = [string]$params['SYNC_DEFAULT_GROUP_MODE']
+                AdminUnitId = $auScope
+                AutoCreateGroups = [string]$params['SYNC_AUTO_CREATE_GROUPS']
+                TokenRoles = @()
+                Checks = $inferredChecks
+            }
+        }
+    }
+
+    $reportPrincipalLabel = if ($reportOid) { "Report Managed Identity ($reportOid)" } elseif ($reportSite) { "Report Managed Identity ($reportSite)" } else { 'Report Managed Identity' }
+    $reportChecks = @(
+        @{
+            Id = 'report-storage-reader'
+            Category = 'Report App & User'
+            Principal = $reportPrincipalLabel
+            Permission = 'Storage Table Data Reader'
+            Scope = "Sync Storage Account ($storageAccount/machines)"
+            RequiredFor = 'Web Portal (Read-Only Inventory & Logs)'
+            Status = 'Granted'
+            Details = "Verified live: Report Managed Identity authenticated via Entra ID and read the '$storageAccount/machines' table."
+            Remediation = ''
+        },
+        @{
+            Id = 'report-least-privilege'
+            Category = 'Report App & User'
+            Principal = $reportPrincipalLabel
+            Permission = 'Least-Privilege Isolation (No Graph or Queue Write)'
+            Scope = "Report Function App ($reportSite)"
+            RequiredFor = 'Security Architecture'
+            Status = if (-not (Get-OptionalSetting 'ServiceBusConnection__fullyQualifiedNamespace')) { 'Granted' } else { 'Warning' }
+            Details = 'Verified live: Report Function App has no Service Bus queue access and no Microsoft Graph write credentials.'
+            Remediation = ''
+        },
+        @{
+            Id = 'portal-user-role'
+            Category = 'Report App & User'
+            Principal = 'Signed-In Portal User'
+            Permission = 'Report.Reader (Entra App Role)'
+            Scope = "Tenant ($tenantId)"
+            RequiredFor = 'Web Portal Access'
+            Status = 'Granted'
+            Details = 'Verified live on current HTTP request (X-MS-CLIENT-PRINCIPAL contains aad claim with role Report.Reader in configured tenant).'
+            Remediation = ''
+        }
+    )
+    $existingChecks = @($reportData['Checks'] | Where-Object { $_['Id'] -notin @('report-storage-reader', 'report-least-privilege', 'portal-user-role') })
+    $reportData['Checks'] = @($existingChecks + $reportChecks)
+    $reportData['ReportFunctionName'] = $reportSite
+    $reportData['ReportPrincipalId'] = $reportOid
+    $reportData['FunctionAppResourceId'] = $appResourceId
+    $reportData['PortalTenant'] = $portalTenant
+    return $reportData
 }
 
 function Write-FunctionLog {
     param([hashtable]$Entry)
     $reverseTicks = [long]::MaxValue - [datetime]::UtcNow.Ticks
+    $scriptOutput = if ($Entry['ScriptOutput']) {
+        [string]$Entry['ScriptOutput']
+    }
+    elseif ($null -ne $script:CurrentRunTranscript -and $script:CurrentRunTranscript.Count -gt 0) {
+        ($script:CurrentRunTranscript -join "`n")
+    }
+    else { '' }
+    if ($scriptOutput.Length -gt 26000) {
+        $scriptOutput = $scriptOutput.Substring(0, 26000) + "`n...(transcript truncated to fit Table Storage entity limit)"
+    }
     $log = @{
         Timestamp = if ($Entry['Timestamp']) { [string]$Entry['Timestamp'] } else { [datetimeoffset]::UtcNow.ToString('o') }
         FunctionName = [string]$Entry['FunctionName']
@@ -452,6 +1762,7 @@ function Write-FunctionLog {
         Message = [string]$Entry['Message']
         RunId = [string]$Entry['RunId']
         ResourceId = [string]$Entry['ResourceId']
+        ScriptOutput = $scriptOutput
     }
     $entity = @{
         PartitionKey = 'system'
@@ -470,6 +1781,11 @@ function Write-FunctionLog {
     $siteName = Get-OptionalSetting 'WEBSITE_SITE_NAME'
     if (-not $siteName -and $appResourceId) { $siteName = $appResourceId.Split('/')[-1] }
     if ($siteName) { $current.FunctionAppName = $siteName }
+    $aiResourceId = Get-AppInsightsResourceId
+    if ($aiResourceId) {
+        $current.AppInsightsResourceId = $aiResourceId
+        $current.AppInsightsName = $aiResourceId.Split('/')[-1]
+    }
     $current.FunctionAppStatus = 'Running'
     $current.Health = $log.Health
     $current.LastRunTime = $log.Timestamp
@@ -484,6 +1800,12 @@ function Write-FunctionLog {
     if ($Entry.ContainsKey('MachinesQueued')) {
         $current.MachinesQueued = [int]$Entry['MachinesQueued']
     }
+    if ($Entry.ContainsKey('Catalog') -and $null -ne $Entry['Catalog']) {
+        $current.Catalog = $Entry['Catalog']
+    }
+    if ($Entry.ContainsKey('PermissionsReport') -and $null -ne $Entry['PermissionsReport']) {
+        $current.PermissionsReport = $Entry['PermissionsReport']
+    }
     $summaryEntity = @{
         PartitionKey = 'system'; RowKey = 'inventory'
         Data = ConvertTo-Json -InputObject $current -Depth 10 -Compress
@@ -491,23 +1813,131 @@ function Write-FunctionLog {
     $null = Invoke-Table -Path "machines(PartitionKey='system',RowKey='inventory')" -Method PUT -Body $summaryEntity
 }
 
+function Invoke-MdeExtensionEvent {
+    param([string]$Subject)
+    if ($Subject -match '^(/subscriptions/([0-9a-f-]{36})/resourceGroups/([^/?#%\\]+)/providers/(?:Microsoft\.HybridCompute/machines/[^/?#%\\]+|Microsoft\.Compute/virtualMachines/[^/?#%\\]+|Microsoft\.Compute/virtualMachineScaleSets/[^/?#%\\]+/virtualMachines/[^/?#%\\]+|Microsoft\.Compute/virtualMachineScaleSets/[^/?#%\\]+))/providers/Microsoft\.GuestConfiguration/guestConfigurationAssignments/(entraiddeviceid[^/?#%\\]*)$') {
+        $parentId = $Matches[1].ToLowerInvariant()
+        $subscriptionId = $Matches[2]
+        $resourceGroup = $Matches[3]
+        $assignmentName = $Matches[4]
+        $config = Get-SyncConfig
+        if (-not (Test-ResourceScope -Config $config -SubscriptionId $subscriptionId -ResourceGroup $resourceGroup)) {
+            Write-Information "Ignoring out-of-scope Guest Configuration assignment event: $Subject" -InformationAction Continue
+            return 0
+        }
+        $gcResponse = Invoke-CloudRequest -Uri "https://management.azure.com${Subject}?api-version=2024-04-05" -Resource 'https://management.azure.com/' -AllowStatus @(404)
+        if ($gcResponse.Status -eq 404) {
+            Write-Information "Ignoring missing Guest Configuration assignment resource: $Subject" -InformationAction Continue
+            return 0
+        }
+        $gc = Read-JsonResponse $gcResponse
+        $provState = [string](Get-InventoryValue $gc @('properties', 'provisioningState'))
+        if ($provState -and $provState -ine 'Succeeded') {
+            Write-Information "Ignoring $assignmentName with provisioningState '$provState' on $parentId" -InformationAction Continue
+            return 0
+        }
+        if ($parentId -match '^/subscriptions/[0-9a-f-]{36}/resourcegroups/[^/]+/providers/microsoft\.compute/virtualmachinescalesets/[^/]+$') {
+            $vmssLiteral = ConvertTo-Json -InputObject $parentId -Compress
+            $query = @"
+ComputeResources
+| where type =~ 'microsoft.compute/virtualmachinescalesets/virtualmachines'
+| extend vmssId = tolower(substring(id, 0, indexof(id, '/virtualMachines/')))
+| where vmssId == $vmssLiteral
+| where tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
+| project id
+| order by id asc
+"@
+            $result = Read-JsonResponse (Invoke-CloudRequest -Uri 'https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01' -Resource 'https://management.azure.com/' -Method POST -Body @{
+                subscriptions = @($subscriptionId)
+                query = $query
+                options = @{ resultFormat = 'objectArray' }
+            })
+            $count = 0
+            foreach ($row in $result.data) {
+                if ($row.id) {
+                    Send-MachineWork ([string]$row.id) 'EventGrid'
+                    $count++
+                }
+            }
+            return $count
+        }
+        Send-MachineWork $parentId 'EventGrid'
+        return 1
+    }
+    if ($Subject -notmatch '^(/subscriptions/([0-9a-f-]{36})/resourceGroups/([^/?#%\\]+)/providers/(?:Microsoft\.HybridCompute/machines/[^/?#%\\]+|Microsoft\.Compute/virtualMachines/[^/?#%\\]+|Microsoft\.Compute/virtualMachineScaleSets/[^/?#%\\]+/virtualMachines/[^/?#%\\]+|Microsoft\.Compute/virtualMachineScaleSets/[^/?#%\\]+))/extensions/(MDE\.(?:Windows|Linux))$') {
+        throw 'Invalid GuestConfigurationAssignment or MDE.Windows / MDE.Linux extension resource ID.'
+    }
+    $parentId = $Matches[1].ToLowerInvariant()
+    $subscriptionId = $Matches[2]
+    $resourceGroup = $Matches[3]
+    $extensionName = $Matches[4]
+    $config = Get-SyncConfig
+    if (-not (Test-ResourceScope -Config $config -SubscriptionId $subscriptionId -ResourceGroup $resourceGroup)) {
+        Write-Information "Ignoring out-of-scope MDE extension event: $Subject" -InformationAction Continue
+        return 0
+    }
+    $apiVersion = if ($parentId.Contains('/providers/microsoft.hybridcompute/machines/')) { '2024-07-10' } else { '2024-07-01' }
+    $extResponse = Invoke-CloudRequest -Uri "https://management.azure.com${Subject}?api-version=$apiVersion" -Resource 'https://management.azure.com/' -AllowStatus @(404)
+    if ($extResponse.Status -eq 404) {
+        Write-Information "Ignoring missing extension resource: $Subject" -InformationAction Continue
+        return 0
+    }
+    $ext = Read-JsonResponse $extResponse
+    $provState = [string](Get-InventoryValue $ext @('properties', 'provisioningState'))
+    if ($provState -ine 'Succeeded') {
+        Write-Information "Ignoring $extensionName with provisioningState '$provState' on $parentId" -InformationAction Continue
+        return 0
+    }
+    if ($parentId -match '^/subscriptions/[0-9a-f-]{36}/resourcegroups/[^/]+/providers/microsoft\.compute/virtualmachinescalesets/[^/]+$') {
+        $vmssLiteral = ConvertTo-Json -InputObject $parentId -Compress
+        $query = @"
+ComputeResources
+| where type =~ 'microsoft.compute/virtualmachinescalesets/virtualmachines'
+| extend vmssId = tolower(substring(id, 0, indexof(id, '/virtualMachines/')))
+| where vmssId == $vmssLiteral
+| where tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
+| project id
+| order by id asc
+"@
+        $result = Read-JsonResponse (Invoke-CloudRequest -Uri 'https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01' -Resource 'https://management.azure.com/' -Method POST -Body @{
+            subscriptions = @($subscriptionId)
+            query = $query
+            options = @{ resultFormat = 'objectArray' }
+        })
+        $count = 0
+        foreach ($row in $result.data) {
+            if ($row.id) {
+                Send-MachineWork ([string]$row.id) 'EventGrid'
+                $count++
+            }
+        }
+        return $count
+    }
+    Send-MachineWork $parentId 'EventGrid'
+    return 1
+}
+
 function Send-MachineWork {
-    param([string]$ResourceId, [string]$Source)
+    param([string]$ResourceId, [string]$Source, [hashtable]$ResourceData = $null)
     $id = ConvertTo-ArcId $ResourceId
     $namespace = Get-Setting 'ServiceBusConnection__fullyQualifiedNamespace'
     if ($namespace -notmatch '^[a-z0-9-]+\.servicebus\.windows\.net$') { throw 'Invalid Service Bus namespace.' }
     $runId = [guid]::NewGuid().ToString()
-    $null = Invoke-CloudRequest -Uri "https://$namespace/machines/messages" -Resource 'https://servicebus.azure.net' -Method POST -Body @{
+    $payload = @{
         ResourceId = $id; Source = $Source; RunId = $runId
     }
+    if ($null -ne $ResourceData -and $ResourceData.ContainsKey('properties')) {
+        $payload.ResourceData = $ResourceData
+    }
+    $null = Invoke-CloudRequest -Uri "https://$namespace/machines/messages" -Resource 'https://servicebus.azure.net' -Method POST -Body $payload
     if ($Source -eq 'EventGrid') {
         try {
             Write-FunctionLog @{
                 FunctionName = 'ArcEvent'
-                TriggerReason = 'Event Grid (Microsoft.HybridCompute/machines/write)'
+                TriggerReason = 'Event Grid (MDE.Windows / MDE.Linux extension Succeeded)'
                 Status = 'Succeeded'
                 Health = 'Healthy'
-                Message = "Queued Arc machine event for $($id.Split('/')[-1])."
+                Message = "Queued machine $(Get-MachineDisplayName $id) after MDE extension Succeeded."
                 RunId = $runId
                 ResourceId = $id
             }
@@ -533,32 +1963,147 @@ function Get-ScopeResourceGraphTargets {
 function Invoke-InventorySync {
     param([string]$TriggerReason = 'Scheduled timer (NCRONTAB schedule)')
     $runId = [guid]::NewGuid().ToString()
+    Start-SyncTranscript 'Inventory'
     try {
         $config = Get-SyncConfig
+        Write-SyncTrace 'Inventory' "Starting inventory sync run=$runId reason='$TriggerReason'" @{
+            Subscriptions = $config.Subscriptions
+            ManagementGroups = $config.ManagementGroups
+            ResourceGroups = $config.ResourceGroups
+            Mode = $config.Mode
+            DefaultGroupMode = $config.DefaultGroupMode
+            AdminUnitId = $config.AdminUnitId
+            AutoCreateGroups = $config.AutoCreateGroups
+            FreshnessHours = $config.FreshnessHours
+        }
         $discovered = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-        $rgFilter = ''
+        $argMachineRows = 0
+        $argVmssRows = 0
+        $revisitedRows = 0
+        $baseQuery = @"
+Resources
+| extend type = tolower(type)
+| where type == 'microsoft.hybridcompute/machines'
+    or (
+        type in ('microsoft.compute/virtualmachines', 'microsoft.classiccompute/virtualmachines')
+        and tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
+        and tostring(properties.virtualMachineProfile.extensionProfile) !contains 'Compute.AKS'
+    )
+"@
+        $baseVmssQuery = @"
+Resources
+| extend type = tolower(type)
+| where type == 'microsoft.compute/virtualmachinescalesets'
+| extend extensions = tostring(properties.virtualMachineProfile.extensionProfile)
+| where extensions !contains 'Compute.AKS'
+"@
+        $rgClause = ''
         if ($config.ResourceGroups.Count) {
             $literals = @($config.ResourceGroups | ForEach-Object { ConvertTo-Json -InputObject $_ -Compress }) -join ', '
-            $rgFilter = " | where tolower(resourceGroup) in ($literals)"
+            $rgClause = "| where tolower(resourceGroup) in ($literals)`n"
         }
-        $query = "Resources | where type =~ 'microsoft.hybridcompute/machines'${rgFilter} | project id | order by id asc"
+        $query = @"
+${baseQuery}
+${rgClause}| extend machineId = tolower(id)
+| join kind=leftouter (
+    ResourceContainers
+    | where type =~ 'microsoft.resources/subscriptions'
+    | extend mgId = tostring(properties.managementGroupAncestorsChain[0].name),
+             mgDisplayName = tostring(properties.managementGroupAncestorsChain[0].displayName)
+    | project subscriptionId, subscriptionName = name, managementGroup = iff(isempty(mgDisplayName) or mgDisplayName == mgId, mgId, strcat(mgDisplayName, ' (', mgId, ')'))
+) on subscriptionId
+| join kind=leftouter (
+    Resources
+    | where type in~ ('microsoft.hybridcompute/machines/extensions', 'microsoft.compute/virtualmachines/extensions')
+    | extend machineId = tolower(substring(id, 0, indexof(tolower(id), '/extensions/')))
+    | summarize argExtensions = make_list(strcat(name, ' (version: ', tostring(properties.typeHandlerVersion), '; state: ', tostring(properties.provisioningState), ')')) by machineId
+) on machineId
+| join kind=leftouter (
+    GuestConfigurationResources
+    | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+    | where tolower(name) startswith 'entraiddeviceid'
+    | extend machineId = tolower(substring(id, 0, indexof(tolower(id), '/providers/microsoft.guestconfiguration/')))
+    | extend reasonPhrase = tostring(properties.latestAssignmentReport.resources[0].reasons[0].phrase)
+    | parse reasonPhrase with * "intuneDeviceId=" gcEntraDeviceId
+    | where isnotempty(gcEntraDeviceId)
+    | summarize arg_max(tostring(properties.lastComplianceStatusChecked), gcEntraDeviceId) by machineId
+    | project machineId, gcEntraDeviceId
+) on machineId
+| project id, name, type, subscriptionId, subscriptionName, managementGroup, resourceGroup, tags, properties, systemData, argExtensions, gcEntraDeviceId
+| order by id asc
+"@
+        $vmssQuery = @"
+${baseVmssQuery}
+${rgClause}| extend vmssId = tolower(id), vmssName = name, vmssTags = tags
+| project id, vmssName, vmssId, subscriptionId, resourceGroup, vmssTags
+| join kind=leftouter (
+    ResourceContainers
+    | where type =~ 'microsoft.resources/subscriptions'
+    | extend mgId = tostring(properties.managementGroupAncestorsChain[0].name),
+             mgDisplayName = tostring(properties.managementGroupAncestorsChain[0].displayName)
+    | project subscriptionId, subscriptionName = name, managementGroup = iff(isempty(mgDisplayName) or mgDisplayName == mgId, mgId, strcat(mgDisplayName, ' (', mgId, ')'))
+) on subscriptionId
+| join (ComputeResources
+| where type =~ "microsoft.compute/virtualmachinescalesets/virtualmachines"
+| extend vmssId = tolower(substring(id, 0, indexof(id, "/virtualMachines/")))
+| where tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
+) on vmssId
+| extend machineId = tolower(id1)
+| join kind=leftouter (
+    GuestConfigurationResources
+    | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+    | where tolower(name) startswith 'entraiddeviceid'
+    | extend machineId = tolower(substring(id, 0, indexof(tolower(id), '/providers/microsoft.guestconfiguration/')))
+    | extend reasonPhrase = tostring(properties.latestAssignmentReport.resources[0].reasons[0].phrase)
+    | parse reasonPhrase with * "intuneDeviceId=" gcEntraDeviceId
+    | where isnotempty(gcEntraDeviceId)
+    | summarize arg_max(tostring(properties.lastComplianceStatusChecked), gcEntraDeviceId) by machineId
+    | project machineId, gcEntraDeviceId
+) on machineId
+| project id = id1, name = name1, type = type1, subscriptionId, subscriptionName, managementGroup, resourceGroup, tags = iff(isnull(tags1) or tostring(tags1) == '{}', vmssTags, tags1), properties = properties1, resources = resources1, gcEntraDeviceId
+| order by id asc
+"@
         foreach ($target in @(Get-ScopeResourceGraphTargets $config)) {
-            $skipToken = ''
-            do {
-                $options = @{ resultFormat = 'objectArray' }
-                if ($skipToken) { $options.'$skipToken' = $skipToken }
-                $body = @{
-                    query = $query
-                    options = $options
-                }
-                $body[$target.Kind] = $target.Values
-                $result = Read-JsonResponse (Invoke-CloudRequest -Uri 'https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01' -Resource 'https://management.azure.com/' -Method POST -Body $body)
-                foreach ($row in $result.data) {
-                    if ($discovered.Add($row.id)) { Send-MachineWork $row.id 'Schedule' }
-                }
-                $skipToken = if ($result.ContainsKey('$skipToken')) { $result.'$skipToken' } else { '' }
-                if ($result.resultTruncated -eq 'true' -and -not $skipToken) { throw 'Resource Graph inventory was truncated without a continuation token.' }
-            } while ($skipToken)
+            $queryIndex = 0
+            foreach ($activeQuery in @($query, $vmssQuery)) {
+                $queryLabel = if ($queryIndex -eq 0) { 'Arc+NativeVMs' } else { 'VMSSInstances' }
+                $queryIndex++
+                $pageNumber = 0
+                $skipToken = ''
+                do {
+                    $pageNumber++
+                    $options = @{ resultFormat = 'objectArray' }
+                    if ($skipToken) { $options.'$skipToken' = $skipToken }
+                    $body = @{
+                        query = $activeQuery
+                        options = $options
+                    }
+                    $body[$target.Kind] = $target.Values
+                    Write-SyncTrace 'ResourceGraph' "Executing ARG query [$queryLabel] page=$pageNumber scopeKind=$($target.Kind) scopes=$($target.Values -join ',')" @{
+                        Query = $activeQuery
+                    }
+                    $result = Read-JsonResponse (Invoke-CloudRequest -Uri 'https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01' -Resource 'https://management.azure.com/' -Method POST -Body $body)
+                    $rows = @($result.data)
+                    $returnedIds = @($rows | ForEach-Object {
+                        if ($_.ContainsKey('id1') -and $_.id1) { [string]$_.id1 } else { [string]$_.id }
+                    } | Where-Object { $_ })
+                    if ($queryLabel -eq 'Arc+NativeVMs') { $argMachineRows += $returnedIds.Count } else { $argVmssRows += $returnedIds.Count }
+                    Write-SyncTrace 'ResourceGraph' "ARG query [$queryLabel] page=$pageNumber returned $($returnedIds.Count) row(s) (totalRecords=$($result['totalRecords']), truncated=$($result['resultTruncated']))" @{
+                        TotalRecords = $result['totalRecords']
+                        ResultTruncated = $result['resultTruncated']
+                        Data = $rows
+                    }
+                    foreach ($row in $rows) {
+                        $rowId = if ($row.ContainsKey('id1') -and $row.id1) { [string]$row.id1 } else { [string]$row.id }
+                        if ($rowId -and $discovered.Add($rowId)) {
+                            Write-SyncTrace 'Inventory' "Queueing discovered machine from [$queryLabel]: $rowId"
+                            Send-MachineWork $rowId 'Schedule' $row
+                        }
+                    }
+                    $skipToken = if ($result.ContainsKey('$skipToken')) { $result.'$skipToken' } else { '' }
+                    if ($result.resultTruncated -eq 'true' -and -not $skipToken) { throw 'Resource Graph inventory was truncated without a continuation token.' }
+                } while ($skipToken)
+            }
         }
         # Revisit previously seen resources as well, so deletions are visible without removing membership.
         $cursor = ''
@@ -566,26 +2111,60 @@ function Invoke-InventorySync {
             $page = Get-TablePage -Filter "RowKey eq 'state'" -Cursor $cursor
             foreach ($item in $page.Items) {
                 if ((Test-ResourceScope -Config $config -SubscriptionId $item.SubscriptionId -ResourceGroup $item.ResourceGroup) -and $discovered.Add($item.ArcResourceId)) {
+                    $revisitedRows++
+                    Write-SyncTrace 'Inventory' "Queueing previously tracked machine from Table storage: $($item.ArcResourceId)"
                     Send-MachineWork $item.ArcResourceId 'Schedule'
                 }
             }
             $cursor = $page.Cursor
         } while ($cursor)
         $completedAt = [datetimeoffset]::UtcNow.ToString('o')
+        $catalog = $null
+        try {
+            $catalog = Get-CoverageCatalog -Config $config
+            Write-SyncTrace 'Inventory' "Coverage catalog collected: scopes=$(@($catalog.CloudScopes).Count), managedGroups=$(@($catalog.ManagedGroups).Count)"
+        }
+        catch {
+            Write-Warning "Coverage catalog collection failed: $($_.Exception.Message)"
+        }
+        $permissionsReport = $null
+        if (Get-OptionalSetting 'IDENTITY_ENDPOINT') {
+            try {
+                $permissionsReport = Get-PermissionsValidationReport -Config $config -DiscoveredMachinesCount $discovered.Count -ArgMachineRows $argMachineRows -ArgVmssRows $argVmssRows -Catalog $catalog
+                $permEntity = @{
+                    PartitionKey = 'system'
+                    RowKey = 'permissions'
+                    Data = ConvertTo-Json -InputObject $permissionsReport -Depth 15 -Compress
+                }
+                $null = Invoke-Table -Path "machines(PartitionKey='system',RowKey='permissions')" -Method PUT -Body $permEntity
+                Write-SyncTrace 'Inventory' "Permissions validation report saved: checks=$(@($permissionsReport.Checks).Count)"
+            }
+            catch {
+                Write-Warning "Permissions validation report failed: $($_.Exception.Message)"
+            }
+        }
+        $rgSummary = if ($config.ResourceGroups.Count) { $config.ResourceGroups -join ',' } else { 'all' }
+        $subSummary = if ($config.Subscriptions.Count) { $config.Subscriptions -join ',' } else { 'none' }
+        $mgSummary = if ($config.ManagementGroups.Count) { $config.ManagementGroups -join ',' } else { 'none' }
+        $summaryMessage = "Inventory pass completed: queued $($discovered.Count) machine(s) [ARG Arc/VM rows=$argMachineRows, ARG VMSS rows=$argVmssRows, revisited=$revisitedRows | Subs=$subSummary, MGs=$mgSummary, RGs=$rgSummary]."
+        Write-SyncTrace 'Inventory' $summaryMessage
         Write-FunctionLog @{
             Timestamp = $completedAt
             FunctionName = 'Inventory'
             TriggerReason = $TriggerReason
             Status = 'Succeeded'
             Health = 'Healthy'
-            Message = "Inventory pass completed: queued $($discovered.Count) machine(s)."
+            Message = $summaryMessage
             RunId = $runId
             LastSuccessfulInventory = $completedAt
             MachinesQueued = $discovered.Count
+            Catalog = $catalog
+            PermissionsReport = $permissionsReport
         }
         Write-Information "Inventory completed: queued=$($discovered.Count)" -InformationAction Continue
     }
     catch {
+        Write-SyncTrace 'Inventory' "Inventory sync failed run=$runId`: $($_.Exception.Message)"
         try {
             Write-FunctionLog @{
                 FunctionName = 'Inventory'
@@ -625,23 +2204,44 @@ function Get-Correlation {
 }
 
 function Get-MdeCandidates {
-    param([string]$ResourceId)
-    # Select latest telemetry per device BEFORE matching the resource ID, avoiding old mappings.
+    param([string]$ResourceId, [string]$VirtualMachineId = '')
+    # Select latest telemetry per device BEFORE matching the resource ID (or VM ID), avoiding old mappings.
     $literal = ConvertTo-Json -InputObject $ResourceId -Compress
+    $vmClause = ''
+    if (-not [string]::IsNullOrWhiteSpace($VirtualMachineId)) {
+        $vmLiteral = ConvertTo-Json -InputObject $VirtualMachineId.Trim() -Compress
+        $vmClause = " or AzureVmId =~ $vmLiteral"
+    }
     $query = @"
 DeviceInfo
 | where Timestamp >= ago(7d)
 | summarize arg_max(Timestamp, *) by DeviceId
-| where AzureResourceId =~ $literal
+| where AzureResourceId =~ ${literal}${vmClause}
 | project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId,
     SensorHealthState, CloudPlatforms, AzureVmId, PublicIP,
     DeviceManualTags, DeviceDynamicTags, RegistryDeviceTag, MachineGroup
 | take 101
 "@
+    Write-SyncTrace 'MDEHunting' "Executing DeviceInfo hunting query for ResourceId=$ResourceId" @{ Query = $query }
     $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P7D' })
     if (-not $result.ContainsKey('results')) { throw 'Hunting response is missing results.' }
-    if (@($result.results).Count -gt 100) { throw 'Correlation candidate query exceeded its safety limit.' }
-    return @($result.results)
+    $rows = @($result.results)
+    Write-SyncTrace 'MDEHunting' "DeviceInfo query for ResourceId=$ResourceId returned $($rows.Count) row(s)" @{
+        Candidates = @($rows | ForEach-Object {
+            @{
+                DeviceId = $_['DeviceId']
+                DeviceName = $_['DeviceName']
+                AadDeviceId = $_['AadDeviceId']
+                OnboardingStatus = $_['OnboardingStatus']
+                MergedToDeviceId = $_['MergedToDeviceId']
+                Timestamp = $_['Timestamp']
+                SensorHealthState = $_['SensorHealthState']
+                CloudPlatforms = $_['CloudPlatforms']
+            }
+        })
+    }
+    if ($rows.Count -gt 100) { throw 'Correlation candidate query exceeded its safety limit.' }
+    return $rows
 }
 
 function Get-InventoryValue {
@@ -679,16 +2279,45 @@ function ConvertTo-IsoTimestamp {
     return $text
 }
 
+function Get-ResourceKind {
+    param([string]$ResourceId)
+    $lower = $ResourceId.ToLowerInvariant()
+    if ($lower.Contains('/providers/microsoft.compute/virtualmachinescalesets/')) { return 'VmssVm' }
+    if ($lower.Contains('/providers/microsoft.compute/virtualmachines/')) { return 'AzureVm' }
+    if ($lower.Contains('/providers/microsoft.classiccompute/virtualmachines/')) { return 'ClassicVm' }
+    return 'Arc'
+}
+
+function Get-MachineDisplayName {
+    param([string]$ResourceId)
+    if ($ResourceId -match '/providers/microsoft\.compute/virtualmachinescalesets/([^/]+)/virtualmachines/([^/]+)$') {
+        return "$($Matches[1])_$($Matches[2])"
+    }
+    return $ResourceId.Split('/')[-1]
+}
+
+function Get-MachineArmUri {
+    param([string]$ResourceId)
+    $kind = Get-ResourceKind $ResourceId
+    if ($kind -in @('AzureVm', 'VmssVm')) { return "https://management.azure.com${ResourceId}?`$expand=instanceView&api-version=2024-07-01" }
+    if ($kind -eq 'ClassicVm') { return "https://management.azure.com${ResourceId}?api-version=2016-11-01" }
+    return "https://management.azure.com${ResourceId}?api-version=2024-07-10"
+}
+
 function Set-ArcInventory {
     param([hashtable]$State, [hashtable]$Arc)
+    $kind = Get-ResourceKind ([string]$State.ArcResourceId)
     $State.ComputerName = [string](Get-InventoryValue $Arc @('properties', 'osProfile', 'computerName'))
     $State.Fqdn = [string](Get-InventoryValue $Arc @('properties', 'dnsFqdn'))
     $State.CloudProvider = [string](Get-InventoryValue $Arc @('properties', 'cloudMetadata', 'provider'))
+    if (-not $State.CloudProvider -and $kind -ne 'Arc') { $State.CloudProvider = 'Azure' }
     $State.VirtualMachineId = [string](Get-InventoryValue $Arc @('properties', 'vmId'))
     $lastReported = ConvertTo-IsoTimestamp (Get-InventoryValue $Arc @('properties', 'lastStatusChange'))
     if (-not $lastReported) { $lastReported = ConvertTo-IsoTimestamp (Get-InventoryValue $Arc @('systemData', 'lastModifiedAt')) }
+    if (-not $lastReported) { $lastReported = ConvertTo-IsoTimestamp (Get-InventoryValue $Arc @('properties', 'timeCreated')) }
     $State.ArcLastReportedAt = $lastReported
     $addedAt = ConvertTo-IsoTimestamp (Get-InventoryValue $Arc @('systemData', 'createdAt'))
+    if (-not $addedAt) { $addedAt = ConvertTo-IsoTimestamp (Get-InventoryValue $Arc @('properties', 'timeCreated')) }
     if (-not $addedAt) { $addedAt = ConvertTo-IsoTimestamp $State.FirstSeen }
     $State.ArcAddedAt = $addedAt
     $addresses = foreach ($adapter in @(Get-InventoryValue $Arc @('properties', 'networkProfile', 'networkInterfaces'))) {
@@ -711,9 +2340,28 @@ function Get-SubscriptionName {
 }
 
 function Get-ArcExtensions {
-    param([string]$ResourceId)
+    param([string]$ResourceId, [hashtable]$MachineResource = $null)
+    $kind = Get-ResourceKind $ResourceId
+    if ($kind -eq 'ClassicVm') { return @() }
+    if ($null -ne $MachineResource) {
+        if ($MachineResource.ContainsKey('argExtensions') -and $null -ne $MachineResource['argExtensions']) {
+            return @($MachineResource['argExtensions'] | Where-Object { $_ } | ForEach-Object { [string]$_ } | Sort-Object -Unique)
+        }
+        if ($kind -in @('AzureVm', 'VmssVm')) {
+            $embedded = @(Get-InventoryValue $MachineResource @('resources'))
+            if ($embedded.Count) {
+                $items = foreach ($extension in $embedded) {
+                    $version = Get-InventoryValue $extension @('properties', 'typeHandlerVersion')
+                    $status = Get-InventoryValue $extension @('properties', 'provisioningState')
+                    "$($extension.name) (version: $version; state: $status)"
+                }
+                return @($items | Sort-Object -Unique)
+            }
+        }
+    }
+    $apiVersion = if ($kind -in @('AzureVm', 'VmssVm')) { '2024-07-01' } else { '2024-07-10' }
     $prefix = "https://management.azure.com$ResourceId/extensions"
-    $next = "${prefix}?api-version=2024-07-10"
+    $next = "${prefix}?api-version=$apiVersion"
     $seen = [Collections.Generic.HashSet[string]]::new()
     $extensions = @()
     while ($next) {
@@ -730,6 +2378,42 @@ function Get-ArcExtensions {
         $next = [string](Get-InventoryValue $page @('nextLink'))
     }
     return @($extensions | Sort-Object -Unique)
+}
+
+function Test-MachineConnected {
+    param([string]$Status)
+    return ($Status -eq 'Connected' -or $Status -match '(?i)^VM running$|^Running$')
+}
+
+function Resolve-MachineStatusAndOS {
+    param([string]$ResourceId, [hashtable]$Resource)
+    $kind = Get-ResourceKind $ResourceId
+    if ($kind -eq 'Arc') {
+        return @{
+            Status = [string](Get-InventoryValue $Resource @('properties', 'status'))
+            OS = [string](Get-InventoryValue $Resource @('properties', 'osType'))
+        }
+    }
+    $os = [string](Get-InventoryValue $Resource @('properties', 'storageProfile', 'osDisk', 'osType'))
+    if (-not $os) {
+        $os = if ($null -ne (Get-InventoryValue $Resource @('properties', 'osProfile', 'windowsConfiguration'))) { 'Windows' }
+        elseif ($null -ne (Get-InventoryValue $Resource @('properties', 'osProfile', 'linuxConfiguration'))) { 'Linux' }
+        else { '' }
+    }
+    $statuses = @(Get-InventoryValue $Resource @('properties', 'instanceView', 'statuses'))
+    if (-not $statuses.Count) {
+        $statuses = @(Get-InventoryValue $Resource @('properties', 'extended', 'instanceView', 'statuses'))
+    }
+    $powerDisplay = [string](Get-InventoryValue $Resource @('properties', 'extended', 'instanceView', 'powerState', 'displayStatus'))
+    foreach ($s in $statuses) {
+        $code = [string](Get-InventoryValue $s @('code'))
+        if ($code.StartsWith('PowerState/', [StringComparison]::OrdinalIgnoreCase)) {
+            $powerDisplay = [string](Get-InventoryValue $s @('displayStatus'))
+            if (-not $powerDisplay) { $powerDisplay = $code }
+        }
+    }
+    $status = if (-not [string]::IsNullOrWhiteSpace($powerDisplay)) { $powerDisplay.Trim() } else { 'VM running' }
+    return @{ Status = $status; OS = $os }
 }
 
 function Get-DefenderExtensionStatus {
@@ -878,13 +2562,82 @@ function Test-DirectMembership {
 }
 
 function Set-VerifiedMembership {
-    param([hashtable]$State)
-    $group = Test-Group $State.GroupId
-    $State.GroupName = $group.displayName
+    param([hashtable]$State, [hashtable]$CloudTarget = $null, [hashtable]$Config = $null)
+    if ($State['GroupId']) {
+        $group = Test-Group $State.GroupId
+        $State.GroupName = $group.displayName
+    }
+    else {
+        $existingGroups = @(Get-DeviceCloudGroups -Config $Config -ObjectId ([string]$State['EntraObjectId']))
+        if ($existingGroups.Count -gt 0) {
+            # Device is already in one or more managed Cloud x OS groups (Active, Passive, Multiple, or Wrong Account/Sub/Project).
+            # Rules 2 & 3: if global flag is Passive and device is in an Active group, do NOT add to Passive;
+            # if global flag is Active and device is in a Passive group, do NOT add to Active.
+            # Rule 6: if in multiple groups, record all groups and flag.
+            $State.MemberGroups = $existingGroups
+            $State.GroupIds = @($existingGroups | ForEach-Object { [string]$_['Id'] })
+            $State.GroupNames = @($existingGroups | ForEach-Object { [string]$_['DisplayName'] })
+            $State.GroupId = $State.GroupIds[0]
+            $State.GroupName = $State.GroupNames -join '; '
+            $State.GroupAvMode = if ($existingGroups.Count -gt 1) { 'Multiple' } else { [string]$existingGroups[0]['GroupMode'] }
+            $State.Membership = 'Present'
+            $State.Status = 'Verified'
+            $State.MembershipVerifiedAt = [datetimeoffset]::UtcNow.ToString('o')
+            Update-GroupComplianceFlags $State
+            return
+        }
+        if ($State['GroupName']) {
+            $resolved = Resolve-GroupByDisplayName -DisplayName $State.GroupName -AdminUnitId $(if ($Config) { [string]$Config['AdminUnitId'] } else { '' })
+            if ($null -eq $resolved) {
+                if ($Config -and $Config['AutoCreateGroups'] -and $Config['AdminUnitId']) {
+                    if ($State.Mode -eq 'Audit') {
+                        $State.Membership = 'Absent'
+                        $State.Status = 'WouldAdd'
+                        $State.Action = 'WouldCreateGroupAndAdd'
+                        return
+                    }
+                    $resolved = New-AdminUnitSecurityGroup -AdminUnitId $Config.AdminUnitId -DisplayName $State.GroupName -Description "Managed by Arc-to-Entra Sync ($($State['CloudGroupType']) $($State['CloudIdentifier']) - $($State['CloudGroupOS']) $($State['GroupAvMode']))" -State $State
+                    if ($CloudTarget -and $CloudTarget['CounterpartGroupName']) {
+                        $counterpartExisting = Resolve-GroupByDisplayName -DisplayName $CloudTarget.CounterpartGroupName -AdminUnitId ([string]$Config['AdminUnitId'])
+                        if ($null -eq $counterpartExisting) {
+                            $null = New-AdminUnitSecurityGroup -AdminUnitId $Config.AdminUnitId -DisplayName $CloudTarget.CounterpartGroupName -Description "Managed by Arc-to-Entra Sync ($($State['CloudGroupType']) $($State['CloudIdentifier']) - $($State['CloudGroupOS']) $($CloudTarget['CounterpartGroupMode']))" -State $State
+                        }
+                    }
+                }
+                else {
+                    $State.Membership = 'GroupNotFound'
+                    $State.Status = 'GroupNotFound'
+                    return
+                }
+            }
+            $State.GroupId = $resolved.Id
+            $State.GroupName = $resolved.DisplayName
+        }
+        else {
+            $State.Membership = 'MissingIdentifier'
+            $State.Status = 'MissingCloudIdentifier'
+            return
+        }
+    }
+    $effectiveMode = if ($State['GroupAvMode']) { [string]$State['GroupAvMode'] }
+    elseif ($CloudTarget -and $CloudTarget['DefaultGroupMode']) { [string]$CloudTarget['DefaultGroupMode'] }
+    else { Get-Setting 'SYNC_DEFAULT_GROUP_MODE' 'Passive' }
     if (Test-DirectMembership $State.GroupId $State.EntraObjectId) {
         $State.Membership = 'Present'
         $State.Status = 'Verified'
         $State.MembershipVerifiedAt = [datetimeoffset]::UtcNow.ToString('o')
+        $State.GroupAvMode = $effectiveMode
+        $State.MemberGroups = @(@{
+            Id = $State.GroupId
+            DisplayName = $State.GroupName
+            CloudType = [string]$State['CloudGroupType']
+            OSCategory = [string]$State['CloudGroupOS']
+            GroupMode = $effectiveMode
+            CloudIdentifier = [string]$State['CloudIdentifier']
+        })
+        $State.GroupIds = @($State.GroupId)
+        $State.GroupNames = @($State.GroupName)
+        Update-GroupComplianceFlags $State
         return
     }
     $State.Membership = 'Absent'
@@ -904,23 +2657,227 @@ function Set-VerifiedMembership {
     $State.Status = 'Verified'
     $State.Action = if ($response.Status -eq 204) { 'AddedAndVerified' } else { 'PresentAfterConcurrentWrite' }
     $State.MembershipVerifiedAt = [datetimeoffset]::UtcNow.ToString('o')
+    $State.GroupAvMode = $effectiveMode
+    $State.MemberGroups = @(@{
+        Id = $State.GroupId
+        DisplayName = $State.GroupName
+        CloudType = [string]$State['CloudGroupType']
+        OSCategory = [string]$State['CloudGroupOS']
+        GroupMode = $effectiveMode
+        CloudIdentifier = [string]$State['CloudIdentifier']
+    })
+    $State.GroupIds = @($State.GroupId)
+    $State.GroupNames = @($State.GroupName)
+    Update-GroupComplianceFlags $State
+}
+
+function Get-GuestConfigEntraDeviceId {
+    param([string]$ResourceId, [string]$SubscriptionId, [hashtable]$MachineResource = $null)
+    if ($null -ne $MachineResource -and $MachineResource.ContainsKey('gcEntraDeviceId') -and $MachineResource['gcEntraDeviceId']) {
+        $preloadedGuid = [guid]::Empty
+        if ([guid]::TryParse(([string]$MachineResource['gcEntraDeviceId']).Trim(), [ref]$preloadedGuid) -and $preloadedGuid -ne [guid]::Empty) {
+            return $preloadedGuid.ToString()
+        }
+    }
+    if (-not $ResourceId -or -not $SubscriptionId) { return '' }
+    try {
+        $machineLiteral = ConvertTo-Json -InputObject $ResourceId.ToLowerInvariant() -Compress
+        $gcQuery = @"
+GuestConfigurationResources
+| where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
+| where tolower(name) startswith 'entraiddeviceid'
+| extend machineId = tolower(substring(id, 0, indexof(tolower(id), '/providers/microsoft.guestconfiguration/')))
+| where machineId == $machineLiteral
+| extend reasonPhrase = tostring(properties.latestAssignmentReport.resources[0].reasons[0].phrase)
+| parse reasonPhrase with * "intuneDeviceId=" gcEntraDeviceId
+| where isnotempty(gcEntraDeviceId)
+| project gcEntraDeviceId
+| take 1
+"@
+        $gcResult = Read-JsonResponse (Invoke-CloudRequest -Uri 'https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01' -Resource 'https://management.azure.com/' -Method POST -Body @{
+            subscriptions = @($SubscriptionId)
+            query = $gcQuery
+            options = @{ resultFormat = 'objectArray' }
+        })
+        foreach ($row in @($gcResult.data)) {
+            $parsed = [guid]::Empty
+            if ($row['gcEntraDeviceId'] -and [guid]::TryParse(([string]$row['gcEntraDeviceId']).Trim(), [ref]$parsed) -and $parsed -ne [guid]::Empty) {
+                return $parsed.ToString()
+            }
+        }
+    }
+    catch {}
+    return ''
+}
+
+function Resolve-EntraDeviceForMachine {
+    param([hashtable]$State)
+    $primaryNote = 'MDE DeviceInfo.AadDeviceId was empty (machine is not Entra joined / hybrid joined).'
+    # 1. Primary path: MDE AadDeviceId -> Entra deviceId
+    if (-not [string]::IsNullOrWhiteSpace([string]$State['EntraDeviceId'])) {
+        $parsedGuid = [guid]::Empty
+        if ([guid]::TryParse([string]$State['EntraDeviceId'], [ref]$parsedGuid) -and $parsedGuid -ne [guid]::Empty) {
+            $deviceId = $parsedGuid.ToString()
+            $filter = [uri]::EscapeDataString("deviceId eq '$deviceId'")
+            $devices = Read-JsonResponse (Invoke-Graph -Path "/devices?`$filter=$filter&`$select=id,deviceId,accountEnabled&`$top=2")
+            Write-SyncTrace 'MachineSync' "Entra /devices lookup for deviceId=$deviceId returned $(@($devices.value).Count) object(s)"
+            if ($devices.ContainsKey('@odata.nextLink') -or @($devices.value).Count -gt 1) {
+                return @{
+                    Status = 'Ambiguous'
+                    Device = $null
+                    CorrelationPath = 'AadDeviceIdAmbiguous'
+                    Diagnostic = "Multiple Entra ID device objects matched deviceId '$deviceId'. Sync failed closed to avoid ambiguity."
+                }
+            }
+            if (@($devices.value).Count -eq 1) {
+                return @{
+                    Status = 'Found'
+                    Device = $devices.value[0]
+                    CorrelationPath = 'MdeAadDeviceId'
+                    Diagnostic = "Correlated via MDE DeviceInfo.AadDeviceId ($deviceId) matching Entra ID deviceId."
+                }
+            }
+            $primaryNote = "MDE reported AadDeviceId '$deviceId', but GET /v1.0/devices?`$filter=deviceId eq '$deviceId' returned 0 objects in this Entra tenant."
+        }
+    }
+
+    # 2. Machine Configuration (GuestConfigurationResources) intuneDeviceId path:
+    # Reads intuneDeviceId reported by entraiddeviceid / entraiddeviceidlinux DSC package (EnrollmentPayload / wdavstate) -> Entra deviceId
+    $gcDeviceId = ([string]$State['GuestConfigEntraDeviceId']).Trim()
+    $gcNote = 'Machine Configuration assignment (entraiddeviceid / entraiddeviceidlinux) has not reported an intuneDeviceId yet.'
+    if (-not [string]::IsNullOrWhiteSpace($gcDeviceId)) {
+        $gcGuid = [guid]::Empty
+        if ([guid]::TryParse($gcDeviceId, [ref]$gcGuid) -and $gcGuid -ne [guid]::Empty) {
+            $gcIdStr = $gcGuid.ToString()
+            $filter = [uri]::EscapeDataString("deviceId eq '$gcIdStr'")
+            $gcDevices = Read-JsonResponse (Invoke-Graph -Path "/devices?`$filter=$filter&`$select=id,deviceId,displayName,operatingSystem,managementType,accountEnabled&`$top=2")
+            Write-SyncTrace 'MachineSync' "Entra /devices lookup for Machine Configuration intuneDeviceId=$gcIdStr returned $(@($gcDevices.value).Count) object(s)"
+            if ($gcDevices.ContainsKey('@odata.nextLink') -or @($gcDevices.value).Count -gt 1) {
+                return @{
+                    Status = 'Ambiguous'
+                    Device = $null
+                    CorrelationPath = 'GuestConfigIntuneDeviceIdAmbiguous'
+                    Diagnostic = "Multiple Entra ID device objects matched Machine Configuration intuneDeviceId '$gcIdStr'. Sync failed closed."
+                }
+            }
+            if (@($gcDevices.value).Count -eq 1) {
+                return @{
+                    Status = 'Found'
+                    Device = $gcDevices.value[0]
+                    CorrelationPath = 'GuestConfigurationIntuneDeviceId'
+                    Diagnostic = "Correlated via Azure Machine Configuration intuneDeviceId ($gcIdStr) matching Entra ID deviceId."
+                }
+            }
+            $gcNote = "Machine Configuration reported intuneDeviceId '$gcIdStr', but GET /v1.0/devices?`$filter=deviceId eq '$gcIdStr' returned 0 objects in Entra ID."
+        }
+    }
+
+    # 3. Fallback path (when both MDE AadDeviceId and Machine Configuration intuneDeviceId are empty or not found in Entra):
+    # Query Entra /devices by candidate hostnames and match OS + managementType == 'MicrosoftSense'
+    $candidateNames = [Collections.Generic.List[string]]::new()
+    foreach ($rawName in @($State['ComputerName'], $State['MdeDeviceName'], $State['Fqdn'], $State['MachineName'])) {
+        $clean = ([string]$rawName).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($clean)) {
+            if ($clean -notin $candidateNames) { $candidateNames.Add($clean) }
+            if ($clean.Contains('.')) {
+                $short = ($clean -split '\.')[0].Trim()
+                if ($short -and $short -notin $candidateNames) { $candidateNames.Add($short) }
+            }
+        }
+    }
+    $expectedOs = ([string]$State['OS']).Trim()
+    $fallbackSelect = 'id,deviceId,displayName,operatingSystem,managementType,accountEnabled'
+    $fallbackNotes = [Collections.Generic.List[string]]::new()
+    foreach ($hostname in $candidateNames) {
+        $escapedHost = $hostname.Replace("'", "''")
+        $filter = [uri]::EscapeDataString("displayName eq '$escapedHost'")
+        $response = Read-JsonResponse (Invoke-Graph -Path "/devices?`$filter=$filter&`$select=$fallbackSelect&`$top=25")
+        if (-not $response.ContainsKey('value')) { continue }
+        $matches = @($response.value)
+        Write-SyncTrace 'MachineSync' "Entra MicrosoftSense fallback lookup for displayName='$hostname' (OS='$expectedOs') returned $($matches.Count) candidate(s)"
+        if (-not $matches.Count) {
+            $fallbackNotes.Add("displayName='$hostname' (0 matches)")
+            continue
+        }
+
+        $senseMatches = @($matches | Where-Object {
+            [string]$_['displayName'] -ieq $hostname -and
+            (-not $expectedOs -or [string]$_['operatingSystem'] -ieq $expectedOs -or ([string]$_['operatingSystem']).StartsWith($expectedOs, [StringComparison]::OrdinalIgnoreCase)) -and
+            [string]$_['managementType'] -ieq 'MicrosoftSense'
+        })
+        if ($senseMatches.Count -eq 1) {
+            return @{
+                Status = 'Found'
+                Device = $senseMatches[0]
+                CorrelationPath = 'MicrosoftSenseHostnameAndOS'
+                Diagnostic = "Correlated via MicrosoftSense fallback (displayName='$hostname', operatingSystem='$expectedOs', managementType='MicrosoftSense')."
+            }
+        }
+        if ($senseMatches.Count -gt 1) {
+            $enabledSense = @($senseMatches | Where-Object { $_['accountEnabled'] -eq $true })
+            if ($enabledSense.Count -eq 1) {
+                return @{
+                    Status = 'Found'
+                    Device = $enabledSense[0]
+                    CorrelationPath = 'MicrosoftSenseHostnameAndOS'
+                    Diagnostic = "Correlated via unique enabled MicrosoftSense fallback device (displayName='$hostname', operatingSystem='$expectedOs')."
+                }
+            }
+            return @{
+                Status = 'Ambiguous'
+                Device = $null
+                CorrelationPath = 'MicrosoftSenseAmbiguous'
+                Diagnostic = "Multiple ($($senseMatches.Count)) MicrosoftSense Entra devices matched displayName='$hostname' and operatingSystem='$expectedOs'. Sync failed closed."
+            }
+        }
+        $foundSummary = @($matches | ForEach-Object { "OS=$([string]$_['operatingSystem'])/mgmt=$([string]$_['managementType'])" }) -join ', '
+        $fallbackNotes.Add("displayName='$hostname' ($($matches.Count) found [$foundSummary], none matched OS='$expectedOs' + managementType='MicrosoftSense')")
+    }
+
+    $fallbackDetail = if ($fallbackNotes.Count) {
+        "MicrosoftSense fallback checked $($fallbackNotes -join '; ')."
+    }
+    else {
+        'No candidate hostnames were available for MicrosoftSense fallback lookup.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$State['EntraDeviceId']) -or -not [string]::IsNullOrWhiteSpace($gcDeviceId)) {
+        return @{
+            Status = 'EntraDeviceNotFound'
+            Device = $null
+            CorrelationPath = 'None'
+            Diagnostic = "1. $primaryNote 2. $gcNote 3. $fallbackDetail"
+        }
+    }
+    return @{
+        Status = 'NoEntraDevice'
+        Device = $null
+        CorrelationPath = 'None'
+        Diagnostic = "1. $primaryNote 2. $gcNote 3. $fallbackDetail"
+    }
 }
 
 function Invoke-MachineSync {
     param([hashtable]$Work)
+    Start-SyncTranscript 'MachineSync'
     $id = ConvertTo-ArcId ([string]$Work.ResourceId)
     $config = Get-SyncConfig
     $key = Get-MachineKey $id
+    Write-SyncTrace 'MachineSync' "Starting machine sync for ResourceId=$id (Key=$key, Source=$($Work.Source), RunId=$($Work.RunId))"
     $previous = Get-MachineState $key
     $state = @{
-        Key = $key; ArcResourceId = $id; MachineName = $id.Split('/')[-1]
+        Key = $key; ArcResourceId = $id; MachineName = (Get-MachineDisplayName $id)
         SubscriptionId = $id.Split('/')[2]; ResourceGroup = $id.Split('/')[4]
-        GroupId = $config.GroupId; GroupName = ''; Mode = $config.Mode; RunId = ([guid]$Work.RunId).ToString()
+        GroupId = ''; GroupName = ''; GroupIds = @(); GroupNames = @(); MemberGroups = @()
+        GroupAvMode = $config.DefaultGroupMode; DefaultGroupMode = $config.DefaultGroupMode
+        GroupFlags = @(); GroupFlagCodes = @(); GroupComplianceStatus = 'NotInGroup'
+        CloudGroupType = ''; CloudGroupOS = ''; CloudIdentifier = ''
+        Mode = $config.Mode; RunId = ([guid]$Work.RunId).ToString()
         Source = [string]$Work.Source; FirstSeen = [datetimeoffset]::UtcNow.ToString('o')
         LastChecked = [datetimeoffset]::UtcNow.ToString('o'); ArcStatus = 'Unknown'; OS = ''
         Status = 'PendingMde'; Membership = 'Unknown'; MembershipVerifiedAt = ''
         MdeDeviceId = ''; MdeDeviceName = ''; MdeLastSeen = ''; EntraDeviceId = ''; EntraObjectId = ''
-        SubscriptionName = ''; ComputerName = ''; Fqdn = ''; CloudProvider = ''; VirtualMachineId = ''
+        GuestConfigEntraDeviceId = ''; EntraCorrelationPath = ''; EntraDiagnostic = ''
+        SubscriptionName = ''; ManagementGroup = ''; ComputerName = ''; Fqdn = ''; CloudProvider = ''; VirtualMachineId = ''
         ArcExtensions = @(); DefenderExtensionStatus = ''; IPAddresses = @(); MdeSensorHealth = ''; MdeOnboardingStatus = ''
         MdeAntivirusMode = ''; MdeAntivirusTimestamp = ''; MdeAntivirusStatus = 'NotCollected'
         MdeCloudPlatforms = ''; MdeAzureVmId = ''; InventoryStatus = 'NotCollected'; InventoryErrors = @()
@@ -933,28 +2890,65 @@ function Invoke-MachineSync {
         $state.ArcAddedAt = [string]$previous.Data['ArcAddedAt']
     }
     try {
-        $arcResponse = Invoke-CloudRequest -Uri "https://management.azure.com${id}?api-version=2024-07-10" -Resource 'https://management.azure.com/' -AllowStatus @(404)
+        $armUri = Get-MachineArmUri $id
+        $preloadedArc = if ($Work.ContainsKey('ResourceData') -and $Work['ResourceData'] -is [Collections.IDictionary] -and $Work['ResourceData'].ContainsKey('properties')) {
+            [hashtable]$Work['ResourceData']
+        } else { $null }
+        $arcResponse = if ($null -ne $preloadedArc) {
+            @{ Status = 200; Preloaded = $true }
+        } else {
+            Invoke-CloudRequest -Uri $armUri -Resource 'https://management.azure.com/' -AllowStatus @(404)
+        }
         if ($arcResponse.Status -eq 404) {
             $state.Status = 'ArcMissing'
             $state.ArcStatus = 'Missing'
         }
         else {
-            $arc = Read-JsonResponse $arcResponse
-            $state.ArcStatus = $arc.properties.status
-            $state.OS = $arc.properties.osType
-            $targetGroup = Resolve-TargetGroupId -Config $config -OSType ([string]$state.OS)
-            if (-not $targetGroup) { throw "No target Entra security group is configured for OS '$($state.OS)'." }
-            $state.GroupId = $targetGroup
+            $arc = if ($null -ne $preloadedArc) { $preloadedArc } else { Read-JsonResponse $arcResponse }
+            $armName = [string](Get-InventoryValue $arc @('name'))
+            if ($armName) { $state.MachineName = $armName }
+            $resolvedMeta = Resolve-MachineStatusAndOS -ResourceId $id -Resource $arc
+            $state.ArcStatus = $resolvedMeta.Status
+            $state.OS = $resolvedMeta.OS
             $state.InventoryStatus = 'Collected'
             Set-ArcInventory $state $arc
             Invoke-InventoryStep $state 'Azure resource tags' { Set-AzureTags $state $arc }
-            Invoke-InventoryStep $state 'Subscription name' { $state.SubscriptionName = Get-SubscriptionName $state.SubscriptionId }
+            Invoke-InventoryStep $state 'Subscription name' {
+                $argSubName = [string](Get-InventoryValue $arc @('subscriptionName'))
+                if ($argSubName) {
+                    $script:SubscriptionNames[$state.SubscriptionId] = $argSubName
+                    $state.SubscriptionName = $argSubName
+                } else {
+                    $state.SubscriptionName = Get-SubscriptionName $state.SubscriptionId
+                }
+                $argMg = [string](Get-InventoryValue $arc @('managementGroup'))
+                if ($argMg) {
+                    $state.ManagementGroup = $argMg
+                } elseif ($config.ManagementGroups.Count) {
+                    $state.ManagementGroup = $config.ManagementGroups -join ', '
+                }
+            }
             Invoke-InventoryStep $state 'Arc extensions' {
-                $state.ArcExtensions = @(Get-ArcExtensions $id)
+                $state.ArcExtensions = @(Get-ArcExtensions -ResourceId $id -MachineResource $arc)
                 $state.DefenderExtensionStatus = Get-DefenderExtensionStatus $state.ArcExtensions
             }
-            $candidates = @(Get-MdeCandidates $id)
+            $state.GuestConfigEntraDeviceId = Get-GuestConfigEntraDeviceId -ResourceId $id -SubscriptionId $state.SubscriptionId -MachineResource $arc
+            Write-SyncTrace 'MachineSync' "ARM metadata collected for $($state.MachineName)" @{
+                ArcStatus = $state.ArcStatus
+                OS = $state.OS
+                ComputerName = $state.ComputerName
+                Fqdn = $state.Fqdn
+                CloudProvider = $state.CloudProvider
+                SubscriptionName = $state.SubscriptionName
+                VirtualMachineId = $state.VirtualMachineId
+                GuestConfigEntraDeviceId = $state.GuestConfigEntraDeviceId
+                DefenderExtensionStatus = $state.DefenderExtensionStatus
+                ArcExtensions = $state.ArcExtensions
+                AzureTags = $state.AzureTags
+            }
+            $candidates = @(Get-MdeCandidates -ResourceId $id -VirtualMachineId $state.VirtualMachineId)
             $correlation = Get-Correlation -Candidates $candidates -FreshnessHours $config.FreshnessHours
+            Write-SyncTrace 'MachineSync' "Correlation evaluated for $($state.MachineName): status=$($correlation.Status), candidates=$($candidates.Count), arcStatus=$($state.ArcStatus), os=$($state.OS)"
             $displayCandidate = $correlation.Candidate
             if (-not $displayCandidate) {
                 $unmerged = @($candidates | Where-Object { -not $_.MergedToDeviceId })
@@ -974,24 +2968,67 @@ function Invoke-MachineSync {
                     $state.MdeAntivirusStatus = $av.Status
                 }
             }
-            if ($state.ArcStatus -ne 'Connected') { $state.Status = 'ArcNotConnected' }
+            $cloudTarget = Resolve-CloudGroupTarget -Config $config -State $state
+            Write-SyncTrace 'MachineSync' "Resolved Cloud x OS group target for $($state.MachineName)" $cloudTarget
+            $state.CloudGroupType = $cloudTarget.CloudType
+            $state.CloudGroupOS = $cloudTarget.OSCategory
+            $state.CloudIdentifier = $cloudTarget.CloudIdentifier
+            $state.DefaultGroupMode = $cloudTarget.DefaultGroupMode
+            $state.GroupAvMode = $cloudTarget.DefaultGroupMode
+            $state.GroupName = $cloudTarget.GroupName
+            if (-not $cloudTarget.Enabled) {
+                $state.Membership = 'NotConfigured'
+            }
+            elseif (-not $cloudTarget.GroupName) {
+                $state.Membership = 'MissingIdentifier'
+            }
+            if (-not (Test-MachineConnected $state.ArcStatus)) {
+                $state.Status = 'ArcNotConnected'
+                $state.EntraDiagnostic = "Machine status is '$($state.ArcStatus)' (not connected/running); Entra ID correlation was skipped."
+            }
             else {
                 $state.Status = $correlation.Status
-                if ($state.Status -eq 'Matched') {
-                    $deviceId = ([guid]$state.EntraDeviceId).ToString()
-                    $filter = [uri]::EscapeDataString("deviceId eq '$deviceId'")
-                    $devices = Read-JsonResponse (Invoke-Graph -Path "/devices?`$filter=$filter&`$select=id,deviceId,accountEnabled&`$top=2")
-                    if ($devices.ContainsKey('@odata.nextLink') -or @($devices.value).Count -gt 1) { $state.Status = 'Ambiguous' }
-                    elseif (-not @($devices.value).Count) { $state.Status = 'EntraDeviceNotFound' }
+                if ($state.Status -eq 'PendingMde') {
+                    $state.EntraDiagnostic = "No onboarded MDE DeviceInfo record matched Resource ID '$id'$(if ($state.VirtualMachineId) { " or VM ID '$($state.VirtualMachineId)'" }) within the 7-day hunting window. Entra ID lookup requires MDE correlation first."
+                }
+                elseif ($state.Status -eq 'StaleEvidence') {
+                    $state.EntraDiagnostic = "MDE DeviceInfo record matched ($($state.MdeDeviceName)), but its latest timestamp ($($state.MdeLastSeen)) is older than SYNC_FRESHNESS_HOURS ($($config.FreshnessHours)h)."
+                }
+                elseif ($state.Status -eq 'Ambiguous') {
+                    $state.EntraDiagnostic = "Multiple ($($candidates.Count)) active MDE DeviceInfo records matched this machine within the freshness window. Sync paused until duplicates age out."
+                }
+                elseif ($state.Status -in @('Matched', 'NoEntraDevice')) {
+                    $entraResolution = Resolve-EntraDeviceForMachine $state
+                    $state.EntraCorrelationPath = [string]$entraResolution['CorrelationPath']
+                    $state.EntraDiagnostic = [string]$entraResolution['Diagnostic']
+                    if ($entraResolution.Status -ne 'Found') {
+                        $state.Status = $entraResolution.Status
+                    }
                     else {
-                        $device = $devices.value[0]
+                        $device = $entraResolution.Device
                         $state.EntraObjectId = ([guid]$device.id).ToString()
-                        if ($device.accountEnabled -ne $true) { $state.Status = 'EntraDeviceDisabled' }
+                        if ($device['deviceId']) {
+                            $devGuid = [guid]::Empty
+                            if ([guid]::TryParse([string]$device['deviceId'], [ref]$devGuid) -and $devGuid -ne [guid]::Empty) {
+                                $state.EntraDeviceId = $devGuid.ToString()
+                            }
+                        }
+                        if ($device.accountEnabled -ne $true) {
+                            $state.Status = 'EntraDeviceDisabled'
+                            $state.EntraDiagnostic = "Entra ID device object $($state.EntraObjectId) (deviceId=$($state.EntraDeviceId)) was found via $($state.EntraCorrelationPath), but accountEnabled is false."
+                        }
+                        elseif (-not $cloudTarget.Enabled) { $state.Status = 'GroupNotConfigured' }
+                        elseif (-not $cloudTarget.GroupName) { $state.Status = 'MissingCloudIdentifier' }
                         else {
-                            # Recheck Arc immediately before evaluating a membership write.
-                            $check = Read-JsonResponse (Invoke-CloudRequest -Uri "https://management.azure.com${id}?api-version=2024-07-10" -Resource 'https://management.azure.com/')
-                            if ($check.properties.status -ne 'Connected') { $state.Status = 'ArcNotConnected'; $state.ArcStatus = $check.properties.status }
-                            else { Set-VerifiedMembership $state }
+                            $state.Status = 'Matched'
+                            # Recheck machine state immediately before evaluating a membership write.
+                            $check = Read-JsonResponse (Invoke-CloudRequest -Uri $armUri -Resource 'https://management.azure.com/')
+                            $recheckMeta = Resolve-MachineStatusAndOS -ResourceId $id -Resource $check
+                            if (-not (Test-MachineConnected $recheckMeta.Status)) { $state.Status = 'ArcNotConnected'; $state.ArcStatus = $recheckMeta.Status }
+                            else {
+                                Set-VerifiedMembership $state $cloudTarget $config
+                                Write-SyncTrace 'MachineSync' "Completed group evaluation for $($state.MachineName) (correlationPath=$($entraResolution.CorrelationPath)): status=$($state.Status), membership=$($state.Membership), groupName=$($state.GroupName), flags=$($state.GroupFlags -join '; ')"
+                            }
                         }
                     }
                 }
@@ -1005,7 +3042,7 @@ function Invoke-MachineSync {
         Save-MachineState $state $previous
         try {
             $reason = switch ($state.Source) {
-                'EventGrid' { 'Event Grid (Arc machine connected/updated)' }
+                'EventGrid' { 'Event Grid (MDE.Windows / MDE.Linux extension Succeeded)' }
                 'Schedule' { 'Scheduled inventory reconciliation' }
                 default { "Service Bus queue ($($state.Source))" }
             }
@@ -1029,7 +3066,7 @@ function Invoke-MachineSync {
     Save-MachineState $state $previous
     try {
         $reason = switch ($state.Source) {
-            'EventGrid' { 'Event Grid (Arc machine connected/updated)' }
+            'EventGrid' { 'Event Grid (MDE.Windows / MDE.Linux extension Succeeded)' }
             'Schedule' { 'Scheduled inventory reconciliation' }
             default { "Service Bus queue ($($state.Source))" }
         }
@@ -1067,4 +3104,4 @@ function Test-ReportReader {
     return 'Report.Reader' -in $roles -and (Get-Setting 'SYNC_TENANT_ID') -in $tenants
 }
 
-Export-ModuleMember -Function Get-*, Resolve-TargetGroupId, ConvertTo-ArcId, Invoke-InventorySync, Invoke-MachineSync, Test-ReportReader, Write-FunctionLog
+Export-ModuleMember -Function Get-*, Resolve-*, Format-CloudGroupName, ConvertFrom-CloudGroupDisplayName, New-AdminUnitSecurityGroup, Update-GroupComplianceFlags, Set-VerifiedMembership, ConvertTo-ArcId, Invoke-MdeExtensionEvent, Invoke-InventorySync, Invoke-MachineSync, Test-ReportReader, Write-FunctionLog

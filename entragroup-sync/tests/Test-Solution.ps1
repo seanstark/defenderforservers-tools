@@ -14,15 +14,21 @@ Get-ChildItem -LiteralPath $root -Recurse -Filter '*.json' | ForEach-Object {
     $null = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
 }
 
-$names = @('SYNC_SUBSCRIPTION_IDS', 'SYNC_MANAGEMENT_GROUP_IDS', 'SYNC_RESOURCE_GROUP_NAMES', 'SYNC_GROUP_ID', 'SYNC_WINDOWS_GROUP_ID', 'SYNC_LINUX_GROUP_ID', 'SYNC_MODE', 'SYNC_TENANT_ID', 'SYNC_FRESHNESS_HOURS')
+$names = @('SYNC_SUBSCRIPTION_IDS', 'SYNC_MANAGEMENT_GROUP_IDS', 'SYNC_RESOURCE_GROUP_NAMES', 'SYNC_DEFAULT_GROUP_MODE', 'SYNC_ADMIN_UNIT_ID', 'SYNC_AUTO_CREATE_GROUPS', 'SYNC_AWS_WINDOWS_GROUP_PREFIX', 'SYNC_AWS_LINUX_GROUP_PREFIX', 'SYNC_GCP_WINDOWS_GROUP_PREFIX', 'SYNC_GCP_LINUX_GROUP_PREFIX', 'SYNC_AZURE_WINDOWS_GROUP_PREFIX', 'SYNC_AZURE_LINUX_GROUP_PREFIX', 'SYNC_MODE', 'SYNC_TENANT_ID', 'SYNC_FRESHNESS_HOURS')
 $saved = @{}
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 $env:SYNC_SUBSCRIPTION_IDS = '11111111-1111-1111-1111-111111111111'
 $env:SYNC_MANAGEMENT_GROUP_IDS = ''
 $env:SYNC_RESOURCE_GROUP_NAMES = ''
-$env:SYNC_GROUP_ID = '22222222-2222-2222-2222-222222222222'
-$env:SYNC_WINDOWS_GROUP_ID = ''
-$env:SYNC_LINUX_GROUP_ID = ''
+$env:SYNC_DEFAULT_GROUP_MODE = 'Passive'
+$env:SYNC_ADMIN_UNIT_ID = ''
+$env:SYNC_AUTO_CREATE_GROUPS = ''
+$env:SYNC_AWS_WINDOWS_GROUP_PREFIX = 'MDfS-AWS-Windows-'
+$env:SYNC_AWS_LINUX_GROUP_PREFIX = 'MDfS-AWS-Linux-'
+$env:SYNC_GCP_WINDOWS_GROUP_PREFIX = 'MDfS-GCP-Windows-'
+$env:SYNC_GCP_LINUX_GROUP_PREFIX = 'MDfS-GCP-Linux-'
+$env:SYNC_AZURE_WINDOWS_GROUP_PREFIX = 'MDfS-Azure-Windows-'
+$env:SYNC_AZURE_LINUX_GROUP_PREFIX = 'MDfS-Azure-Linux-'
 $env:SYNC_MODE = 'Audit'
 $env:SYNC_TENANT_ID = '33333333-3333-3333-3333-333333333333'
 $env:SYNC_FRESHNESS_HOURS = '24'
@@ -33,7 +39,7 @@ try {
         $script:Failed = 0
         $originals = @{}
         foreach ($name in @('Invoke-CloudRequest', 'Invoke-Graph', 'Invoke-Table', 'Get-MachineState', 'Save-MachineState',
-            'Get-MdeCandidates', 'Test-Group', 'Test-DirectMembership', 'Write-MutationIntent', 'Get-TableBase', 'Get-TablePage',
+            'Get-MdeCandidates', 'Test-Group', 'Resolve-GroupByDisplayName', 'Get-DeviceCloudGroups', 'Test-DirectMembership', 'Write-MutationIntent', 'Get-TableBase', 'Get-TablePage',
             'Send-MachineWork', 'Get-AccessToken', 'Invoke-WebRequest', 'Start-Sleep',
             'Get-SubscriptionName', 'Get-ArcExtensions', 'Get-MdeNetworkAddresses', 'Get-MdeAntivirus', 'Get-ManagementGroupSubscriptions', 'Write-FunctionLog')) {
             $command = Get-Command $name -ErrorAction SilentlyContinue
@@ -62,11 +68,16 @@ try {
                 $env:SYNC_SUBSCRIPTION_IDS = '11111111-1111-1111-1111-111111111111'
                 $env:SYNC_MANAGEMENT_GROUP_IDS = ''
                 $env:SYNC_RESOURCE_GROUP_NAMES = ''
-                $env:SYNC_GROUP_ID = '22222222-2222-2222-2222-222222222222'
-                $env:SYNC_WINDOWS_GROUP_ID = ''
-                $env:SYNC_LINUX_GROUP_ID = ''
+                $env:SYNC_DEFAULT_GROUP_MODE = 'Passive'
+                $env:SYNC_AWS_WINDOWS_GROUP_PREFIX = 'MDfS-AWS-Windows-'
+                $env:SYNC_AWS_LINUX_GROUP_PREFIX = 'MDfS-AWS-Linux-'
+                $env:SYNC_GCP_WINDOWS_GROUP_PREFIX = 'MDfS-GCP-Windows-'
+                $env:SYNC_GCP_LINUX_GROUP_PREFIX = 'MDfS-GCP-Linux-'
+                $env:SYNC_AZURE_WINDOWS_GROUP_PREFIX = 'MDfS-Azure-Windows-'
+                $env:SYNC_AZURE_LINUX_GROUP_PREFIX = 'MDfS-Azure-Linux-'
                 $script:ManagementGroupSubscriptions = @{}
                 $script:ManagementGroupCacheExpires = [datetimeoffset]::MinValue
+                $script:GroupByNameCache = @{}
                 foreach ($entry in $originals.GetEnumerator()) {
                     if ($entry.Value) { Set-Item -Path "Function:script:$($entry.Key)" -Value $entry.Value }
                     else { Remove-Item -Path "Function:script:$($entry.Key)" -ErrorAction SilentlyContinue }
@@ -85,6 +96,33 @@ try {
         }
         Test-Case 'Arc ID normalization and stable key' {
             Assert-Equal (ConvertTo-ArcId $id) $id.ToLowerInvariant()
+            $vmId = '/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/Servers/providers/Microsoft.Compute/virtualMachines/Vm01'
+            $classicVmId = '/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/Servers/providers/Microsoft.ClassicCompute/virtualMachines/ClassicVm01'
+            $vmssInstanceId = '/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/Servers/providers/Microsoft.Compute/virtualMachineScaleSets/ScaleSet01/virtualMachines/0'
+            Assert-Equal (ConvertTo-ArcId $vmId) $vmId.ToLowerInvariant()
+            Assert-Equal (ConvertTo-ArcId $classicVmId) $classicVmId.ToLowerInvariant()
+            Assert-Equal (ConvertTo-ArcId $vmssInstanceId) $vmssInstanceId.ToLowerInvariant()
+            Assert-Equal (Get-ResourceKind $vmId) 'AzureVm'
+            Assert-Equal (Get-ResourceKind $classicVmId) 'ClassicVm'
+            Assert-Equal (Get-ResourceKind $vmssInstanceId) 'VmssVm'
+            Assert-Equal (Get-MachineDisplayName $vmssInstanceId.ToLowerInvariant()) 'scaleset01_0'
+            Assert-Equal (Get-ResourceKind $id) 'Arc'
+            $vmMeta = Resolve-MachineStatusAndOS -ResourceId $vmId -Resource @{
+                properties = @{
+                    storageProfile = @{ osDisk = @{ osType = 'Windows' } }
+                    instanceView = @{ statuses = @(@{ code = 'PowerState/running'; displayStatus = 'VM running' }) }
+                }
+            }
+            Assert-Equal $vmMeta.Status 'VM running'
+            Assert-Equal $vmMeta.OS 'Windows'
+            $deallocMeta = Resolve-MachineStatusAndOS -ResourceId $vmId -Resource @{
+                properties = @{
+                    storageProfile = @{ osDisk = @{ osType = 'Linux' } }
+                    instanceView = @{ statuses = @(@{ code = 'PowerState/deallocated'; displayStatus = 'VM deallocated' }) }
+                }
+            }
+            Assert-Equal $deallocMeta.Status 'VM deallocated'
+            Assert-Equal $deallocMeta.OS 'Linux'
             Assert-Equal (Get-MachineKey $id) (Get-MachineKey $id.ToUpperInvariant())
             Assert-Equal (Get-MachineKey $id).Length 64
         }
@@ -108,7 +146,13 @@ try {
             $script:Queued = @()
             function script:Invoke-CloudRequest {
                 param($Uri, $Resource, $Method, $Body)
-                $script:GraphBodies += $Body
+                if ($Body -and $Body['query']) {
+                    $script:GraphBodies += $Body
+                }
+                if ($Body -and $Body['query'] -and $Body.query.Contains('virtualmachinescalesets/virtualmachines')) {
+                    $vmssVm = '/subscriptions/88888888-8888-8888-8888-888888888888/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachineScaleSets/vmss01/virtualMachines/0'
+                    return @{ Content = (@{ data = @(@{ id = $vmssVm }); resultTruncated = 'false' } | ConvertTo-Json -Compress) }
+                }
                 @{ Content = (@{ data = @(@{ id = $mgId }); resultTruncated = 'false' } | ConvertTo-Json -Compress) }
             }
             function script:Get-TablePage { @{ Items = @(); Cursor = '' } }
@@ -118,10 +162,15 @@ try {
             }
             function script:Send-MachineWork { param($ResourceId) $script:Queued += $ResourceId }
             Invoke-InventorySync -TriggerReason 'Scheduled timer (NCRONTAB schedule)'
-            Assert-Equal $script:GraphBodies.Count 1
+            Assert-Equal $script:GraphBodies.Count 2
             Assert-Equal ($script:GraphBodies[0].managementGroups -join ',') 'mg-servers'
+            Assert-True ($script:GraphBodies[0].query.Contains("type in ('microsoft.compute/virtualmachines', 'microsoft.classiccompute/virtualmachines')"))
+            Assert-True ($script:GraphBodies[0].query.Contains("!contains 'deallocated'"))
+            Assert-True ($script:GraphBodies[0].query.Contains("!contains 'Compute.AKS'"))
             Assert-True ($script:GraphBodies[0].query.Contains('tolower(resourceGroup) in ("rg-prod", "servers")'))
-            Assert-Equal $script:Queued.Count 1
+            Assert-True ($script:GraphBodies[1].query.Contains("type == 'microsoft.compute/virtualmachinescalesets'"))
+            Assert-True ($script:GraphBodies[1].query.Contains('microsoft.compute/virtualmachinescalesets/virtualmachines'))
+            Assert-Equal $script:Queued.Count 2
             Assert-Equal $script:LastFunctionLog.FunctionName 'Inventory'
             Assert-Equal $script:LastFunctionLog.TriggerReason 'Scheduled timer (NCRONTAB schedule)'
             Assert-Equal $script:LastFunctionLog.Status 'Succeeded'
@@ -251,15 +300,44 @@ try {
             Assert-Equal $script:Saved.Status 'ArcMissing'
             Assert-Equal $script:Saved.Membership 'Unknown'
             Assert-Equal $script:LoggedRun.FunctionName 'Machine'
-            Assert-Equal $script:LoggedRun.TriggerReason 'Event Grid (Arc machine connected/updated)'
+            Assert-Equal $script:LoggedRun.TriggerReason 'Event Grid (MDE.Windows / MDE.Linux extension Succeeded)'
             Assert-Equal $script:LoggedRun.Status 'ArcMissing'
+        }
+        Test-Case 'Event Grid MDE extension trigger queues parent machine only when provisioningState is Succeeded' {
+            $script:QueuedParent = @()
+            function script:Send-MachineWork { param($ResourceId, $Source) $script:QueuedParent += "$Source`:$ResourceId" }
+            function script:Invoke-CloudRequest {
+                param($Uri)
+                if ($Uri.Contains('MDE.Windows')) {
+                    return @{ Status = 200; Content = '{"properties":{"provisioningState":"Succeeded"}}' }
+                }
+                return @{ Status = 200; Content = '{"properties":{"provisioningState":"Creating"}}' }
+            }
+            $winExt = "$id/extensions/MDE.Windows"
+            $linExt = "$id/extensions/MDE.Linux"
+            $gcSubj = "$id/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/entraiddeviceid"
+            Assert-Equal (Invoke-MdeExtensionEvent -Subject $winExt) 1
+            Assert-Equal $script:QueuedParent.Count 1
+            Assert-Equal $script:QueuedParent[0] "EventGrid:$($id.ToLowerInvariant())"
+            Assert-Equal (Invoke-MdeExtensionEvent -Subject $linExt) 0
+            Assert-Equal $script:QueuedParent.Count 1
+            function script:Invoke-CloudRequest {
+                param($Uri)
+                if ($Uri.Contains('guestConfigurationAssignments/entraiddeviceid')) {
+                    return @{ Status = 200; Content = '{"properties":{"provisioningState":"Succeeded","complianceStatus":"Compliant"}}' }
+                }
+                return @{ Status = 404 }
+            }
+            Assert-Equal (Invoke-MdeExtensionEvent -Subject $gcSubj) 1
+            Assert-Equal $script:QueuedParent.Count 2
+            Assert-Throws { Invoke-MdeExtensionEvent -Subject "$id/extensions/AzureMonitorWindowsAgent" }
         }
         Test-Case 'Full machine workflow resolves deviceId to object ID in Audit' {
             $script:Candidates = @($candidate)
             $script:ResolvedObject = ''
             function script:Get-MachineState { $null }
             function script:Invoke-CloudRequest {
-                @{ Status = 200; Content = '{"tags":{"Environment":"Production","Cost center":"123"},"systemData":{"createdAt":"2026-10-01T08:00:00Z","lastModifiedAt":"2026-10-19T11:30:00Z"},"properties":{"status":"Connected","lastStatusChange":"2026-10-19T11:55:00Z","osType":"Windows","dnsFqdn":"server01.example.com","osProfile":{"computerName":"SERVER01"},"cloudMetadata":{"provider":"AWS"},"vmId":"arc-vm-id","networkProfile":{"networkInterfaces":[{"ipAddresses":[{"address":"10.0.0.4"}]}]}}}' }
+                @{ Status = 200; Content = '{"tags":{"AccountId":"123456789012","Environment":"Production","Cost center":"123"},"systemData":{"createdAt":"2026-10-01T08:00:00Z","lastModifiedAt":"2026-10-19T11:30:00Z"},"properties":{"status":"Connected","lastStatusChange":"2026-10-19T11:55:00Z","osType":"Windows","dnsFqdn":"server01.example.com","osProfile":{"computerName":"SERVER01"},"cloudMetadata":{"provider":"AWS"},"vmId":"arc-vm-id","networkProfile":{"networkInterfaces":[{"ipAddresses":[{"address":"10.0.0.4"}]}]}}}' }
             }
             function script:Get-SubscriptionName { 'Production subscription' }
             function script:Get-ArcExtensions { @('AzureMonitorWindowsAgent (version: 1.0; state: Succeeded)', 'MDE.Windows (version: 2.0; state: Succeeded)') }
@@ -272,9 +350,16 @@ try {
                     Assert-True ($Path.Contains('44444444-4444-4444-4444-444444444444'))
                     return @{ Content = '{"value":[{"id":"55555555-5555-5555-5555-555555555555","deviceId":"44444444-4444-4444-4444-444444444444","accountEnabled":true}]}' }
                 }
+                if ($Path.Contains('/memberOf')) {
+                    return @{ Content = '{"value":[]}' }
+                }
                 throw "Unexpected Graph request $Path"
             }
-            function script:Test-Group { @{ displayName = 'Arc servers' } }
+            function script:Resolve-GroupByDisplayName {
+                param($DisplayName)
+                Assert-Equal $DisplayName 'MDfS-AWS-Windows-Passive-123456789012'
+                @{ Id = '22222222-2222-2222-2222-222222222222'; DisplayName = 'MDfS-AWS-Windows-Passive-123456789012' }
+            }
             function script:Test-DirectMembership {
                 param($GroupId, $ObjectId)
                 $script:ResolvedObject = $ObjectId
@@ -286,7 +371,10 @@ try {
             Assert-Equal $script:LoggedRun.TriggerReason 'Scheduled inventory reconciliation'
             Assert-Equal $script:LoggedRun.Health 'Healthy'
             Assert-Equal $script:Saved.Status 'WouldAdd'
-            Assert-Equal $script:Saved.GroupName 'Arc servers'
+            Assert-Equal $script:Saved.GroupName 'MDfS-AWS-Windows-Passive-123456789012'
+            Assert-Equal $script:Saved.CloudGroupType 'AWS'
+            Assert-Equal $script:Saved.CloudGroupOS 'Windows'
+            Assert-Equal $script:Saved.CloudIdentifier '123456789012'
             Assert-Equal $script:Saved.EntraDeviceId '44444444-4444-4444-4444-444444444444'
             Assert-Equal $script:ResolvedObject '55555555-5555-5555-5555-555555555555'
             Assert-Equal $script:Saved.ComputerName 'SERVER01'
@@ -328,32 +416,87 @@ try {
             Assert-Equal $script:Saved.MdeAntivirusStatus 'Failed'
             Assert-Equal $script:Saved.MdeAntivirusMode ''
         }
-        Test-Case 'Full MDE-only workflow makes no directory lookup or membership write' {
+        Test-Case 'MDE-only device falls back to MicrosoftSense Entra lookup and correlates only when unique' {
             $script:Linux = $candidate.Clone(); $script:Linux.AadDeviceId = ''
             function script:Get-MachineState { $null }
-            function script:Invoke-CloudRequest { @{ Status = 200; Content = '{"properties":{"status":"Connected","osType":"Linux"}}' } }
+            function script:Invoke-CloudRequest { @{ Status = 200; Content = '{"properties":{"status":"Connected","osType":"Linux","osProfile":{"computerName":"SERVER01"}}}' } }
             function script:Get-MdeCandidates { @($script:Linux) }
             function script:Get-SubscriptionName { 'Production subscription' }
             function script:Get-ArcExtensions { @() }
             function script:Get-MdeNetworkAddresses { @() }
             function script:Get-MdeAntivirus { @{ Mode = ''; Timestamp = ''; Status = 'NoData' } }
-            function script:Invoke-Graph { throw 'No directory call is allowed without an Entra identifier.' }
+            function script:Invoke-Graph {
+                param($Path)
+                if ($Path.StartsWith('/devices?$filter=')) {
+                    return @{ Content = '{"value":[]}' }
+                }
+                throw "Unexpected Graph call when no MicrosoftSense device exists: $Path"
+            }
             function script:Save-MachineState { param($State) $script:Saved = $State }
             function script:Write-FunctionLog {}
             Invoke-MachineSync @{ ResourceId = $id; RunId = [guid]::NewGuid().ToString(); Source = 'Test' }
             Assert-Equal $script:Saved.Status 'NoEntraDevice'
             Assert-Equal $script:Saved.Membership 'Unknown'
+
+            # Now return a unique MicrosoftSense Entra device matching SERVER01 + Linux
+            function script:Invoke-Graph {
+                param($Path)
+                if ($Path.StartsWith('/devices?$filter=')) {
+                    return @{ Content = '{"value":[{"id":"66666666-6666-6666-6666-666666666666","deviceId":"77777777-7777-7777-7777-777777777777","displayName":"SERVER01","operatingSystem":"Linux","managementType":"MicrosoftSense","accountEnabled":true}]}' }
+                }
+                if ($Path.Contains('/memberOf')) {
+                    return @{ Content = '{"value":[]}' }
+                }
+                throw "Unexpected Graph call in MicrosoftSense correlation: $Path"
+            }
+            function script:Resolve-GroupByDisplayName {
+                param($DisplayName)
+                @{ Id = '22222222-2222-2222-2222-222222222222'; DisplayName = $DisplayName }
+            }
+            function script:Test-DirectMembership { $false }
+            Invoke-MachineSync @{ ResourceId = $id; RunId = [guid]::NewGuid().ToString(); Source = 'Test' }
+            Assert-Equal $script:Saved.Status 'WouldAdd'
+            Assert-Equal $script:Saved.EntraObjectId '66666666-6666-6666-6666-666666666666'
+            Assert-Equal $script:Saved.EntraDeviceId '77777777-7777-7777-7777-777777777777'
+            Assert-Equal $script:Saved.GroupName 'MDfS-Azure-Linux-Passive-Production subscription'
+
+            # Verify Option 2: Machine Configuration (GuestConfigurationResources) intuneDeviceId correlation takes precedence before hostname fallback
+            function script:Invoke-Graph {
+                param($Path)
+                if ($Path.Contains("deviceId%20eq%20%278d6e3dd1-4cc4-6d14-e0a3-4856e6059032%27")) {
+                    return @{ Content = '{"value":[{"id":"99999999-8888-7777-6666-555555555555","deviceId":"8d6e3dd1-4cc4-6d14-e0a3-4856e6059032","displayName":"linlog02","operatingSystem":"Linux","managementType":"MicrosoftSense","accountEnabled":true}]}' }
+                }
+                if ($Path.Contains('/memberOf')) {
+                    return @{ Content = '{"value":[]}' }
+                }
+                throw "Machine Configuration intuneDeviceId correlation should not fall through to hostname lookup: $Path"
+            }
+            Invoke-MachineSync @{
+                ResourceId = $id
+                RunId = [guid]::NewGuid().ToString()
+                Source = 'Test'
+                ResourceData = @{
+                    properties = @{ status = 'Connected'; osType = 'Linux'; osProfile = @{ computerName = 'SERVER01' } }
+                    gcEntraDeviceId = '8d6e3dd1-4cc4-6d14-e0a3-4856e6059032'
+                }
+            }
+            Assert-Equal $script:Saved.Status 'WouldAdd'
+            Assert-Equal $script:Saved.GuestConfigEntraDeviceId '8d6e3dd1-4cc4-6d14-e0a3-4856e6059032'
+            Assert-Equal $script:Saved.EntraDeviceId '8d6e3dd1-4cc4-6d14-e0a3-4856e6059032'
+            Assert-Equal $script:Saved.EntraObjectId '99999999-8888-7777-6666-555555555555'
+            Assert-Equal $script:Saved.EntraCorrelationPath 'GuestConfigurationIntuneDeviceId'
         }
-        Test-Case 'OS-specific Entra groups route Windows and Linux servers to separate groups' {
-            $env:SYNC_GROUP_ID = ''
-            $env:SYNC_WINDOWS_GROUP_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-            $env:SYNC_LINUX_GROUP_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+        Test-Case 'Per-account Cloud x OS Entra groups route Windows and Linux servers per AWS Account, GCP Project, and Azure Subscription' {
             $cfg = Get-SyncConfig
-            Assert-Equal (Resolve-TargetGroupId -Config $cfg -OSType 'Windows') 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-            Assert-Equal (Resolve-TargetGroupId -Config $cfg -OSType 'Linux') 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            Assert-Equal $cfg.DefaultGroupMode 'Passive'
             $params = Get-FunctionParametersSummary
-            Assert-Equal $params.SYNC_WINDOWS_GROUP_ID 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-            Assert-Equal $params.SYNC_LINUX_GROUP_ID 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            Assert-Equal $params.SYNC_DEFAULT_GROUP_MODE 'Passive'
+            Assert-True ($params.SYNC_AWS_WINDOWS_GROUP_PREFIX.Contains('MDfS-AWS-Windows-Passive-<AccountId>'))
+            Assert-True ($params.SYNC_AWS_LINUX_GROUP_PREFIX.Contains('MDfS-AWS-Linux-Passive-<AccountId>'))
+            Assert-True ($params.SYNC_GCP_WINDOWS_GROUP_PREFIX.Contains('MDfS-GCP-Windows-Passive-<ProjectId>'))
+            Assert-True ($params.SYNC_GCP_LINUX_GROUP_PREFIX.Contains('MDfS-GCP-Linux-Passive-<ProjectId>'))
+            Assert-True ($params.SYNC_AZURE_WINDOWS_GROUP_PREFIX.Contains('MDfS-Azure-Windows-Passive-<SubscriptionName>'))
+            Assert-True ($params.SYNC_AZURE_LINUX_GROUP_PREFIX.Contains('MDfS-Azure-Linux-Passive-<SubscriptionName>'))
             function script:Get-MachineState { $null }
             function script:Invoke-CloudRequest { @{ Status = 200; Content = '{"properties":{"status":"Connected","osType":"Linux"}}' } }
             function script:Get-MdeCandidates { @() }
@@ -362,7 +505,233 @@ try {
             function script:Save-MachineState { param($State) $script:Saved = $State }
             function script:Write-FunctionLog {}
             Invoke-MachineSync @{ ResourceId = $id; RunId = [guid]::NewGuid().ToString(); Source = 'Test' }
-            Assert-Equal $script:Saved.GroupId 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            Assert-Equal $script:Saved.CloudGroupType 'Azure'
+            Assert-Equal $script:Saved.CloudGroupOS 'Linux'
+            Assert-Equal $script:Saved.GroupName 'MDfS-Azure-Linux-Passive-Production subscription'
+        }
+        Test-Case 'Cloud x OS group routing uses AccountId for AWS, ProjectId for GCP, excludes AWS/GCP from Azure Subscription groups, and enforces Active/Passive rules and flags' {
+            $cfg = Get-SyncConfig
+            # 1. AWS Windows & Linux machines (default Passive mode)
+            $awsWinTarget = Resolve-CloudGroupTarget -Config $cfg -State @{
+                OS = 'Windows'; CloudProvider = 'AWS'; MdeCloudPlatforms = 'Amazon Web Services'; SubscriptionName = 'Production subscription'
+                AzureTags = @{ AccountId = '123456789012'; Environment = 'Prod' }
+            }
+            Assert-Equal $awsWinTarget.CloudType 'AWS'
+            Assert-Equal $awsWinTarget.OSCategory 'Windows'
+            Assert-Equal $awsWinTarget.CloudIdentifier '123456789012'
+            Assert-Equal $awsWinTarget.GroupName 'MDfS-AWS-Windows-Passive-123456789012'
+            Assert-Equal $awsWinTarget.CounterpartGroupName 'MDfS-AWS-Windows-Active-123456789012'
+            $awsLinTarget = Resolve-CloudGroupTarget -Config $cfg -State @{
+                OS = 'Ubuntu 22.04'; CloudProvider = 'AWS'; MdeCloudPlatforms = ''; SubscriptionName = 'Production subscription'
+                AzureTags = @{ AccountId = '123456789012' }
+            }
+            Assert-Equal $awsLinTarget.CloudType 'AWS'
+            Assert-Equal $awsLinTarget.OSCategory 'Linux'
+            Assert-Equal $awsLinTarget.GroupName 'MDfS-AWS-Linux-Passive-123456789012'
+            # 2. Global flag set to Active routes to Active group by default
+            $env:SYNC_DEFAULT_GROUP_MODE = 'Active'
+            $activeCfg = Get-SyncConfig
+            Assert-Equal $activeCfg.DefaultGroupMode 'Active'
+            $awsActiveTarget = Resolve-CloudGroupTarget -Config $activeCfg -State @{
+                OS = 'Windows'; CloudProvider = 'AWS'; MdeCloudPlatforms = ''; SubscriptionName = 'Production subscription'
+                AzureTags = @{ AccountId = '123456789012' }
+            }
+            Assert-Equal $awsActiveTarget.GroupName 'MDfS-AWS-Windows-Active-123456789012'
+            Assert-Equal $awsActiveTarget.CounterpartGroupName 'MDfS-AWS-Windows-Passive-123456789012'
+            $env:SYNC_DEFAULT_GROUP_MODE = 'Passive'
+            # 3. AWS/GCP missing tag never falls back to Azure Subscription group
+            $awsNoTagTarget = Resolve-CloudGroupTarget -Config $cfg -State @{
+                OS = 'Windows'; CloudProvider = 'AWS'; MdeCloudPlatforms = ''; SubscriptionName = 'Production subscription'
+                AzureTags = @{ Environment = 'Prod' }
+            }
+            Assert-Equal $awsNoTagTarget.CloudType 'AWS'
+            Assert-Equal $awsNoTagTarget.GroupName ''
+            $gcpWinTarget = Resolve-CloudGroupTarget -Config $cfg -State @{
+                OS = 'Windows'; CloudProvider = 'GCP'; MdeCloudPlatforms = 'Google Cloud Platform'; SubscriptionName = 'Production subscription'
+                AzureTags = @{ ProjectId = 'my-gcp-project-01' }
+            }
+            Assert-Equal $gcpWinTarget.CloudType 'GCP'
+            Assert-Equal $gcpWinTarget.OSCategory 'Windows'
+            Assert-Equal $gcpWinTarget.GroupName 'MDfS-GCP-Windows-Passive-my-gcp-project-01'
+            $azureWinTarget = Resolve-CloudGroupTarget -Config $cfg -State @{
+                OS = 'Windows'; CloudProvider = 'Azure Arc'; MdeCloudPlatforms = 'Azure Arc'; SubscriptionName = 'Production subscription'
+                AzureTags = @{ Environment = 'Prod' }
+            }
+            Assert-Equal $azureWinTarget.CloudType 'Azure'
+            Assert-Equal $azureWinTarget.OSCategory 'Windows'
+            Assert-Equal $azureWinTarget.GroupName 'MDfS-Azure-Windows-Passive-Production subscription'
+            # 4. Rule 2: Global flag = Passive, device is already in Active group -> NOT added to Passive group; Rule 4: Active group + MDE Passive -> flagged Should be Active
+            $env:SYNC_MODE = 'Enforce'
+            function script:Invoke-Graph {
+                param($Path, $Method = 'GET')
+                if ($Path.Contains('/memberOf')) {
+                    return @{ Content = '{"value":[{"id":"99999999-9999-9999-9999-999999999999","displayName":"MDfS-AWS-Windows-Active-123456789012"}]}' }
+                }
+                throw "Should not call $Method $Path when already in Active group"
+            }
+            $stateInActive = @{
+                Key = 'k'; RunId = [guid]::NewGuid().ToString(); ArcResourceId = $id
+                GroupId = ''; GroupName = $awsWinTarget.GroupName
+                CloudGroupType = 'AWS'; CloudGroupOS = 'Windows'; CloudIdentifier = '123456789012'
+                MdeAntivirusMode = 'Passive'
+                EntraObjectId = '55555555-5555-5555-5555-555555555555'; Mode = 'Enforce'
+            }
+            Set-VerifiedMembership $stateInActive $awsWinTarget $cfg
+            Assert-Equal $stateInActive.GroupName 'MDfS-AWS-Windows-Active-123456789012'
+            Assert-Equal $stateInActive.GroupAvMode 'Active'
+            Assert-Equal $stateInActive.Membership 'Present'
+            Assert-Equal $stateInActive.Status 'Verified'
+            Assert-True ('AvModeMismatchShouldBeActive' -in $stateInActive.GroupFlagCodes)
+            Assert-True ($stateInActive.GroupFlags[0].Contains('Should be Active'))
+            # 5. Rule 3: Global flag = Active, device is already in Passive group -> NOT added to Active group; Rule 5: Passive group + MDE Active -> flagged Should be Active
+            function script:Invoke-Graph {
+                param($Path, $Method = 'GET')
+                if ($Path.Contains('/memberOf')) {
+                    return @{ Content = '{"value":[{"id":"88888888-8888-8888-8888-888888888888","displayName":"MDfS-AWS-Windows-Passive-123456789012"}]}' }
+                }
+                throw "Should not call $Method $Path when already in Passive group"
+            }
+            $stateInPassive = @{
+                Key = 'k'; RunId = [guid]::NewGuid().ToString(); ArcResourceId = $id
+                GroupId = ''; GroupName = $awsActiveTarget.GroupName
+                CloudGroupType = 'AWS'; CloudGroupOS = 'Windows'; CloudIdentifier = '123456789012'
+                MdeAntivirusMode = 'Active'
+                EntraObjectId = '55555555-5555-5555-5555-555555555555'; Mode = 'Enforce'
+            }
+            Set-VerifiedMembership $stateInPassive $awsActiveTarget $activeCfg
+            Assert-Equal $stateInPassive.GroupName 'MDfS-AWS-Windows-Passive-123456789012'
+            Assert-Equal $stateInPassive.GroupAvMode 'Passive'
+            Assert-True ('AvModeMismatchShouldBeActive' -in $stateInPassive.GroupFlagCodes)
+            Assert-True ($stateInPassive.GroupFlags[0].Contains('Should be Active'))
+            # 6. Rules 6 & 7: Device in multiple groups and wrong AWS Account ID / Subscription / GCP Project is flagged and shows all groups
+            function script:Invoke-Graph {
+                param($Path, $Method = 'GET')
+                if ($Path.Contains('/memberOf')) {
+                    return @{ Content = '{"value":[{"id":"11111111-2222-3333-4444-555555555555","displayName":"MDfS-AWS-Windows-Passive-123456789012"},{"id":"66666666-7777-8888-9999-000000000000","displayName":"MDfS-AWS-Windows-Active-999999999999"}]}' }
+                }
+                throw "Unexpected Graph call $Method $Path"
+            }
+            $stateMultiWrong = @{
+                Key = 'k'; RunId = [guid]::NewGuid().ToString(); ArcResourceId = $id
+                GroupId = ''; GroupName = $awsWinTarget.GroupName
+                CloudGroupType = 'AWS'; CloudGroupOS = 'Windows'; CloudIdentifier = '123456789012'
+                MdeAntivirusMode = 'Passive'
+                EntraObjectId = '55555555-5555-5555-5555-555555555555'; Mode = 'Enforce'
+            }
+            Set-VerifiedMembership $stateMultiWrong $awsWinTarget $cfg
+            Assert-Equal $stateMultiWrong.MemberGroups.Count 2
+            Assert-Equal $stateMultiWrong.GroupName 'MDfS-AWS-Windows-Passive-123456789012; MDfS-AWS-Windows-Active-999999999999'
+            Assert-True ('MultipleGroups' -in $stateMultiWrong.GroupFlagCodes)
+            Assert-True ('WrongGroup' -in $stateMultiWrong.GroupFlagCodes)
+            Assert-True ('AvModeMismatchShouldBeActive' -in $stateMultiWrong.GroupFlagCodes)
+            # 7. Device not in any group is added to the default Passive group in Enforce mode
+            $script:AddedGroups = @()
+            function script:Invoke-Graph {
+                param($Path, $Method = 'GET', $Body)
+                if ($Path.Contains('/memberOf')) {
+                    return @{ Content = '{"value":[]}' }
+                }
+                if ($Path.StartsWith('/groups?$filter=')) {
+                    Assert-True ($Path.Contains('MDfS-AWS-Windows-Passive-123456789012'))
+                    return @{ Content = '{"value":[{"id":"99999999-9999-9999-9999-999999999999","displayName":"MDfS-AWS-Windows-Passive-123456789012","securityEnabled":true,"groupTypes":[],"onPremisesSyncEnabled":false,"isAssignableToRole":false}]}' }
+                }
+                if ($Method -eq 'POST' -and $Path.EndsWith('/members/$ref')) {
+                    $script:AddedGroups += $Path
+                    return @{ Status = 204 }
+                }
+                throw "Unexpected Graph call: $Method $Path"
+            }
+            $script:DirectChecks = @{}
+            function script:Test-DirectMembership {
+                param($GroupId, $ObjectId)
+                if (-not $script:DirectChecks.ContainsKey($GroupId)) { $script:DirectChecks[$GroupId] = 0 }
+                $script:DirectChecks[$GroupId]++
+                return $script:DirectChecks[$GroupId] -gt 1
+            }
+            function script:Write-MutationIntent {}
+            $syncState = @{
+                Key = 'k'; RunId = [guid]::NewGuid().ToString(); ArcResourceId = $id
+                GroupId = ''; GroupName = $awsWinTarget.GroupName
+                CloudGroupType = 'AWS'; CloudGroupOS = 'Windows'; CloudIdentifier = '123456789012'
+                MdeAntivirusMode = 'Passive'
+                EntraObjectId = '55555555-5555-5555-5555-555555555555'; Mode = 'Enforce'
+            }
+            Set-VerifiedMembership $syncState $awsWinTarget $cfg
+            Assert-Equal $syncState.GroupId '99999999-9999-9999-9999-999999999999'
+            Assert-Equal $syncState.GroupName 'MDfS-AWS-Windows-Passive-123456789012'
+            Assert-Equal $syncState.Membership 'Present'
+            Assert-Equal $syncState.Status 'Verified'
+            Assert-Equal $syncState.GroupFlags.Count 0
+            Assert-Equal $syncState.GroupComplianceStatus 'Compliant'
+            Assert-Equal $script:AddedGroups.Count 1
+            # 8. Administrative Unit automatic group creation (Audit zero-write vs Enforce POST /directory/administrativeUnits/{auId}/members)
+            $script:GroupByNameCache = @{}
+            $script:AdminUnitGroupsCache = @{}
+            $env:SYNC_ADMIN_UNIT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $env:SYNC_AUTO_CREATE_GROUPS = 'true'
+            $auCfg = Get-SyncConfig
+            Assert-Equal $auCfg.AdminUnitId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            Assert-Equal $auCfg.AutoCreateGroups $true
+            $env:SYNC_MODE = 'Audit'
+            function script:Invoke-Graph {
+                param($Path, $Method = 'GET', $Body)
+                if ($Path.StartsWith('/directory/administrativeUnits/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/members/microsoft.graph.group')) {
+                    return @{ Content = '{"value":[]}' }
+                }
+                throw "Audit mode with AU must only check AU groups, not call $Method $Path"
+            }
+            $auditAuState = @{
+                Key = 'k'; RunId = [guid]::NewGuid().ToString(); ArcResourceId = $id
+                GroupId = ''; GroupName = $awsWinTarget.GroupName
+                CloudGroupType = 'AWS'; CloudGroupOS = 'Windows'; CloudIdentifier = '123456789012'
+                MdeAntivirusMode = 'Passive'
+                EntraObjectId = '55555555-5555-5555-5555-555555555555'; Mode = 'Audit'
+            }
+            Set-VerifiedMembership $auditAuState $awsWinTarget $auCfg
+            Assert-Equal $auditAuState.Status 'WouldAdd'
+            Assert-Equal $auditAuState.Membership 'Absent'
+            Assert-Equal $auditAuState.Action 'WouldCreateGroupAndAdd'
+            # Enforce mode creates both Passive and Active groups in the Administrative Unit and adds device
+            $env:SYNC_MODE = 'Enforce'
+            $script:AuCreatedGroups = @()
+            function script:Invoke-Table { @{ Status = 204 } }
+            function script:Invoke-Graph {
+                param($Path, $Method = 'GET', $Body)
+                if ($Path.StartsWith('/directory/administrativeUnits/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/members/microsoft.graph.group')) {
+                    return @{ Content = '{"value":[]}' }
+                }
+                if ($Method -eq 'POST' -and $Path -eq '/directory/administrativeUnits/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/members') {
+                    Assert-Equal $Body['@odata.type'] '#microsoft.graph.group'
+                    $script:AuCreatedGroups += $Body.displayName
+                    $newId = if ($Body.displayName.Contains('-Passive-')) { '12121212-1212-1212-1212-121212121212' } else { '34343434-3434-3434-3434-343434343434' }
+                    return @{ Status = 201; Content = (@{ id = $newId; displayName = $Body.displayName } | ConvertTo-Json -Compress) }
+                }
+                if ($Method -eq 'POST' -and $Path.EndsWith('/members/$ref')) {
+                    return @{ Status = 204 }
+                }
+                throw "Unexpected Graph call in AU auto-create test: $Method $Path"
+            }
+            $script:DirectChecks = @{}
+            $enforceAuState = @{
+                Key = 'k'; RunId = [guid]::NewGuid().ToString(); ArcResourceId = $id
+                GroupId = ''; GroupName = $awsWinTarget.GroupName
+                CloudGroupType = 'AWS'; CloudGroupOS = 'Windows'; CloudIdentifier = '123456789012'
+                MdeAntivirusMode = 'Passive'
+                EntraObjectId = '55555555-5555-5555-5555-555555555555'; Mode = 'Enforce'
+            }
+            $script:GroupByNameCache = @{}
+            $script:AdminUnitGroupsCache = @{}
+            Set-VerifiedMembership $enforceAuState $awsWinTarget $auCfg
+            Assert-Equal $script:AuCreatedGroups.Count 2
+            Assert-True ('MDfS-AWS-Windows-Passive-123456789012' -in $script:AuCreatedGroups)
+            Assert-True ('MDfS-AWS-Windows-Active-123456789012' -in $script:AuCreatedGroups)
+            Assert-Equal $enforceAuState.GroupId '12121212-1212-1212-1212-121212121212'
+            Assert-Equal $enforceAuState.Membership 'Present'
+            Assert-Equal $enforceAuState.Status 'Verified'
+            $script:AdminUnitGroupsCache = @{}
+            $env:SYNC_ADMIN_UNIT_ID = ''
+            $env:SYNC_AUTO_CREATE_GROUPS = ''
+            $env:SYNC_MODE = 'Audit'
         }
         Test-Case 'Unique offboarded and stale devices remain visible but cannot authorize membership' {
             $script:ReportingCandidate = $candidate.Clone()
@@ -611,6 +980,96 @@ try {
             $claims[1].val = 'wrong-tenant'
             $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((@{ auth_typ = 'aad'; claims = $claims } | ConvertTo-Json -Depth 10 -Compress)))
             Assert-Equal (Test-ReportReader @{ Headers = @{ 'X-MS-CLIENT-PRINCIPAL' = $encoded } }) $false
+        }
+        Test-Case 'Permissions validation report evaluates Azure RBAC, Graph, and Entra readiness' {
+            function script:Get-TokenClaims {
+                param($Resource)
+                @{
+                    oid = '77777777-8888-9999-aaaa-bbbbbbbbbbbb'
+                    roles = @('ThreatHunting.Read.All', 'Device.Read.All')
+                }
+            }
+            function script:Invoke-CloudRequest {
+                param($Uri)
+                @{ Status = 200; Content = '{"displayName":"Demo production"}' }
+            }
+            function script:Invoke-Graph {
+                param($Path)
+                if ($Path -like '/directory/administrativeUnits/*/scopedRoleMembers') {
+                    return @{ Status = 200; Content = '{"value":[{"roleMemberInfo":{"id":"77777777-8888-9999-aaaa-bbbbbbbbbbbb"}}]}' }
+                }
+                if ($Path -like '/directory/administrativeUnits/*') {
+                    return @{ Status = 200; Content = '{"id":"44444444-aaaa-bbbb-cccc-555555555555","displayName":"Defender AU","value":[]}' }
+                }
+                if ($Path -like '/servicePrincipals/*/ownedObjects*') {
+                    return @{ Status = 200; Content = '{"value":[{"id":"g1","displayName":"MDfS-AWS-Windows-Passive-123456789012"}]}' }
+                }
+                @{ Status = 200; Content = '{"results":[],"value":[]}' }
+            }
+            $env:SYNC_ADMIN_UNIT_ID = '44444444-aaaa-bbbb-cccc-555555555555'
+            $cfg = Get-SyncConfig
+            $report = Get-PermissionsValidationReport -Config $cfg -DiscoveredMachinesCount 5 -ArgMachineRows 4 -ArgVmssRows 1
+            Assert-Equal $report.WorkerPrincipalId '77777777-8888-9999-aaaa-bbbbbbbbbbbb'
+            Assert-Equal $report.Checks.Count 6
+            Assert-Equal (@($report.Checks | Where-Object { $_.Id -eq 'graph-group-read' }).Count) 0
+            Assert-Equal (@($report.Checks | Where-Object { $_.Status -eq 'Granted' }).Count) 6
+            $env:SYNC_ADMIN_UNIT_ID = ''
+        }
+        Test-Case 'Dashboard run.ps1 serves health and permissions without strict-mode variable errors' {
+            $claims = @(
+                @{ typ = 'roles'; val = 'Report.Reader' }
+                @{ typ = 'tid'; val = $env:SYNC_TENANT_ID }
+                @{ typ = 'upn'; val = 'admin@trydex.cloud' }
+            )
+            $principal = @{ auth_typ = 'aad'; claims = $claims } | ConvertTo-Json -Depth 10 -Compress
+            $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($principal))
+            function script:Get-TokenClaims { @{ oid = 'cccccccc-dddd-eeee-ffff-000000000000' } }
+            function script:Invoke-Table {
+                param($Path)
+                if ($Path -like "*RowKey='permissions'*") { return @{ Status = 404 } }
+                if ($Path -like "*RowKey='inventory'*") {
+                    return @{
+                        Status = 200
+                        Content = (@{
+                            Data = (@{
+                                FunctionAppName = 'mdemdcsync-worker-l25i6m'
+                                FunctionAppResourceId = '/subscriptions/9ebcb583-7adb-44ea-b688-06f1de624cc1/resourceGroups/aws-lab/providers/Microsoft.Web/sites/mdemdcsync-worker-l25i6m'
+                                MachinesQueued = 2
+                                LastRunStatus = 'Succeeded'
+                                LastRunTime = '2026-10-29T16:00:00Z'
+                            } | ConvertTo-Json -Compress)
+                        } | ConvertTo-Json -Compress)
+                    }
+                }
+                @{ Status = 200; Content = '{"value":[]}' }
+            }
+            $global:OutResponses = @()
+            function global:Push-OutputBinding {
+                param($Name, $Value)
+                $global:OutResponses += $Value
+            }
+            $global:ReportStaticCache = @{}
+            $global:ReportApiCache = @{}
+            & "$PSScriptRoot\..\report\Dashboard\run.ps1" -Request @{
+                Headers = @{ 'X-MS-CLIENT-PRINCIPAL' = $encoded }
+                Params = @{ path = 'health' }
+                Query = @{ cursor = ''; refresh = '1'; key = '' }
+            } -TriggerMetadata @{}
+            & "$PSScriptRoot\..\report\Dashboard\run.ps1" -Request @{
+                Headers = @{ 'X-MS-CLIENT-PRINCIPAL' = $encoded }
+                Params = @{ path = 'permissions' }
+                Query = @{ cursor = ''; refresh = '1'; key = '' }
+            } -TriggerMetadata @{}
+            Remove-Item Function:\global:Push-OutputBinding -ErrorAction SilentlyContinue
+            Assert-Equal $global:OutResponses.Count 2
+            Assert-Equal $global:OutResponses[0].StatusCode 200
+            Assert-Equal $global:OutResponses[1].StatusCode 200
+            $healthBody = ConvertFrom-Json -InputObject $global:OutResponses[0].Body -AsHashtable
+            $permBody = ConvertFrom-Json -InputObject $global:OutResponses[1].Body -AsHashtable
+            Remove-Variable -Name OutResponses -Scope Global -ErrorAction SilentlyContinue
+            Assert-Equal $healthBody.PortalTenant 'trydex.cloud'
+            Assert-Equal $permBody.PortalTenant 'trydex.cloud'
+            Assert-Equal $permBody.Checks.Count 9
         }
         Write-Host "`n$script:Passed passed; $script:Failed failed."
         if ($script:Failed) { throw 'Solution tests failed.' }

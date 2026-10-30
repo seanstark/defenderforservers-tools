@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Permissions &amp; readiness — Cloud Server Correlation</title>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/permissions.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#permissions-main">Skip to permissions validation</a>
+  <header class="app-bar">
+    <a class="app-brand" href="/"><span class="brand-mark" aria-hidden="true">AE</span>Cloud Server Correlation</a>
+    <span class="app-context">Cloud Servers / Entra ID — Managed Identity Permissions &amp; Readiness</span>
+    <div class="actions"><span class="read-only">Read-only report</span><button id="theme-toggle" class="secondary theme-toggle" type="button" aria-label="Switch color theme">Dark mode</button><a href="/.auth/logout">Sign out</a></div>
+  </header>
+  <aside class="sidebar" aria-label="Report navigation">
+    <p class="nav-heading">ASSET MANAGEMENT</p>
+    <nav>
+      <a href="/"><span aria-hidden="true">01</span>Device inventory</a>
+      <a href="/coverage.html"><span aria-hidden="true">02</span>Cloud &amp; group report</a>
+      <div class="nav-sub" role="group" aria-label="Cloud and group report sections">
+        <a class="nav-child" href="/coverage.html#coverage-accounts">By AWS / GCP / Subscription</a>
+        <a class="nav-child" href="/coverage.html#coverage-groups">Entra ID groups &amp; empty</a>
+        <a class="nav-child" href="/coverage.html#coverage-empty-scopes">Scopes with 0 servers</a>
+      </div>
+      <a href="/#device-status"><span aria-hidden="true">03</span>Status breakdowns</a>
+      <a href="/#processing-health"><span aria-hidden="true">04</span>Function App &amp; logs</a>
+      <a class="nav-current" href="/permissions.html" aria-current="page"><span aria-hidden="true">05</span>Permissions &amp; readiness</a>
+      <a href="/docs.html"><span aria-hidden="true">06</span>Documentation &amp; APIs</a>
+      <div class="nav-sub" role="group" aria-label="Documentation sections">
+        <a class="nav-child" href="/docs.html#doc-archify">Architecture</a>
+        <a class="nav-child" href="/docs.html#doc-architecture">Workflow</a>
+        <a class="nav-child" href="/docs.html#doc-queries">KQL &amp; ARG queries</a>
+        <a class="nav-child" href="/docs.html#doc-apis">REST APIs</a>
+        <a class="nav-child" href="/docs.html#doc-permissions">Permissions &amp; RBAC</a>
+        <a class="nav-child" href="/docs.html#doc-scopes">Scope &amp; group routing</a>
+        <a class="nav-child" href="/docs.html#doc-troubleshooting">Troubleshooting</a>
+      </div>
+    </nav>
+    <div class="sidebar-note"><strong>Identity validation</strong><p>Azure RBAC Reader<br>MDE ThreatHunting<br>Entra Device &amp; Group Read<br>AU / Group Write</p><span>Add-only synchronization.<br>No devices or members are deleted.</span></div>
+  </aside>
+  <main id="permissions-main" tabindex="-1">
+    <div class="page-heading">
+      <p class="eyebrow">MANAGED IDENTITY &amp; RBAC DIAGNOSTICS</p>
+      <h1>Permissions &amp; readiness validation</h1>
+      <p class="muted">Verify that the Worker and Report Managed Identities have all required Azure RBAC roles, Microsoft Graph application permissions, and Microsoft Entra ID group/Administrative Unit permissions.</p>
+    </div>
+    <p id="perm-error" role="alert" hidden></p>
+
+    <section id="perm-summary" class="cards summary-metrics" aria-label="Permissions summary"></section>
+
+    <section class="panel" aria-label="Managed Identity permission checks">
+      <div class="function-header">
+        <div>
+          <p class="eyebrow">PERMISSION &amp; CONFIGURATION CHECKS</p>
+          <h2 id="perm-banner-title">Checking Managed Identity permissions...</h2>
+          <p id="perm-banner-subtitle" class="muted">Evaluating Azure Resource Graph, Microsoft Graph, Entra ID, Storage, and Service Bus access...</p>
+        </div>
+        <div class="function-header-actions">
+          <div class="function-portal-links">
+            <button id="perm-refresh" class="secondary" type="button">Re-check permissions</button>
+            <a id="perm-worker-portal-link" href="https://portal.azure.com/#browse/Microsoft.Web%2Fsites/kind/functionapp" target="_blank" rel="noopener noreferrer">Open Worker Function App</a>
+          </div>
+          <span id="perm-updated" class="muted"></span>
+        </div>
+      </div>
+
+      <dl id="perm-identities" class="detail-summary function-summary" aria-label="Managed Identity metadata"></dl>
+
+      <nav class="inventory-tabs coverage-tabs" aria-label="Permission category views">
+        <button type="button" data-perm-tab="all" aria-pressed="true">All checks</button>
+        <button type="button" data-perm-tab="issues" aria-pressed="false">Action required / warnings</button>
+        <button type="button" data-perm-tab="Azure RBAC" aria-pressed="false">Azure RBAC</button>
+        <button type="button" data-perm-tab="Microsoft Graph" aria-pressed="false">Microsoft Graph</button>
+        <button type="button" data-perm-tab="Microsoft Entra ID" aria-pressed="false">Microsoft Entra ID</button>
+        <button type="button" data-perm-tab="Report App & User" aria-pressed="false">Report App &amp; User</button>
+      </nav>
+
+      <div class="table-caption">
+        <p id="perm-count" aria-live="polite">Loading checks...</p>
+        <span class="muted">Worker checks run automatically on each inventory pass; Report Managed Identity checks run live on every request.</span>
+      </div>
+
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Managed identity permission validation results">
+        <table>
+          <caption class="sr-only">Validation status for each required Azure RBAC, Microsoft Graph, and Entra ID permission</caption>
+          <thead>
+            <tr>
+              <th scope="col">Status</th>
+              <th scope="col">Category</th>
+              <th scope="col">Permission / Role</th>
+              <th scope="col">Principal (Managed Identity)</th>
+              <th scope="col">Target Scope</th>
+              <th scope="col">Required For</th>
+              <th scope="col">Validation Evidence &amp; Remediation</th>
+            </tr>
+          </thead>
+          <tbody id="perm-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel function-panel" aria-label="Quick setup and remediation commands">
+      <div class="function-header">
+        <div>
+          <p class="eyebrow">ONE-STEP REMEDIATION SCRIPTS</p>
+          <h2>Grant or update Managed Identity permissions</h2>
+          <p class="muted">Run these PowerShell / Azure CLI commands from the <code>entragroup-sync</code> directory to assign any missing Azure RBAC or Microsoft Graph permissions.</p>
+        </div>
+      </div>
+      <div class="docs-content">
+        <div class="doc-grid">
+          <div class="doc-card">
+            <h3>1. Assign Azure <code>Reader</code> Role (Required for Resource Graph)</h3>
+            <p class="muted">Required on every target Subscription or Management Group so Azure Resource Graph can discover Arc machines, VMs, and VMSS instances:</p>
+            <pre><code id="cmd-azure-reader"># Assign Reader on target Subscription or Management Group
+az role assignment create --assignee-object-id &lt;worker-principal-id&gt; --assignee-principal-type ServicePrincipal --role 'Reader' --scope '/subscriptions/&lt;subscription-guid&gt;'</code></pre>
+          </div>
+          <div class="doc-card">
+            <h3>2. Grant Microsoft Graph &amp; Administrative Unit Permissions</h3>
+            <p class="muted">Grants <code>ThreatHunting.Read.All</code> and <code>Device.Read.All</code> plus AU-scoped <code>Groups Administrator</code> on your Administrative Unit (no tenant-wide <code>GroupMember.Read.All</code> required):</p>
+            <pre><code id="cmd-graph-perms"># Administrative Unit scoped (checks &amp; manages only groups in the Administrative Unit)
+.\Grant-GraphPermissions.ps1 -WorkerPrincipalId '&lt;worker-principal-id&gt;' -Mode Enforce -AdminUnitId '&lt;admin-unit-guid&gt;'</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer>Background processing uses a separate managed identity. Times are shown in your local timezone.</footer>
+  </main>
+</body>
+</html>

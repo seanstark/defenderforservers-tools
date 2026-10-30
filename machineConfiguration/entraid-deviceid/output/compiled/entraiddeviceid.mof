@@ -1,0 +1,26 @@
+/*
+@TargetNode='localhost'
+@GeneratedBy=seanstark
+@GenerationDate=10/30/2026 08:18:52
+@GenerationHost=LAPTOP-NLOC0RP2
+*/
+
+instance of EntraIdDeviceId as $EntraIdDeviceId1ref
+{
+SourceInfo = "::5::9::EntraIdDeviceId";
+ ModuleName = "EntraIdDeviceId";
+ Name = "EnrollmentPayload";
+ ResourceID = "[EntraIdDeviceId]entraiddeviceid";
+ ModuleVersion = "1.0.0";
+ ConfigurationName = "entraiddeviceid";
+};
+instance of OMI_ConfigurationDocument
+{
+ Version="2.0.0";
+ MinimumCompatibleVersion = "1.0.0";
+ CompatibleVersionAdditionalProperties= {"Omi_BaseResource:ConfigurationName"};
+ Author="seanstark";
+ GenerationDate="10/30/2026 08:18:52";
+ GenerationHost="LAPTOP-NLOC0RP2";
+ Name="entraiddeviceid";
+};

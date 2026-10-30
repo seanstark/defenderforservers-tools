@@ -1,0 +1,204 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Checks that the MDE.Windows extension is installed and provisioned on Windows Azure Arc-enabled servers, then deploys the entraiddeviceid Azure Machine Configuration assignment to read intuneDeviceId from HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\SenseCM\\MemConfiguration\\EnrollmentPayload."
+  },
+  "parameters": {
+    "policyDefinitionName": {
+      "type": "string",
+      "defaultValue": "deploy-entraid-deviceid-windows-arc",
+      "metadata": {
+        "description": "Name of the custom Azure Policy definition."
+      }
+    },
+    "policyDefinitionDisplayName": {
+      "type": "string",
+      "defaultValue": "Deploy Microsoft Defender for Endpoint SenseCM intuneDeviceId on Windows Azure Arc machines (with MDE.Windows)",
+      "metadata": {
+        "description": "Display name of the custom Azure Policy definition."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Authorization/policyDefinitions",
+      "apiVersion": "2023-04-01",
+      "name": "[parameters('policyDefinitionName')]",
+      "properties": {
+        "policyType": "Custom",
+        "mode": "Indexed",
+        "displayName": "[parameters('policyDefinitionDisplayName')]",
+        "description": "Checks that the MDE.Windows extension is installed and provisioned on Windows Azure Arc-enabled servers, then deploys the entraiddeviceid Azure Machine Configuration assignment to read intuneDeviceId from HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\SenseCM\\MemConfiguration\\EnrollmentPayload.",
+        "metadata": {
+          "category": "Guest Configuration",
+          "version": "1.0.0",
+          "requiredProviders": [
+            "Microsoft.GuestConfiguration"
+          ],
+          "guestConfiguration": {
+            "name": "entraiddeviceid",
+            "contentType": "Custom",
+            "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
+            "contentHash": "9F6C278B927C402F8EA81505B24211EDAB379030C2BFE55DF2337C6B1E81CC74",
+            "enableAutoRemediation": "[[parameters('EnableAutoRemediation')]",
+            "autoRemediationAssignmentType": "ApplyAndAutoCorrect",
+            "version": "1.0.0"
+          }
+        },
+        "parameters": {
+          "EnableAutoRemediation": {
+            "type": "string",
+            "metadata": {
+              "displayName": "Enable Auto Remediation",
+              "description": "When true, the policy will automatically enforce remediation. When false, it will only audit",
+              "portalReview": "true"
+            },
+            "allowedValues": [
+              "true",
+              "false"
+            ],
+            "defaultValue": "true"
+          },
+          "tagName": {
+            "type": "string",
+            "metadata": {
+              "displayName": "Optional Azure tag name",
+              "description": "Name of the Azure resource tag used to filter machines. Leave blank to include all eligible Windows machines.",
+              "portalReview": "true"
+            },
+            "defaultValue": ""
+          },
+          "tagValue": {
+            "type": "string",
+            "metadata": {
+              "displayName": "Optional Azure tag value",
+              "description": "Required value for the Azure resource tag. Used only when a tag name is provided.",
+              "portalReview": "true"
+            },
+            "defaultValue": ""
+          }
+        },
+        "policyRule": {
+          "if": {
+            "allOf": [
+              {
+                "field": "type",
+                "equals": "Microsoft.HybridCompute/machines/extensions"
+              },
+              {
+                "anyOf": [
+                  {
+                    "field": "name",
+                    "like": "*/MDE.Windows"
+                  },
+                  {
+                    "field": "Microsoft.HybridCompute/machines/extensions/type",
+                    "equals": "MDE.Windows"
+                  }
+                ]
+              },
+              {
+                "field": "Microsoft.HybridCompute/machines/extensions/provisioningState",
+                "in": [
+                  "Succeeded",
+                  "Provisioning succeeded"
+                ]
+              },
+              {
+                "anyOf": [
+                  {
+                    "value": "[[empty(parameters('tagName'))]",
+                    "equals": true
+                  },
+                  {
+                    "field": "[[concat('tags[', parameters('tagName'), ']')]",
+                    "equals": "[[parameters('tagValue')]"
+                  }
+                ]
+              }
+            ]
+          },
+          "then": {
+            "effect": "deployIfNotExists",
+            "details": {
+              "roleDefinitionIds": "[createArray('/providers/Microsoft.Authorization/roleDefinitions/088ab73d-1256-47ae-bea9-9de8e7131f31')]",
+              "type": "Microsoft.GuestConfiguration/guestConfigurationAssignments",
+              "name": "[[concat('entraiddeviceid$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]",
+              "existenceCondition": {
+                "allOf": [
+                  {
+                    "field": "Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus",
+                    "equals": "Compliant"
+                  },
+                  {
+                    "value": "[[parameters('EnableAutoRemediation')]",
+                    "in": [
+                      "true",
+                      "false"
+                    ]
+                  }
+                ]
+              },
+              "deployment": {
+                "properties": {
+                  "mode": "incremental",
+                  "parameters": {
+                    "vmName": {
+                      "value": "[[first(split(field('name'), '/'))]"
+                    },
+                    "location": {
+                      "value": "[[field('location')]"
+                    },
+                    "type": {
+                      "value": "Microsoft.HybridCompute/machines"
+                    },
+                    "assignmentName": {
+                      "value": "[[concat('entraiddeviceid$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]"
+                    }
+                  },
+                  "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                      "vmName": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "assignmentName": {
+                        "type": "string"
+                      }
+                    },
+                    "resources": [
+                      {
+                        "apiVersion": "2024-04-05",
+                        "type": "Microsoft.HybridCompute/machines/providers/guestConfigurationAssignments",
+                        "name": "[[concat(parameters('vmName'), '/Microsoft.GuestConfiguration/', parameters('assignmentName'))]",
+                        "location": "[[parameters('location')]",
+                        "properties": {
+                          "guestConfiguration": {
+                            "name": "entraiddeviceid",
+                            "contentType": "Custom",
+                            "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip",
+                            "contentHash": "9F6C278B927C402F8EA81505B24211EDAB379030C2BFE55DF2337C6B1E81CC74",
+                            "assignmentType": "Audit",
+                            "version": "1.0.0"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

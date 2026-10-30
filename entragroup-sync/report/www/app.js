@@ -1,7 +1,7 @@
 "use strict";
 (() => {
   const byId = id => document.getElementById(id);
-  const base = "/api/report/";
+  const base = window.location.pathname.startsWith("/api/report") ? "/api/report/" : "/";
   let machines = [];
   let busy = false;
   let selectedKey = "";
@@ -37,36 +37,50 @@
   };
   const missing = "Not available";
   const columns = [
-    { id: "MachineName", label: "Arc Machine", link: "arc" },
+    { id: "MachineName", label: "Azure Machine", link: "arc" },
     { id: "MdeDeviceName", label: "MDE Device", link: "mde", value: m => m.MdeDeviceName || m.MdeDeviceId },
     { id: "MdeDeviceId", label: "MDE device ID", link: "mde" },
-    { id: "EntraDeviceId", label: "Entra ID Device" },
-    { id: "ResourceGroup", label: "Arc resource group" },
+    { id: "EntraDeviceId", label: "Entra ID Device", link: "entra" },
+    { id: "ManagementGroup", label: "Management Group" },
+    { id: "ResourceGroup", label: "Resource Group" },
     { id: "SubscriptionName", label: "Subscription", value: m => m.SubscriptionName ? `${m.SubscriptionName} (${m.SubscriptionId})` : m.SubscriptionId },
     { id: "ComputerName", label: "Computer name" },
     { id: "Fqdn", label: "FQDN" },
     { id: "CloudProvider", label: "Cloud provider" },
     { id: "MdeSensorHealth", label: "MDE sensor health" },
-    { id: "ArcStatus", label: "Arc Machine status" },
+    { id: "ArcStatus", label: "Machine Status", value: m => isNativeAzureMachine(m) ? ((!m.ArcStatus || m.ArcStatus === "Connected") ? "VM running" : m.ArcStatus) : m.ArcStatus },
     { id: "MdeOnboardingStatus", label: "MDE onboarded status" },
     { id: "MdeAntivirusMode", label: "MDE antivirus mode" },
     { id: "VirtualMachineId", label: "Virtual machine ID" },
     { id: "DefenderExtensionStatus", label: "Defender extension status", value: m => defenderExtensionFor(m) },
-    { id: "ArcExtensions", label: "Arc machine extensions" },
+    { id: "ArcExtensions", label: "Machine extensions" },
     { id: "IPAddresses", label: "IP addresses" },
     { id: "MdeDeviceTags", label: "MDE device tags", tags: true, value: m => m.MdeDeviceTags, empty: "No tags" },
     { id: "MdeDeviceGroup", label: "MDE device group membership" },
     { id: "AzureTags", label: "Azure tags", tags: true, value: m => azureTagValues(m.AzureTags), empty: "No tags" },
     { id: "OS", label: "operating system" },
     { id: "Status", label: "Correlation" },
-    { id: "Membership", label: "Entra ID Group", value: m => m.Membership === "Present" ?
-      m.GroupName || (m.GroupId ? `Name unavailable (${m.GroupId})` : missing) :
-      m.Membership === "Absent" ? "Not in group" : "Membership unknown" },
+    { id: "Membership", label: "Entra ID Group", value: m => {
+      if (Array.isArray(m.MemberGroups) && m.MemberGroups.length) {
+        return m.MemberGroups.map(g => g.DisplayName || g.Id).filter(Boolean).join("; ");
+      }
+      if (Array.isArray(m.GroupNames) && m.GroupNames.length) {
+        return m.GroupNames.filter(Boolean).join("; ");
+      }
+      if (m.Membership === "NotConfigured") return "Not configured";
+      if (m.Membership === "MissingIdentifier") return `Missing ${m.CloudGroupType === "AWS" ? "AccountId tag" : m.CloudGroupType === "GCP" ? "ProjectId tag" : "subscription name"}`;
+      if (m.Membership === "GroupNotFound") return `Group not found (${m.GroupName || missing})`;
+      if (m.Membership === "Present") return m.GroupName || (m.GroupId ? `Name unavailable (${m.GroupId})` : missing);
+      if (m.Membership === "Absent") return m.GroupName ? `Not in group (${m.GroupName})` : "Not in group";
+      return m.GroupName ? `Membership unknown (${m.GroupName})` : "Membership unknown";
+    } },
+    { id: "GroupFlags", label: "Group & AV flags", optional: true, value: m => Array.isArray(m.GroupFlags) && m.GroupFlags.length ?
+      m.GroupFlags.join("; ") : (m.Membership === "Present" ? `Compliant (${m.GroupAvMode || "Passive"})` : "Not evaluated") },
     { id: "Mode", label: "Sync mode" },
     { id: "LastChecked", label: "Last checked", type: "date" },
     { id: "MembershipVerifiedAt", label: "Membership verified", type: "date" },
-    { id: "ArcLastReportedAt", label: "Arc Connected Machine last state time", type: "date" },
-    { id: "ArcAddedAt", label: "Arc added", type: "date" },
+    { id: "ArcLastReportedAt", label: "Arc Connected Machine last state time", type: "date", value: m => isNativeAzureMachine(m) ? "N/A" : m.ArcLastReportedAt },
+    { id: "ArcAddedAt", label: "Arc added", type: "date", value: m => isNativeAzureMachine(m) ? "N/A" : (m.ArcAddedAt || m.FirstSeen) },
     { id: "MdeLastSeen", label: "MDE last check in time", type: "date" },
     { id: "InventoryStatus", label: "Inventory collection" },
     { id: "InventoryErrors", label: "Inventory warnings", optional: true },
@@ -75,13 +89,14 @@
     { id: "MdeCloudPlatforms", label: "MDE cloud platforms", optional: true },
     { id: "MdeAzureVmId", label: "MDE Azure VM ID", optional: true },
     { id: "SubscriptionId", label: "Subscription ID", optional: true },
-    { id: "EntraObjectId", label: "Entra object ID", optional: true },
-    { id: "ArcResourceId", label: "Arc resource ID", optional: true },
+    { id: "EntraObjectId", label: "Entra object ID", link: "entra", optional: true },
+    { id: "ArcResourceId", label: "Resource ID", optional: true },
     { id: "Error", label: "Processing error", optional: true }
   ];
   const columnById = new Map(columns.map(column => [column.id, column]));
-  const preferenceKey = "arc-entra-table-v2";
-  const themePreferenceKey = "arc-entra-theme";
+  const preferenceKey = "arc-entra-table-v3";
+  const dataCacheKey = "arc-entra-data-cache-v1";
+  const themePreferenceKey = "arc-entra-theme-v2";
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   function currentTheme() {
     return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
@@ -142,6 +157,7 @@
   }
   function displayFor(machine, column) {
     const value = valueFor(machine, column);
+    if (value === "N/A") return "N/A";
     if (!value && column.empty && (column.value ? column.value(machine) : machine[column.id]) != null) return column.empty;
     return column.type === "date" ? time(value) : value || missing;
   }
@@ -151,6 +167,12 @@
     }
     if (kind === "mde" && machine.MdeDeviceId) {
       return `https://security.microsoft.com/machines/${encodeURIComponent(machine.MdeDeviceId)}`;
+    }
+    if (kind === "entra" && (machine.EntraObjectId || machine.EntraDeviceId)) {
+      if (machine.EntraObjectId) {
+        return `https://entra.microsoft.com/#view/Microsoft_AAD_Devices/DeviceDetailsMenuBlade/~/Properties/objectId/${encodeURIComponent(machine.EntraObjectId)}`;
+      }
+      return "https://entra.microsoft.com/#view/Microsoft_AAD_Devices/DevicesMenuBlade/~/Devices/menuId/Devices";
     }
     if (kind === "group" && machine.GroupId) {
       return `https://entra.microsoft.com/#view/Microsoft_AAD_IAM/GroupDetailsMenuBlade/~/Overview/groupId/${encodeURIComponent(machine.GroupId)}`;
@@ -164,6 +186,97 @@
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     parent.append(link);
+  }
+  function isNativeAzureMachine(machine) {
+    const id = String(machine?.ArcResourceId || "").toLowerCase();
+    return id.includes("/providers/microsoft.compute/") || id.includes("/providers/microsoft.classiccompute/");
+  }
+  function isAwsMachine(machine) {
+    if (isNativeAzureMachine(machine)) return false;
+    if (String(machine?.CloudGroupType || "").toUpperCase() === "AWS") return true;
+    if (machine?.AzureTags && typeof machine.AzureTags === "object") {
+      for (const k of Object.keys(machine.AzureTags)) {
+        if (k.toLowerCase() === "accountid" && String(machine.AzureTags[k] || "").trim()) return true;
+      }
+    }
+    return /\b(aws|amazon)\b/i.test(`${machine?.CloudProvider || ""} ${machine?.MdeCloudPlatforms || ""}`);
+  }
+  function machineKindLabel(machine) {
+    const id = String(machine?.ArcResourceId || "").toLowerCase();
+    if (id.includes("/providers/microsoft.compute/virtualmachinescalesets/")) return "Native Azure Machine (VMSS)";
+    if (isNativeAzureMachine(machine)) return "Native Azure Machine";
+    if (isAwsMachine(machine)) return "Arc Connected Machine (AWS)";
+    return "Arc Connected Machine";
+  }
+  function awsIconNode() {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 24 18");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("class", "machine-type-svg aws-provider-svg");
+    const title = document.createElementNS(ns, "title");
+    title.textContent = "Amazon Web Services (AWS)";
+    svg.append(title);
+    const el = (tag, attrs, textValue = "") => {
+      const node = document.createElementNS(ns, tag);
+      for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+      if (textValue) node.textContent = textValue;
+      return node;
+    };
+    svg.append(
+      el("rect", { x: "0.5", y: "0.5", width: "23", height: "17", rx: "2.5", class: "aws-badge-bg" }),
+      el("text", { x: "12", y: "10.3", "text-anchor": "middle", "font-size": "7.6", "font-weight": "700", class: "aws-badge-text" }, "aws"),
+      el("path", { d: "M4.5 12.6c4.3 2.7 10.7 2.7 15 0", class: "aws-smile-curve" }),
+      el("path", { d: "M17.4 11.7l2.5.7-.9 2.3", class: "aws-smile-arrow" })
+    );
+    return svg;
+  }
+  function machineTypeIconNode(machine) {
+    const native = isNativeAzureMachine(machine);
+    const label = machineKindLabel(machine);
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 18 18");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("class", `machine-type-svg ${native ? "machine-type-native" : "machine-type-arc"}`);
+    const title = document.createElementNS(ns, "title");
+    title.textContent = label;
+    svg.append(title);
+    const el = (tag, attrs) => {
+      const node = document.createElementNS(ns, tag);
+      for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+      return node;
+    };
+    if (native) {
+      // Official Azure Virtual Machine icon geometry (az-icons.com/icon/virtual-machine)
+      svg.append(
+        el("rect", { x: "-0.12", y: "0.21", width: "18", height: "12", rx: "0.6", class: "az-vm-screen" }),
+        el("polygon", { points: "11.88 4.46 11.88 7.95 8.88 9.71 8.88 6.21 11.88 4.46", class: "az-vm-cube-right" }),
+        el("polygon", { points: "11.88 4.46 8.88 6.22 5.88 4.46 8.88 2.71 11.88 4.46", class: "az-vm-cube-top" }),
+        el("polygon", { points: "8.88 6.22 8.88 9.71 5.88 7.95 5.88 4.46 8.88 6.22", class: "az-vm-cube-left" }),
+        el("polygon", { points: "5.88 7.95 8.88 6.21 8.88 9.71 5.88 7.95", class: "az-vm-cube-top" }),
+        el("polygon", { points: "11.88 7.95 8.88 6.21 8.88 9.71 11.88 7.95", class: "az-vm-cube-left" }),
+        el("path", { d: "M12.49,15.84c-1.78-.28-1.85-1.56-1.85-3.63H7.11c0,2.07-.06,3.35-1.84,3.63a1,1,0,0,0-.89,1h9A1,1,0,0,0,12.49,15.84Z", class: "az-vm-stand" })
+      );
+    } else {
+      // Official Azure Arc Machines icon geometry (az-icons.com/icon/arc-machines)
+      svg.append(
+        el("path", { d: "M17.547,15.2c-.161.7-1.035,1.391-2.617,1.928a21.589,21.589,0,0,1-12.121.017C1.352,16.627.566,15.971.443,15.3c-.021-.118,0-1.966,0-1.966l17.131-.159S17.566,15.11,17.547,15.2Z", class: "az-arc-base-rim" }),
+        el("ellipse", { cx: "9.001", cy: "13.295", rx: "8.573", ry: "2.964", transform: "translate(-0.133 0.091) rotate(-0.575)", class: "az-arc-base-top" }),
+        el("path", { d: "M13.364,12.978a.482.482,0,0,1-.5.455H5.146a.482.482,0,0,1-.5-.455V.456A.48.48,0,0,1,5.146,0h7.715a.481.481,0,0,1,.5.455Z", class: "az-arc-tower" }),
+        el("path", { d: "M11.212,6.791H6.872a1,1,0,0,1-.947-1.044h0A1,1,0,0,1,6.872,4.7h4.34a1,1,0,0,1,.948,1.045A1,1,0,0,1,11.212,6.791ZM12.16,2.64A1,1,0,0,0,11.212,1.6H6.872A1,1,0,0,0,5.925,2.64h0a1,1,0,0,0,.947,1.045h4.34A1,1,0,0,0,12.16,2.64Z", class: "az-arc-slot" }),
+        el("path", { d: "M10.94,1.939a.7.7,0,1,1-.7.7A.7.7,0,0,1,10.94,1.939Zm-.7,3.8a.7.7,0,1,0,.7-.7A.7.7,0,0,0,10.239,5.743Z", class: "az-arc-led" })
+      );
+    }
+    return svg;
+  }
+  function machineNameNode(machine) {
+    const wrap = text("span", "", "machine-name-badge");
+    wrap.title = machineKindLabel(machine);
+    wrap.append(machineTypeIconNode(machine));
+    if (isAwsMachine(machine)) wrap.append(awsIconNode());
+    appendLink(wrap, displayFor(machine, columnById.get("MachineName")), deviceLink(machine, "arc"));
+    return wrap;
   }
   function osNode(osValue) {
     const value = String(osValue || missing);
@@ -194,6 +307,54 @@
     }
     wrap.append(svg, text("span", value));
     return wrap;
+  }
+  function groupLinkById(groupId) {
+    return groupId ? `https://entra.microsoft.com/#view/Microsoft_AAD_IAM/GroupDetailsMenuBlade/~/Overview/groupId/${encodeURIComponent(groupId)}` : "";
+  }
+  function groupMembershipNode(machine) {
+    const hasFlags = Array.isArray(machine.GroupFlags) && machine.GroupFlags.length > 0;
+    const tone = hasFlags ? "bad" : machine.Membership === "Present" ? "good" : ["Absent", "GroupNotFound", "MissingIdentifier"].includes(machine.Membership) ? "attention" : "";
+    const wrap = text("span", "", `status-value group-value ${tone}`);
+    const list = text("span", "", "group-links");
+    if (Array.isArray(machine.MemberGroups) && machine.MemberGroups.length) {
+      for (const g of machine.MemberGroups) {
+        const item = text("span", "", "group-link-item");
+        appendLink(item, g.DisplayName || g.Id || missing, groupLinkById(g.Id));
+        list.append(item);
+      }
+    } else {
+      const item = text("span", "", "group-link-item");
+      appendLink(item, displayFor(machine, columnById.get("Membership")), machine.Membership === "Present" ? deviceLink(machine, "group") : "");
+      list.append(item);
+    }
+    wrap.append(list);
+    if (hasFlags) {
+      const info = text("span", "i", "flag-indicator");
+      info.setAttribute("aria-label", `${machine.GroupFlags.length} compliance flag(s) — hover for details`);
+      wrap.append(info);
+    }
+    return wrap;
+  }
+  function avModeCellNode(machine) {
+    const value = displayFor(machine, columnById.get("MdeAntivirusMode"));
+    const avMismatch = Array.isArray(machine.GroupFlagCodes) && machine.GroupFlagCodes.includes("AvModeMismatchShouldBeActive");
+    if (!avMismatch) return text("span", value);
+    const wrap = text("span", value, "status-value bad");
+    const info = text("span", "i", "flag-indicator");
+    info.setAttribute("aria-label", "MDE antivirus mode mismatch — hover for details");
+    wrap.append(info);
+    return wrap;
+  }
+  function groupFlagsNode(machine) {
+    if (Array.isArray(machine.GroupFlags) && machine.GroupFlags.length) {
+      const list = text("span", "", "tag-list");
+      for (const flag of machine.GroupFlags) list.append(text("span", flag, "badge bad"));
+      return list;
+    }
+    if (machine.Membership === "Present") {
+      return text("span", `Compliant (${machine.GroupAvMode || "Passive"})`, "badge good");
+    }
+    return text("span", "Not evaluated", "muted");
   }
   function defenderStatusNode(machine) {
     const value = displayFor(machine, columnById.get("DefenderExtensionStatus"));
@@ -295,15 +456,22 @@
     });
   }
   function arcHoverSpec(machine) {
-    return ["ARC CONNECTED MACHINE", [
-      ["Azure Resource ID", machine.ArcResourceId || missing],
-      ["Cloud Provider", machine.CloudProvider || missing],
+    const native = isNativeAzureMachine(machine);
+    const typeBadge = text("span", "", "os-badge");
+    typeBadge.append(machineTypeIconNode(machine));
+    if (isAwsMachine(machine)) typeBadge.append(awsIconNode());
+    typeBadge.append(text("span", machineKindLabel(machine)));
+    return [native ? "NATIVE AZURE MACHINE" : "ARC CONNECTED MACHINE", [
+      ["Resource Type", typeBadge],
+      ["Resource ID", machine.ArcResourceId || missing],
+      ["Cloud Provider", machine.CloudProvider || (native ? "Azure" : missing)],
       ["Operating System", osNode(machine.OS)],
       ["Defender extension", defenderStatusNode(machine)],
       ["Resource Group", machine.ResourceGroup || missing],
       ["Subscription Name", machine.SubscriptionName || machine.SubscriptionId || missing],
-      ["Arc Connected Machine last state time", time(machine.ArcLastReportedAt)],
-      ["Arc added", time(machine.ArcAddedAt || machine.FirstSeen)],
+      ["Management Group", machine.ManagementGroup || missing],
+      ["Arc Connected Machine last state time", displayFor(machine, columnById.get("ArcLastReportedAt"))],
+      ["Arc added", displayFor(machine, columnById.get("ArcAddedAt"))],
       ["Azure Tags", tagPillsNode(azureTagValues(machine.AzureTags), displayFor(machine, columnById.get("AzureTags")))]
     ]];
   }
@@ -318,6 +486,95 @@
       ["MDE last check in time", time(machine.MdeLastSeen)],
       ["MDE Device Tags", tagPillsNode(machine.MdeDeviceTags, displayFor(machine, columnById.get("MdeDeviceTags")))]
     ]];
+  }
+  function entraHoverSpec(machine) {
+    const isFound = Boolean(machine.EntraObjectId || (machine.EntraDeviceId && ["Verified", "WouldAdd", "Matched", "GroupNotFound", "MissingCloudIdentifier", "GroupNotConfigured"].includes(machine.Status)));
+    const statusBadge = text(
+      "span",
+      isFound ? `Correlated (${machine.Status || "Matched"})` : `Not Found (${machine.Status || "Unresolved"})`,
+      `badge ${isFound ? "good" : machine.Status === "Failed" ? "bad" : "attention"}`
+    );
+    const candidateHosts = [];
+    for (const raw of [machine.ComputerName, machine.MdeDeviceName, machine.Fqdn, machine.MachineName]) {
+      const clean = String(raw || "").trim();
+      if (clean && !candidateHosts.includes(clean)) candidateHosts.push(clean);
+      if (clean.includes(".")) {
+        const short = clean.split(".")[0].trim();
+        if (short && !candidateHosts.includes(short)) candidateHosts.push(short);
+      }
+    }
+    const hostListText = candidateHosts.length ? candidateHosts.join(", ") : missing;
+    let reason = machine.EntraDiagnostic || "";
+    if (!reason) {
+      if (isFound) {
+        reason = machine.EntraCorrelationPath === "GuestConfigurationIntuneDeviceId" ?
+          `Correlated via Azure Machine Configuration intuneDeviceId (${machine.GuestConfigEntraDeviceId || machine.EntraDeviceId || missing}) matching Entra ID deviceId.` :
+          machine.EntraCorrelationPath === "MicrosoftSenseHostnameAndOS" ?
+          `Correlated via MicrosoftSense synthetic Entra device matching hostname (${hostListText}) and OS (${machine.OS || missing}).` :
+          `Correlated via MDE DeviceInfo.AadDeviceId (${machine.EntraDeviceId || missing}) matching Entra ID deviceId.`;
+      } else if (machine.Status === "PendingMde" || !machine.MdeDeviceId) {
+        reason = `Blocked at Step 1 (MDE Hunting): No onboarded MDE DeviceInfo record matched Resource ID '${machine.ArcResourceId || missing}'${machine.VirtualMachineId ? ` or VM ID '${machine.VirtualMachineId}'` : ""} within the 7-day hunting window. Entra ID lookup cannot run until the server is onboarded to MDE.`;
+      } else if (machine.Status === "StaleEvidence") {
+        reason = `Blocked at Step 1 (Stale MDE Telemetry): MDE DeviceInfo matched '${machine.MdeDeviceName || machine.MdeDeviceId}', but its last check-in (${time(machine.MdeLastSeen)}) is older than the configured freshness window (SYNC_FRESHNESS_HOURS).`;
+      } else if (machine.Status === "NoEntraDevice") {
+        reason = `1. MDE AadDeviceId check: MDE DeviceInfo for '${machine.MdeDeviceName || machine.MdeDeviceId}' reported an empty AadDeviceId. 2. Machine Configuration check: ${machine.GuestConfigEntraDeviceId ? `intuneDeviceId '${machine.GuestConfigEntraDeviceId}' did not match an Entra device` : "No entraiddeviceid / entraiddeviceidlinux Guest Configuration intuneDeviceId reported yet"}. 3. MicrosoftSense fallback check: Queried Entra ID (/v1.0/devices) for displayName in [${hostListText}] with operatingSystem='${machine.OS || missing}' and managementType='MicrosoftSense', and 0 Entra device objects matched.`;
+      } else if (machine.Status === "EntraDeviceNotFound") {
+        reason = `1. MDE AadDeviceId check: '${machine.EntraDeviceId || missing}' returned 0 objects in Entra ID. 2. Machine Configuration check: '${machine.GuestConfigEntraDeviceId || "Not reported"}' returned 0 objects in Entra ID. 3. MicrosoftSense fallback check: No MicrosoftSense Entra device matched displayName in [${hostListText}] with OS '${machine.OS || missing}'.`;
+      } else if (machine.Status === "EntraDeviceDisabled") {
+        reason = `Entra ID device object (${machine.EntraObjectId || machine.EntraDeviceId || missing}) was found, but accountEnabled is false in Microsoft Entra ID.`;
+      } else if (machine.Status === "Ambiguous") {
+        reason = `Multiple active MDE records or multiple MicrosoftSense Entra device objects matched [${hostListText}]. Synchronization failed closed to avoid ambiguity.`;
+      } else if (machine.Status === "ArcNotConnected") {
+        reason = `Machine status is '${displayFor(machine, columnById.get("ArcStatus"))}' (not connected/running); Entra correlation was skipped.`;
+      } else if (machine.Status === "Failed") {
+        reason = machine.Error || "Worker encountered an error while querying Microsoft Graph /v1.0/devices.";
+      } else {
+        reason = "No matching Microsoft Entra ID device object was found via MDE AadDeviceId, Machine Configuration intuneDeviceId, or MicrosoftSense hostname/OS fallback.";
+      }
+    }
+    const devIdWrap = document.createElement("span");
+    appendLink(devIdWrap, machine.EntraDeviceId || "Not available", deviceLink(machine, "entra"));
+    const rows = [
+      ["Correlation Status", statusBadge],
+      [isFound ? "Correlation Details" : "Why Not Found", reason],
+      ["Entra Device ID", devIdWrap],
+      ["Entra Object ID", machine.EntraObjectId || "Not resolved"],
+      ["Machine Config intuneDeviceId", machine.GuestConfigEntraDeviceId || "Not reported"],
+      ["Correlation Method", machine.EntraCorrelationPath || (isFound ? "MDE AadDeviceId -> Entra deviceId" : "1. MDE AadDeviceId -> 2. Machine Config intuneDeviceId -> 3. MicrosoftSense Fallback")],
+      ["Hostnames Checked", hostListText],
+      ["Expected OS", osNode(machine.OS)],
+      ["MDE Device / Status", machine.MdeDeviceId ? `${machine.MdeDeviceName || machine.MdeDeviceId} (${machine.MdeOnboardingStatus || "Onboarded"})` : "No MDE match (PendingMde)"]
+    ];
+    return ["MICROSOFT ENTRA ID DEVICE CORRELATION", rows];
+  }
+  function groupHoverSpec(machine) {
+    const hasFlags = Array.isArray(machine.GroupFlags) && machine.GroupFlags.length > 0;
+    const statusBadge = text(
+      "span",
+      hasFlags ? `Flagged (${machine.GroupFlags.length} issue${machine.GroupFlags.length === 1 ? "" : "s"})` : (machine.Membership === "Present" ? `Compliant (${machine.GroupAvMode || "Passive"} group)` : (machine.Membership || "Not evaluated")),
+      `badge ${hasFlags ? "bad" : machine.Membership === "Present" ? "good" : "attention"}`
+    );
+    const groupsWrap = document.createElement("span");
+    if (Array.isArray(machine.MemberGroups) && machine.MemberGroups.length) {
+      machine.MemberGroups.forEach((g, idx) => {
+        if (idx > 0) groupsWrap.append(text("span", ", "));
+        appendLink(groupsWrap, g.DisplayName || g.Id || missing, groupLinkById(g.Id));
+      });
+    } else {
+      appendLink(groupsWrap, displayFor(machine, columnById.get("Membership")), machine.Membership === "Present" ? deviceLink(machine, "group") : "");
+    }
+    const rows = [
+      ["Compliance Status", statusBadge],
+      ["Entra ID Group(s)", groupsWrap],
+      ["Expected Cloud Scope", machine.CloudGroupType ? `${machine.CloudGroupType} (${machine.CloudGroupOS || machine.OS || missing}) — ${machine.CloudIdentifier || missing}` : missing],
+      ["Group Mode / Global Default", `${machine.GroupAvMode || missing} (Default: ${machine.DefaultGroupMode || "Passive"})`],
+      ["MDE Antivirus Mode", `${machine.MdeAntivirusMode || missing} (reported: ${time(machine.MdeAntivirusTimestamp)})`],
+      ["Membership Verified", time(machine.MembershipVerifiedAt)]
+    ];
+    if (hasFlags) {
+      rows.splice(1, 0, ["Flag Details", groupFlagsNode(machine)]);
+    }
+    return ["ENTRA ID GROUP & AV MODE COMPLIANCE", rows];
   }
   function visibleColumns() {
     return layout.order.filter(id => layout.visible.includes(id)).map(id => columnById.get(id));
@@ -442,24 +699,30 @@
   function clearFilters() {
     cardFilter = null;
     for (const key of Object.keys(filters)) delete filters[key];
-    for (const id of ["search", "status", "os", "subscription", "membership"]) byId(id).value = "";
+    for (const id of ["search", "status", "os", "management-group", "subscription", "membership"]) byId(id).value = "";
     renderColumnOptions();
     renderHeaders();
     render();
   }
-  async function get(path) {
-    const response = await fetch(base + path, { credentials: "same-origin", cache: "no-store", redirect: "error" });
+  async function get(path, forceRefresh = false) {
+    const sep = path.includes("?") ? "&" : "?";
+    const fullPath = forceRefresh ? `${path}${sep}refresh=1` : path;
+    const response = await fetch(base + fullPath, {
+      credentials: "same-origin",
+      cache: forceRefresh ? "no-store" : "default",
+      redirect: "error"
+    });
     if (!response.ok) throw new Error(`Report request failed (${response.status}). Check your sign-in, Report.Reader role, and service health.`);
     const result = await response.json();
     if (result.error) throw new Error(result.error);
     return result;
   }
-  async function allMachines() {
+  async function allMachines(forceRefresh = false) {
     const items = [];
     const cursors = new Set();
     let cursor = "";
     do {
-      const page = await get("data" + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""));
+      const page = await get("data" + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""), forceRefresh);
       if (!Array.isArray(page.Items) || typeof page.Cursor !== "string") throw new Error("Invalid inventory response.");
       items.push(...page.Items);
       cursor = page.Cursor;
@@ -467,6 +730,46 @@
       cursors.add(cursor);
     } while (cursor);
     return items;
+  }
+  function applySnapshot(items, health, logsPage, timestampIso, isCached = false) {
+    machines = Array.isArray(items) ? items : [];
+    if (health && typeof health === "object") renderFunctionHealth(health);
+    if (logsPage && typeof logsPage === "object") {
+      logsCursor = typeof logsPage.Cursor === "string" ? logsPage.Cursor : "";
+      logsCursors = new Set(logsCursor ? [logsCursor] : []);
+      const logItems = Array.isArray(logsPage.Items) ? logsPage.Items : [];
+      logsCount = logItems.length;
+      appendFunctionLogs(logItems, true);
+      byId("more-logs").hidden = !logsCursor;
+      byId("function-logs-error").hidden = true;
+      byId("function-logs-status").textContent = logsCount ? `${logsCount} log entries loaded.` : "No logs recorded yet.";
+    }
+    byId("updated").textContent = `${isCached ? "Cached snapshot" : "Report refreshed"}: ${time(timestampIso || new Date().toISOString())}`;
+    updateOptions("status", machines.map(m => m.Status), "All statuses");
+    updateOptions("os", machines.map(m => m.OS), "All operating systems");
+    updateOptions("management-group", machines.map(m => m.ManagementGroup), "All management groups");
+    updateOptions("subscription", machines.map(m => m.SubscriptionId), "All subscriptions");
+    renderSummary();
+    render();
+  }
+  function loadCachedSnapshot() {
+    try {
+      const raw = sessionStorage.getItem(dataCacheKey) || localStorage.getItem(dataCacheKey);
+      if (!raw) return 0;
+      const cached = JSON.parse(raw);
+      if (!Array.isArray(cached.items)) return 0;
+      applySnapshot(cached.items, cached.health, cached.logsPage, cached.timestamp, true);
+      return Number(cached.savedAt) || 0;
+    } catch {
+      return 0;
+    }
+  }
+  function saveCachedSnapshot(items, health, logsPage, timestamp) {
+    try {
+      const payload = JSON.stringify({ items, health, logsPage, timestamp, savedAt: Date.now() });
+      sessionStorage.setItem(dataCacheKey, payload);
+      localStorage.setItem(dataCacheKey, payload);
+    } catch {}
   }
   function updateOptions(id, values, label) {
     const select = byId(id);
@@ -480,7 +783,7 @@
     }
     select.value = [...select.options].some(option => option.value === previous) ? previous : "";
   }
-  function render() {
+  function getFilteredMachines() {
     const search = byId("search").value.toLowerCase();
     const activeFilters = Object.entries(filters).filter(([, value]) => value.trim());
     const filtered = machines.filter(machine =>
@@ -489,9 +792,67 @@
       activeFilters.every(([id, value]) => searchFor(machine, columnById.get(id)).toLowerCase().includes(value.trim().toLowerCase())) &&
       (!byId("status").value || machine.Status === byId("status").value) &&
       (!byId("os").value || machine.OS === byId("os").value) &&
+      (!byId("management-group").value || machine.ManagementGroup === byId("management-group").value) &&
       (!byId("subscription").value || machine.SubscriptionId === byId("subscription").value) &&
       (!byId("membership").value || machine.Membership === byId("membership").value)
     );
+    const sortColumn = columnById.get(layout.sort.id);
+    filtered.sort((a, b) => {
+      const rawLeft = valueFor(a, sortColumn);
+      const rawRight = valueFor(b, sortColumn);
+      const left = sortColumn.type === "date" && rawLeft === "N/A" ? "" : rawLeft;
+      const right = sortColumn.type === "date" && rawRight === "N/A" ? "" : rawRight;
+      if (!left || !right) return left ? -1 : right ? 1 : collator.compare(a.Key || "", b.Key || "");
+      const comparison = sortColumn.type === "date" ? Date.parse(left) - Date.parse(right) : collator.compare(left, right);
+      return (layout.sort.direction === "asc" ? comparison : -comparison) || collator.compare(a.Key || "", b.Key || "");
+    });
+    return { filtered, activeFilters };
+  }
+  function csvCell(value) {
+    const textValue = String(value ?? "").replace(/\r?\n/g, " ");
+    if (/[",\r\n]/.test(textValue)) {
+      return `"${textValue.replace(/"/g, '""')}"`;
+    }
+    return textValue;
+  }
+  function exportInventoryCsv() {
+    const { filtered } = getFilteredMachines();
+    const orderedColumns = [
+      ...visibleColumns(),
+      ...layout.order.filter(id => !layout.visible.includes(id)).map(id => columnById.get(id)).filter(Boolean)
+    ];
+    const headers = [];
+    for (const column of orderedColumns) {
+      headers.push(column.label);
+      if (column.id === "MachineName") headers.push("Resource Type");
+    }
+    const rows = [headers.map(csvCell).join(",")];
+    for (const machine of filtered) {
+      const rowValues = [];
+      for (const column of orderedColumns) {
+        const raw = valueFor(machine, column);
+        const val = raw === "N/A" ? "N/A" : column.type === "date" ? (raw ? time(raw) : "") : (raw || (column.id === "GroupFlags" || column.id === "Membership" ? displayFor(machine, column) : ""));
+        rowValues.push(csvCell(val));
+        if (column.id === "MachineName") {
+          rowValues.push(csvCell(machineKindLabel(machine)));
+        }
+      }
+      rows.push(rowValues.join(","));
+    }
+    const csvContent = "\uFEFF" + rows.join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    link.href = url;
+    link.download = `device-inventory-${stamp}.csv`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function render() {
+    const { filtered, activeFilters } = getFilteredMachines();
     const hiddenFilters = activeFilters.filter(([id]) => !layout.visible.includes(id)).length;
     byId("count").textContent = `${filtered.length} of ${machines.length} machines. ${cardFilter ? `Card filter: ${cardFilter.label}. ` : ""}${activeFilters.length} column filters${hiddenFilters ? ` (${hiddenFilters} on hidden columns)` : ""}. Sorted by ${columnById.get(layout.sort.id).label} ${layout.sort.direction}.`;
     updateCardSelection();
@@ -501,14 +862,6 @@
     const visible = visibleColumns();
     const historyColumn = visible.find(c => c.id === "MachineName") ||
       visible.find(c => c.id === "MdeDeviceName") || visible[0];
-    const sortColumn = columnById.get(layout.sort.id);
-    filtered.sort((a, b) => {
-      const left = valueFor(a, sortColumn);
-      const right = valueFor(b, sortColumn);
-      if (!left || !right) return left ? -1 : right ? 1 : collator.compare(a.Key || "", b.Key || "");
-      const comparison = sortColumn.type === "date" ? Date.parse(left) - Date.parse(right) : collator.compare(left, right);
-      return (layout.sort.direction === "asc" ? comparison : -comparison) || collator.compare(a.Key || "", b.Key || "");
-    });
     for (const machine of filtered) {
       const row = document.createElement("tr");
       row.dataset.key = machine.Key;
@@ -517,10 +870,18 @@
         const cell = document.createElement("td");
         cell.dataset.column = column.id;
         if (column.id === "Membership") {
-          const membership = text("span", "", `status-value ${machine.Membership === "Present" ? "good" : machine.Membership === "Absent" ? "attention" : ""}`);
-          appendLink(membership, displayFor(machine, column), machine.Membership === "Present" ? deviceLink(machine, "group") : "");
-          cell.append(membership);
-          cell.title = `Observed Entra membership: ${machine.Membership || "Unknown"}; verified: ${time(machine.MembershipVerifiedAt)}`;
+          cell.append(groupMembershipNode(machine));
+          bindHoverPopover(cell, () => groupHoverSpec(machine));
+        }
+        else if (column.id === "MdeAntivirusMode") {
+          cell.append(avModeCellNode(machine));
+          bindHoverPopover(cell, () => groupHoverSpec(machine));
+        }
+        else if (column.id === "GroupFlags") {
+          cell.append(groupFlagsNode(machine));
+        }
+        else if (column.id === "MachineName") {
+          cell.append(machineNameNode(machine));
         }
         else if (column.link) appendLink(cell, displayFor(machine, column), deviceLink(machine, column.link));
         else if (column.id === "OS") cell.append(osNode(displayFor(machine, column)));
@@ -532,17 +893,17 @@
         else if (column.id === "Status") cell.append(text("span", displayFor(machine, column), `badge ${machine.Status === "Failed" ? "bad" : machine.Status === "Verified" ? "good" : "attention"}`));
         else if (["ArcStatus", "MdeOnboardingStatus", "MdeSensorHealth"].includes(column.id)) {
           const value = displayFor(machine, column);
-          const tone = ["Present", "Connected", "Onboarded", "Active"].includes(value) ? "good" :
-            ["Absent", "Disconnected", "Inactive"].includes(value) ? "attention" : "";
+          const tone = ["Present", "Connected", "VM running", "Onboarded", "Active"].includes(value) ? "good" :
+            ["Absent", "Disconnected", "VM stopped", "VM deallocated", "Stopped", "Deallocated", "Inactive"].includes(value) ? "attention" : "";
           cell.append(text("span", value, `status-value ${tone}`));
         }
         else cell.textContent = displayFor(machine, column);
         if (column.id === "InventoryStatus" && machine.InventoryErrors?.length) {
           cell.append(text("small", joined(machine.InventoryErrors), "bad"));
         }
-        if (column.id === "MdeAntivirusMode") cell.title = `Report time: ${time(machine.MdeAntivirusTimestamp)}; data status: ${machine.MdeAntivirusStatus || missing}`;
         if (column.id === "MachineName") bindHoverPopover(cell, () => arcHoverSpec(machine));
-        else if (column.id === "MdeDeviceName") bindHoverPopover(cell, () => mdeHoverSpec(machine));
+        else if (column.id === "MdeDeviceName" || column.id === "MdeDeviceId") bindHoverPopover(cell, () => mdeHoverSpec(machine));
+        else if (column.id === "EntraDeviceId" || column.id === "EntraObjectId") bindHoverPopover(cell, () => entraHoverSpec(machine));
         if (column === historyColumn) {
           cell.classList.add("device-cell");
           const button = text("button", "", "history-action secondary");
@@ -584,8 +945,12 @@
         "Status in ('NoEntraDevice', 'EntraDeviceNotFound')."
       ],
       "attention": [
-        "Machines blocked from group synchronization due to disconnected/missing Arc state, missing/stale/ambiguous MDE telemetry, or a disabled/missing Entra device.",
-        "Status not in ('Verified', 'WouldAdd', 'Failed')."
+        "Machines blocked from group synchronization or flagged for group/AV mode mismatches, multiple group memberships, or wrong AWS Account / GCP Project / Subscription group.",
+        "Status not in ('Verified', 'WouldAdd', 'Failed') or GroupFlags is non-empty."
+      ],
+      "group-flags": [
+        "Devices with group compliance flags: Active/Passive MDE antivirus mode mismatch ('Should be Active'), membership in multiple Cloud × OS groups, or membership in a group whose AWS Account ID, GCP Project, or Azure Subscription does not match.",
+        "GroupFlags.length > 0."
       ],
       "failed": [
         "Machines whose most recent synchronization run encountered an API, permission, or validation error and was returned for retry.",
@@ -603,9 +968,10 @@
     const breakdownDescriptions = {
       "ArcStatus": {
         "connected": "The Azure Arc Connected Machine agent is actively connected and reporting to Azure Resource Manager.",
+        "vm running": "The native Azure virtual machine powerState.displayStatus is 'VM running'.",
         "disconnected": "The Azure Arc agent has not recently sent a heartbeat to Azure; group changes are paused without removing existing membership.",
-        "missing": "The Azure Arc resource was deleted from Azure; historical state is retained without removing existing group membership.",
-        "default": "Current Azure Arc Connected Machine agent status reported by Microsoft.HybridCompute/machines."
+        "missing": "The machine resource was deleted from Azure; historical state is retained without removing existing group membership.",
+        "default": "Current Azure Arc agent status or native Azure VM powerState.displayStatus."
       },
       "MdeOnboardingStatus": {
         "onboarded": "The server is actively onboarded to Microsoft Defender for Endpoint (DeviceInfo.OnboardingStatus == 'Onboarded').",
@@ -657,8 +1023,9 @@
       ["all", "Arc machines", () => true],
       ["verified", "Verified members", m => m.Status === "Verified" && m.Membership === "Present"],
       ["would-add", "Would add", m => m.Status === "WouldAdd"],
+      ["group-flags", "Group / AV flags", m => Array.isArray(m.GroupFlags) && m.GroupFlags.length > 0],
       ["no-entra", "No Entra device", m => ["NoEntraDevice", "EntraDeviceNotFound"].includes(m.Status)],
-      ["attention", "Needs attention", m => !["Verified", "WouldAdd", "Failed"].includes(m.Status)],
+      ["attention", "Needs attention", m => !["Verified", "WouldAdd", "Failed"].includes(m.Status) || (Array.isArray(m.GroupFlags) && m.GroupFlags.length > 0)],
       ["failed", "Failed", m => m.Status === "Failed"],
       ["not-in-group", "Not in group", m => m.Membership === "Absent"],
       ["membership-unknown", "Membership unknown", m => !m.Membership || m.Membership === "Unknown"]
@@ -667,7 +1034,7 @@
       key, label, matches
     })));
     const groups = [
-      ["ArcStatus", "Arc Connected Machine Status", ["Connected", "Disconnected"]],
+      ["ArcStatus", "Machine Status", ["Connected", "VM running", "Disconnected"]],
       ["MdeOnboardingStatus", "MDE onboarded status", ["Onboarded"]],
       ["MdeAntivirusMode", "MDE antivirus mode", ["Active", "Passive", "Disabled", "Other", "EDRBlocked", "PassiveAudit"]],
       ["OS", "Operating System", ["Windows", "Linux"]],
@@ -679,8 +1046,9 @@
       group.append(text("h3", title));
       const grid = text("div", "", "cards");
       const buckets = new Map(baseline.map(value => [value.toLowerCase(), value]));
+      const statusCol = columnById.get("ArcStatus");
       for (const machine of machines) {
-        const value = joined(machine[field]).trim();
+        const value = field === "ArcStatus" ? valueFor(machine, statusCol).trim() : joined(machine[field]).trim();
         if (!buckets.has(value.toLowerCase())) buckets.set(value.toLowerCase(), value || "Not reported");
       }
       if (cardFilter?.field === field && !buckets.has(cardFilter.bucket)) {
@@ -689,7 +1057,7 @@
       for (const [bucket, valueLabel] of buckets) {
         grid.append(makeCard({
           key: `${field}:${bucket}`, label: `${title}: ${valueLabel}`, valueLabel, field, bucket,
-          matches: machine => joined(machine[field]).trim().toLowerCase() === bucket
+          matches: machine => (field === "ArcStatus" ? valueFor(machine, statusCol).trim().toLowerCase() : joined(machine[field]).trim().toLowerCase()) === bucket
         }));
       }
       group.append(grid);
@@ -714,7 +1082,7 @@
   }
   function updateCardSelection() {
     const hasOtherFilters = Object.values(filters).some(value => value.trim()) ||
-      ["search", "status", "os", "subscription", "membership"].some(id => byId(id).value);
+      ["search", "status", "os", "management-group", "subscription", "membership"].some(id => byId(id).value);
     for (const card of document.querySelectorAll("button[data-card]")) {
       const selected = card.dataset.card === "all" ? !cardFilter && !hasOtherFilters : card.dataset.card === cardFilter?.key;
       card.setAttribute("aria-pressed", String(selected));
@@ -739,24 +1107,21 @@
     const correlated = Boolean(machine.MdeDeviceId && machine.EntraDeviceId && ["Verified", "WouldAdd", "Matched"].includes(machine.Status));
     const summaryItems = [
       ["Correlated", text("span", `${correlated ? "Yes" : "No"} (${machine.Status || missing})`, `badge ${machine.Status === "Failed" ? "bad" : correlated ? "good" : "attention"}`)],
-      ["Entra ID Group", (() => {
-        const groupSpan = text("span", "", `status-value ${machine.Membership === "Present" ? "good" : machine.Membership === "Absent" ? "attention" : ""}`);
-        appendLink(groupSpan, displayFor(machine, columnById.get("Membership")), machine.Membership === "Present" ? deviceLink(machine, "group") : "");
-        return groupSpan;
-      })()],
+      ["Entra ID Group", groupMembershipNode(machine)],
+      ["Group & AV flags", groupFlagsNode(machine)],
       ["MDE onboarded status", (() => {
         const value = displayFor(machine, columnById.get("MdeOnboardingStatus"));
         return text("span", value, `status-value ${value === "Onboarded" ? "good" : ""}`);
       })()],
       ["MDE mode", text("span", displayFor(machine, columnById.get("MdeAntivirusMode")))],
       ["Defender extension", defenderStatusNode(machine)],
-      ["Arc connected machine status", (() => {
+      ["Machine Status", (() => {
         const value = displayFor(machine, columnById.get("ArcStatus"));
-        return text("span", value, `status-value ${value === "Connected" ? "good" : value === "Disconnected" ? "attention" : ""}`);
+        return text("span", value, `status-value ${["Connected", "VM running"].includes(value) ? "good" : ["Disconnected", "VM stopped", "VM deallocated"].includes(value) ? "attention" : ""}`);
       })()],
-      ["Arc Connected Machine last state time", text("span", time(machine.ArcLastReportedAt))],
+      ["Arc Connected Machine last state time", text("span", displayFor(machine, columnById.get("ArcLastReportedAt")))],
       ["MDE last check in time", text("span", time(machine.MdeLastSeen))],
-      ["Arc added", text("span", time(machine.ArcAddedAt || machine.FirstSeen))],
+      ["Arc added", text("span", displayFor(machine, columnById.get("ArcAddedAt")))],
       ["Azure Tags", tagPillsNode(azureTagValues(machine.AzureTags), displayFor(machine, columnById.get("AzureTags")))],
       ["MDE Device Tags", tagPillsNode(machine.MdeDeviceTags, displayFor(machine, columnById.get("MdeDeviceTags")))]
     ];
@@ -768,8 +1133,8 @@
       summary.append(item);
     }
     const fields = [
-      ["Arc resource", machine.ArcResourceId], ["Arc status", machine.ArcStatus],
-      ["Arc Connected Machine last state time", time(machine.ArcLastReportedAt)], ["Arc added", time(machine.ArcAddedAt || machine.FirstSeen)],
+      ["Resource ID", machine.ArcResourceId], ["Machine Status", displayFor(machine, columnById.get("ArcStatus"))],
+      ["Arc Connected Machine last state time", displayFor(machine, columnById.get("ArcLastReportedAt"))], ["Arc added", displayFor(machine, columnById.get("ArcAddedAt"))],
       ["MDE device ID", machine.MdeDeviceId], ["MDE last check in time", time(machine.MdeLastSeen)],
       ["Entra device ID", machine.EntraDeviceId], ["Entra object ID", machine.EntraObjectId],
       ["Target group ID", machine.GroupId], ["Mode / status", `${machine.Mode} / ${machine.Status}`],
@@ -787,11 +1152,16 @@
     const detail = byId("identity");
     detail.replaceChildren();
     for (const [label, value] of fields) detail.append(text("dt", label), text("dd", value || "Not available"));
+    detail.append(text("dt", "Cloud group scope"), text("dd", machine.CloudGroupType ? `${machine.CloudGroupType} (${machine.CloudGroupOS || machine.OS || missing}) — ${machine.CloudIdentifier || missing}` : missing));
     detail.append(text("dt", "Target Entra ID group"), document.createElement("dd"));
-    appendLink(detail.lastChild, machine.GroupName || machine.GroupId || missing, deviceLink(machine, "group"));
-    for (const [kind, label] of [["arc", "Azure portal"], ["mde", "Defender portal"]]) {
+    appendLink(detail.lastChild, displayFor(machine, columnById.get("Membership")), deviceLink(machine, "group"));
+    for (const [kind, label] of [["arc", "Azure portal"], ["mde", "Defender portal"], ["entra", "Entra portal"]]) {
       detail.append(text("dt", label), document.createElement("dd"));
-      appendLink(detail.lastChild, kind === "arc" ? "Open Arc machine" : machine.MdeDeviceId ? "Open MDE device" : missing, deviceLink(machine, kind));
+      appendLink(
+        detail.lastChild,
+        kind === "arc" ? "Open Azure resource" : kind === "mde" ? (machine.MdeDeviceId ? "Open MDE device" : missing) : ((machine.EntraObjectId || machine.EntraDeviceId) ? "Open Entra device" : missing),
+        deviceLink(machine, kind)
+      );
     }
     byId("history").replaceChildren();
     byId("more").hidden = true;
@@ -816,6 +1186,8 @@
       for (const item of page.Items) {
         const entry = document.createElement("li");
         entry.append(text("strong", `${time(item.Timestamp)} - ${item.Action}`));
+        if (item.TriggerReason) entry.append(text("p", `Trigger: ${item.TriggerReason}`, "muted"));
+        if (item.LogMessage) entry.append(text("p", item.LogMessage));
         if (item.State) entry.append(text("p", `${item.State.Status}; Entra membership: ${item.State.Membership}; mode: ${item.State.Mode}`),
           text("p", `Entra object: ${item.State.EntraObjectId || "None"}`));
         const group = item.State || item;
@@ -840,6 +1212,35 @@
           snapshot.append(values);
           entry.append(snapshot);
         }
+        const runOutput = item.ScriptOutput || item.State?.ScriptOutput || "";
+        if (runOutput) {
+          const runLogDetails = document.createElement("details");
+          runLogDetails.className = "script-output-details";
+          const summary = document.createElement("summary");
+          summary.append(text("span", "View run PowerShell script output & query results"));
+          const expandBtn = text("button", "Expand window", "secondary script-expand-btn");
+          expandBtn.type = "button";
+          expandBtn.title = "Open full PowerShell script output and query results in an expanded window";
+          expandBtn.addEventListener("click", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            openScriptOutputModal({
+              FunctionName: item.FunctionName || "Machine",
+              Status: item.State?.Status || item.Action || "Completed",
+              Timestamp: item.Timestamp,
+              TriggerReason: item.TriggerReason || item.State?.Source || "Machine sync",
+              RunId: item.RunId || item.State?.RunId || "",
+              ScriptOutput: runOutput
+            });
+          });
+          summary.append(expandBtn);
+          runLogDetails.append(summary);
+          const pre = document.createElement("pre");
+          pre.className = "script-inline-pre";
+          pre.append(text("code", runOutput));
+          runLogDetails.append(pre);
+          entry.append(runLogDetails);
+        }
         entry.append(text("small", `Run: ${item.RunId || item.State?.RunId || "Not available"}`));
         byId("history").append(entry);
       }
@@ -862,11 +1263,30 @@
       }
     }
   }
+  function portalPrefix(health) {
+    const tenant = health?.PortalTenant || health?.Parameters?.SYNC_TENANT_ID || "";
+    return tenant ? `https://portal.azure.com/#@${tenant}/resource` : "https://portal.azure.com/#resource";
+  }
   function functionPortalLink(health) {
-    if (health?.FunctionAppResourceId) {
-      return `https://portal.azure.com/#resource${health.FunctionAppResourceId.split("/").map(encodeURIComponent).join("/")}/overview`;
+    if (health?.FunctionAppResourceId && String(health.FunctionAppResourceId).includes("/resourceGroups/")) {
+      return `${portalPrefix(health)}${health.FunctionAppResourceId.split("/").map(encodeURIComponent).join("/")}/appServices`;
     }
     return "https://portal.azure.com/#browse/Microsoft.Web%2Fsites/kind/functionapp";
+  }
+  function resolveAppInsightsInfo(health) {
+    let resourceId = health?.AppInsightsResourceId || "";
+    if ((!resourceId || !resourceId.includes("/resourceGroups/")) && health?.FunctionAppResourceId) {
+      const m = String(health.FunctionAppResourceId).match(/^(\/subscriptions\/[^/]+\/resourceGroups\/[^/]+)\/providers\/Microsoft\.Web\/sites\/(.+?)-(?:worker|report)-[a-z0-9]+$/i);
+      if (m) resourceId = `${m[1]}/providers/microsoft.insights/components/${m[2]}-insights`;
+    }
+    if (resourceId) {
+      resourceId = resourceId.replace(/\/providers\/Microsoft\.Insights\/components\//i, "/providers/microsoft.insights/components/");
+    }
+    const name = health?.AppInsightsName || (resourceId ? resourceId.split("/").pop() : "");
+    const searchUrl = (resourceId && resourceId.includes("/resourceGroups/")) ?
+      `${portalPrefix(health)}${resourceId.split("/").map(encodeURIComponent).join("/")}/searchV1` :
+      "https://portal.azure.com/#browse/microsoft.insights%2Fcomponents";
+    return { resourceId, name, searchUrl };
   }
   function renderFunctionHealth(health) {
     byId("health").textContent = health.LastSuccessfulInventory ?
@@ -876,6 +1296,12 @@
     const portalAnchor = byId("function-portal-link");
     portalAnchor.href = portalUrl;
     portalAnchor.textContent = health.FunctionAppName ? `Open ${health.FunctionAppName} in Azure portal` : "Open Function App in Azure portal";
+    const aiInfo = resolveAppInsightsInfo(health);
+    const aiAnchor = byId("appinsights-search-link");
+    if (aiAnchor) {
+      aiAnchor.href = aiInfo.searchUrl;
+      aiAnchor.textContent = aiInfo.name ? `Open ${aiInfo.name} Search` : "Open App Insights Transaction Search";
+    }
     const statusValue = health.FunctionAppStatus || (health.LastSuccessfulInventory ? "Running" : "Idle");
     const healthValue = health.Health || (health.LastSuccessfulInventory ? "Healthy" : "Unknown");
     const lastRunTime = health.LastRunTime || health.LastSuccessfulInventory;
@@ -890,9 +1316,12 @@
       appendLink(statusSpan, health.FunctionAppName, portalUrl);
       statusSpan.append(text("span", ")"));
     }
+    const aiSpan = document.createElement("span");
+    appendLink(aiSpan, aiInfo.name ? `${aiInfo.name} (Search)` : "Open Transaction Search", aiInfo.searchUrl);
     const items = [
       ["Function App status", statusSpan],
       ["Function App health", text("span", healthValue, `badge ${healthTone}`)],
+      ["Application Insights", aiSpan],
       ["Last run time", text("span", time(lastRunTime))],
       ["Why it ran", text("span", lastReason)],
       ["Last function & result", text("span", `${lastFunction}: ${lastStatus}`, `status-value ${runTone}`)],
@@ -915,11 +1344,17 @@
     body.replaceChildren();
     const specs = [
       ["SYNC_MODE", "Synchronization mode (Audit observes only; Enforce adds verified devices to group)"],
+      ["SYNC_DEFAULT_GROUP_MODE", "Global default target group mode (Passive or Active; defaults to Passive and skips adding if already in counterpart group)"],
+      ["SYNC_ADMIN_UNIT_ID", "Microsoft Entra ID Administrative Unit GUID for AU-scoped automatic security group creation and management"],
+      ["SYNC_AUTO_CREATE_GROUPS", "Automatically create missing Active/Passive Cloud × OS groups inside SYNC_ADMIN_UNIT_ID in Enforce mode"],
       ["SYNC_SCHEDULE", "NCRONTAB timer schedule for full Azure Resource Graph inventory"],
       ["SYNC_FRESHNESS_HOURS", "Maximum age in hours for MDE DeviceInfo telemetry (1–168)"],
-      ["SYNC_GROUP_ID", "Default / fallback target Entra ID security group object ID"],
-      ["SYNC_WINDOWS_GROUP_ID", "Target Entra ID security group object ID for Windows servers"],
-      ["SYNC_LINUX_GROUP_ID", "Target Entra ID security group object ID for Linux servers"],
+      ["SYNC_AWS_WINDOWS_GROUP_PREFIX", "Naming prefix for AWS Windows Active/Passive Entra ID groups (ends in AWS AccountId tag)"],
+      ["SYNC_AWS_LINUX_GROUP_PREFIX", "Naming prefix for AWS Linux Active/Passive Entra ID groups (ends in AWS AccountId tag)"],
+      ["SYNC_GCP_WINDOWS_GROUP_PREFIX", "Naming prefix for GCP Windows Active/Passive Entra ID groups (ends in GCP ProjectId tag)"],
+      ["SYNC_GCP_LINUX_GROUP_PREFIX", "Naming prefix for GCP Linux Active/Passive Entra ID groups (ends in GCP ProjectId tag)"],
+      ["SYNC_AZURE_WINDOWS_GROUP_PREFIX", "Naming prefix for Azure Windows Active/Passive Entra ID groups (ends in Azure Subscription name; excludes AWS & GCP machines)"],
+      ["SYNC_AZURE_LINUX_GROUP_PREFIX", "Naming prefix for Azure Linux Active/Passive Entra ID groups (ends in Azure Subscription name; excludes AWS & GCP machines)"],
       ["SYNC_SUBSCRIPTION_IDS", "Scoped Azure subscription GUIDs"],
       ["SYNC_MANAGEMENT_GROUP_IDS", "Scoped Azure management group IDs"],
       ["SYNC_RESOURCE_GROUP_NAMES", "Scoped Azure resource group names"],
@@ -932,17 +1367,19 @@
       const nameCell = document.createElement("td");
       nameCell.append(text("code", key));
       const valCell = document.createElement("td");
-      const rawVal = String(params[key] ?? missing);
-      const guidMatch = rawVal.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(.*)$/i);
-      if (key.endsWith("GROUP_ID") && guidMatch) {
-        appendLink(valCell, guidMatch[1], `https://entra.microsoft.com/#view/Microsoft_AAD_IAM/GroupDetailsMenuBlade/~/Overview/groupId/${encodeURIComponent(guidMatch[1])}`);
-        if (guidMatch[2]) valCell.append(text("span", guidMatch[2], "muted"));
-      } else {
-        valCell.textContent = rawVal;
-      }
+      valCell.textContent = String(params[key] ?? missing);
       row.append(nameCell, valCell, text("td", description, "muted"));
       body.append(row);
     }
+  }
+  function openScriptOutputModal(entry) {
+    const modal = byId("script-output-modal");
+    if (!modal) return;
+    byId("script-modal-title").textContent = `${entry.FunctionName || "Function"} — ${entry.Status || "Completed"}`;
+    byId("script-modal-meta").textContent = `${time(entry.Timestamp)} · Trigger: ${entry.TriggerReason || missing} · Run ID: ${entry.RunId || missing}`;
+    byId("script-modal-code").textContent = entry.ScriptOutput || "";
+    byId("copy-script-modal").textContent = "Copy output";
+    if (!modal.open) modal.showModal();
   }
   function appendFunctionLogs(items, reset) {
     const body = byId("function-logs");
@@ -957,13 +1394,37 @@
       statusCell.append(text("span", status, `status-value ${statusTone}`));
       const healthCell = document.createElement("td");
       healthCell.append(text("span", health, `badge ${healthTone}`));
+      const msgCell = document.createElement("td");
+      msgCell.className = "log-msg-cell";
+      msgCell.append(text("div", entry.Message || missing));
+      if (entry.ScriptOutput) {
+        const details = document.createElement("details");
+        details.className = "script-output-details";
+        const summary = document.createElement("summary");
+        summary.append(text("span", "View full PowerShell script output & query results"));
+        const expandBtn = text("button", "Expand window", "secondary script-expand-btn");
+        expandBtn.type = "button";
+        expandBtn.title = "Open full PowerShell script output and query results in an expanded window";
+        expandBtn.addEventListener("click", event => {
+          event.preventDefault();
+          event.stopPropagation();
+          openScriptOutputModal(entry);
+        });
+        summary.append(expandBtn);
+        details.append(summary);
+        const pre = document.createElement("pre");
+        pre.className = "script-inline-pre";
+        pre.append(text("code", entry.ScriptOutput));
+        details.append(pre);
+        msgCell.append(details);
+      }
       row.append(
         text("td", time(entry.Timestamp)),
         text("td", entry.FunctionName || missing),
         text("td", entry.TriggerReason || missing),
         statusCell,
         healthCell,
-        text("td", entry.Message || missing),
+        msgCell,
         text("td", entry.RunId || missing)
       );
       body.append(row);
@@ -999,32 +1460,19 @@
       byId("more-logs").disabled = false;
     }
   }
-  async function refresh() {
+  async function refresh(forceRefresh = false) {
     if (busy) return;
     busy = true;
     byId("refresh").disabled = true;
     try {
       const [items, health, logsPage] = await Promise.all([
-        allMachines(),
-        get("health"),
-        get("logs").catch(() => ({ Items: [], Cursor: "" }))
+        allMachines(forceRefresh),
+        get("health", forceRefresh),
+        get("logs", forceRefresh).catch(() => ({ Items: [], Cursor: "" }))
       ]);
-      machines = items;
-      renderFunctionHealth(health);
-      logsCursor = typeof logsPage.Cursor === "string" ? logsPage.Cursor : "";
-      logsCursors = new Set(logsCursor ? [logsCursor] : []);
-      const logItems = Array.isArray(logsPage.Items) ? logsPage.Items : [];
-      logsCount = logItems.length;
-      appendFunctionLogs(logItems, true);
-      byId("more-logs").hidden = !logsCursor;
-      byId("function-logs-error").hidden = true;
-      byId("function-logs-status").textContent = logsCount ? `${logsCount} log entries loaded.` : "No logs recorded yet.";
-      byId("updated").textContent = `Report refreshed: ${time(new Date().toISOString())}`;
-      updateOptions("status", machines.map(m => m.Status), "All statuses");
-      updateOptions("os", machines.map(m => m.OS), "All operating systems");
-      updateOptions("subscription", machines.map(m => m.SubscriptionId), "All subscriptions");
-      renderSummary();
-      render();
+      const nowIso = new Date().toISOString();
+      applySnapshot(items, health, logsPage, nowIso, false);
+      saveCachedSnapshot(items, health, logsPage, nowIso);
       byId("error").hidden = true;
     } catch (error) {
       byId("error").textContent = `${error.message} Displayed results, if any, are from the last successful refresh.`;
@@ -1034,7 +1482,8 @@
       busy = false;
     }
   }
-  for (const id of ["search", "status", "os", "subscription", "membership"]) byId(id).addEventListener("input", render);
+  for (const id of ["search", "status", "os", "management-group", "subscription", "membership"]) byId(id).addEventListener("input", render);
+  byId("export-csv")?.addEventListener("click", exportInventoryCsv);
   byId("clear-filters").addEventListener("click", clearFilters);
   byId("reset-table").addEventListener("click", () => {
     layout = defaults();
@@ -1044,10 +1493,34 @@
   byId("column-picker").addEventListener("toggle", () => {
     if (byId("column-picker").open) renderColumnOptions();
   });
-  byId("refresh").addEventListener("click", refresh);
+  byId("refresh").addEventListener("click", () => refresh(true));
   byId("theme-toggle").addEventListener("click", () => setTheme(currentTheme() === "dark" ? "light" : "dark"));
   byId("more").addEventListener("click", loadHistory);
   byId("more-logs").addEventListener("click", loadMoreLogs);
+  byId("toggle-logs-size")?.addEventListener("click", () => {
+    const wrap = byId("logs-table-wrap");
+    const btn = byId("toggle-logs-size");
+    if (!wrap || !btn) return;
+    const expanded = wrap.classList.toggle("is-expanded");
+    btn.textContent = expanded ? "Collapse logs table" : "Expand logs table";
+    btn.setAttribute("aria-pressed", String(expanded));
+  });
+  byId("close-script-modal")?.addEventListener("click", () => byId("script-output-modal")?.close());
+  byId("copy-script-modal")?.addEventListener("click", async () => {
+    const content = byId("script-modal-code")?.textContent || "";
+    try {
+      await navigator.clipboard.writeText(content);
+      byId("copy-script-modal").textContent = "Copied!";
+    } catch {}
+  });
+  byId("wrap-script-modal")?.addEventListener("click", () => {
+    const pre = byId("script-modal-pre");
+    const btn = byId("wrap-script-modal");
+    if (!pre || !btn) return;
+    const wrapped = pre.classList.toggle("wrap-lines");
+    btn.textContent = `Wrap lines: ${wrapped ? "On" : "Off"}`;
+    btn.setAttribute("aria-pressed", String(wrapped));
+  });
   byId("close-detail").addEventListener("click", () => byId("detail").close());
   byId("detail").addEventListener("close", () => {
     if (byId("detail").open) return;
@@ -1094,68 +1567,11 @@
   document.querySelector(".table-wrap").addEventListener("scroll", hideHoverPopover, { passive: true });
   window.addEventListener("scroll", hideHoverPopover, { passive: true });
   window.addEventListener("resize", () => { if (activeHoverCell) positionHoverPopover(activeHoverCell); });
-  (() => {
-    const svg = document.querySelector(".archify-svg");
-    const status = byId("archify-inspector-text");
-    if (!svg || !status) return;
-    const nodes = [...svg.querySelectorAll("[data-node-id]")];
-    const edges = [...svg.querySelectorAll("[data-edge-from]")];
-    let selectedId = "";
-    const clearFocus = () => {
-      selectedId = "";
-      svg.classList.remove("has-focus");
-      for (const node of nodes) {
-        node.classList.remove("is-active", "is-related");
-        node.setAttribute("aria-pressed", "false");
-      }
-      for (const edge of edges) edge.classList.remove("is-related");
-      status.textContent = "Select any component node in the Archify diagram above to highlight its connected data flows and view its implementation details.";
-    };
-    const focusNode = node => {
-      const id = node.dataset.nodeId;
-      if (selectedId === id) { clearFocus(); return; }
-      selectedId = id;
-      svg.classList.add("has-focus");
-      const relatedNodes = new Set([id]);
-      const inbound = [];
-      const outbound = [];
-      for (const edge of edges) {
-        const from = edge.dataset.edgeFrom;
-        const to = edge.dataset.edgeTo;
-        const match = from === id || to === id;
-        edge.classList.toggle("is-related", match);
-        if (from === id && to && edge.tagName.toLowerCase() === "path") outbound.push(to);
-        if (to === id && from && edge.tagName.toLowerCase() === "path") inbound.push(from);
-        if (match) {
-          if (from) relatedNodes.add(from);
-          if (to) relatedNodes.add(to);
-        }
-      }
-      for (const item of nodes) {
-        const active = item.dataset.nodeId === id;
-        item.classList.toggle("is-active", active);
-        item.classList.toggle("is-related", relatedNodes.has(item.dataset.nodeId));
-        item.setAttribute("aria-pressed", String(active));
-      }
-      const labelFor = key => nodes.find(n => n.dataset.nodeId === key)?.dataset.nodeLabel || key;
-      const inText = inbound.length ? `Upstream: ${[...new Set(inbound)].map(labelFor).join(", ")}. ` : "";
-      const outText = outbound.length ? `Downstream: ${[...new Set(outbound)].map(labelFor).join(", ")}.` : "";
-      status.textContent = `${node.dataset.nodeLabel} (${node.dataset.nodeSublabel || node.dataset.nodeKind || "component"}${node.dataset.nodeTag ? ` · ${node.dataset.nodeTag}` : ""}). ${inText}${outText}`;
-    };
-    for (const node of nodes) {
-      node.addEventListener("click", () => focusNode(node));
-      node.addEventListener("keydown", event => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          focusNode(node);
-        }
-      });
-    }
-  })();
   readLayout();
   updateThemeButton();
   renderColumnOptions();
   renderHeaders();
-  void refresh();
-  window.setInterval(() => { if (!document.hidden && byId("hover-popover").hidden) void refresh(); }, 60000);
+  const cachedAgeMs = Date.now() - loadCachedSnapshot();
+  if (cachedAgeMs > 30000) void refresh(false);
+  window.setInterval(() => { if (!document.hidden && byId("hover-popover").hidden) void refresh(false); }, 60000);
 })();

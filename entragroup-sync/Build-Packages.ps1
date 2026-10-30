@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 $null = New-Item -ItemType Directory -Path $output -Force
 foreach ($app in @('worker', 'report')) {
-    $staging = Join-Path $output "$app-$([guid]::NewGuid().ToString('N'))"
+    $staging = Join-Path ([IO.Path]::GetTempPath()) "arc-entra-stage-$app-$([guid]::NewGuid().ToString('N'))"
     $null = New-Item -ItemType Directory -Path $staging
     try {
         Copy-Item -Path "$PSScriptRoot\$app\*" -Destination $staging -Recurse

@@ -1,0 +1,171 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Machine Correlation & Per-Account Cloud × OS Group Evaluation",
+    "subtitle": "Step-by-step decision rules: Scope -> ARM status -> MDE DeviceInfo freshness -> Entra device objectId -> Per-Account Cloud (AWS/GCP/Azure) × OS (Windows/Linux) Group",
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "output": "entragroup-sync/report/www/evaluation.html"
+  },
+  "lanes": [
+    { "id": "azure", "label": "1. Azure Scope & Resource State" },
+    { "id": "mde", "label": "2. MDE & Entra Identity Criteria" },
+    { "id": "blocked", "label": "Safety Stops (No Group Write)", "variant": "exception" },
+    { "id": "groups", "label": "3. Per-Account Cloud × OS Group Routing" }
+  ],
+  "phases": [
+    { "id": "discover", "label": "Gate 1-2: Scope & ARM State", "fromCol": 0, "toCol": 1 },
+    { "id": "correlate", "label": "Gate 3-4: MDE & Entra Criteria", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "sync", "label": "Gate 5-6: Cloud × OS Group Sync", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "identity_gate", "label": "Exact ID correlation (no hostname/IP guessing)", "lane": "mde", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "safety_stops", "label": "Ineligible states recorded without group write", "lane": "blocked", "fromCol": 1, "toCol": 3, "variant": "security" },
+    { "id": "group_sync", "label": "Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin)", "lane": "groups", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["work_item", "arm_check", "mde_correlate", "entra_resolve", "os_group", "cloud_group", "persist"],
+  "nodes": [
+    {
+      "id": "work_item",
+      "lane": "azure",
+      "col": 0,
+      "type": "messagebus",
+      "label": "Gate 1: Scope Rule",
+      "sublabel": "Sub in SUB/MG & RG match",
+      "tag": "Arc · VM · VMSS (!AKS)",
+      "width": 146
+    },
+    {
+      "id": "arm_check",
+      "lane": "azure",
+      "col": 1,
+      "type": "cloud",
+      "label": "Gate 2: ARM State",
+      "sublabel": "Arc==Connected / VM Running",
+      "tag": "Read OS, SubName & Tags",
+      "width": 146
+    },
+    {
+      "id": "mde_correlate",
+      "lane": "mde",
+      "col": 2,
+      "type": "security",
+      "label": "Gate 3: MDE Match",
+      "sublabel": "AzureResourceId & Onboarded",
+      "tag": "1 unmerged <=24h + GUID",
+      "width": 146
+    },
+    {
+      "id": "entra_resolve",
+      "lane": "mde",
+      "col": 3,
+      "type": "security",
+      "label": "Gate 4: Entra Check",
+      "sublabel": "deviceId == AadDeviceId",
+      "tag": "1 object & accountEnabled",
+      "width": 146
+    },
+    {
+      "id": "arc_blocked",
+      "lane": "blocked",
+      "col": 1,
+      "type": "security",
+      "label": "Stop: ArcNotConnected",
+      "sublabel": "Disconnected / Deallocated",
+      "tag": "404 = ArcMissing",
+      "width": 146
+    },
+    {
+      "id": "mde_blocked",
+      "lane": "blocked",
+      "col": 2,
+      "type": "security",
+      "label": "Stop: MDE Blocked",
+      "sublabel": "0=Pending · >24h=Stale",
+      "tag": ">1=Ambiguous · NoEntraId",
+      "width": 146
+    },
+    {
+      "id": "entra_blocked",
+      "lane": "blocked",
+      "col": 3,
+      "type": "security",
+      "label": "Stop: Entra / Group",
+      "sublabel": "NotFound · Disabled · NoTag",
+      "tag": "GroupNotFound · MissingId",
+      "width": 146
+    },
+    {
+      "id": "os_group",
+      "lane": "groups",
+      "col": 4,
+      "type": "backend",
+      "label": "Gate 5: Cloud Scope",
+      "sublabel": "AWS:Acct · GCP:Proj · Az:Sub",
+      "tag": "Default=Passive (skip if Active)",
+      "width": 146
+    },
+    {
+      "id": "cloud_group",
+      "lane": "groups",
+      "col": 5,
+      "type": "backend",
+      "label": "Gate 6: Cloud Group",
+      "sublabel": "<Prefix>{Passive|Active}-<Id>",
+      "tag": "AU Auto-Create + Flags",
+      "width": 146
+    },
+    {
+      "id": "persist",
+      "lane": "azure",
+      "col": 5,
+      "type": "database",
+      "label": "Verify & Commit",
+      "sublabel": "Audit=WouldAdd · Enforce=Add",
+      "tag": "Read-back + Table batch",
+      "width": 146
+    }
+  ],
+  "edges": [
+    { "id": "work-arm", "from": "work_item", "to": "arm_check", "label": "In scope", "variant": "emphasis" },
+    { "id": "arm-offline", "from": "arm_check", "to": "arc_blocked", "label": "Offline / 404", "variant": "security", "role": "error" },
+    { "id": "arm-mde", "from": "arm_check", "to": "mde_correlate", "label": "Connected", "variant": "emphasis" },
+    { "id": "mde-ineligible", "from": "mde_correlate", "to": "mde_blocked", "label": "0 / >1 / >24h", "variant": "security", "role": "error" },
+    { "id": "mde-entra", "from": "mde_correlate", "to": "entra_resolve", "label": "AadDeviceId", "variant": "emphasis" },
+    { "id": "entra-ineligible", "from": "entra_resolve", "to": "entra_blocked", "label": "NotFound / Off", "variant": "security", "role": "error" },
+    { "id": "entra-os-group", "from": "entra_resolve", "to": "os_group", "label": "objectId", "variant": "emphasis" },
+    { "id": "os-cloud-group", "from": "os_group", "to": "cloud_group", "label": "Passive / Active", "variant": "emphasis" },
+    { "id": "cloud-persist", "from": "cloud_group", "to": "persist", "variant": "emphasis", "role": "return", "fromSide": "right", "toSide": "right", "route": "outside-right" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Gates 1-2: Scope & ARM Readiness Criteria",
+      "items": [
+        "Resource type: HybridCompute/machines, Compute/virtualMachines, ClassicCompute/virtualMachines, or VMSS virtualMachines (excluding Compute.AKS)",
+        "Scope rule: (Subscription in SYNC_SUBSCRIPTION_IDS OR SYNC_MANAGEMENT_GROUP_IDS) AND (SYNC_RESOURCE_GROUP_NAMES empty OR matching RG)",
+        "ARM state: Arc properties.status must be Connected; Azure VM / VMSS instance powerState must not be deallocated or stopped"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Gates 3-4: MDE & Entra Identity Criteria",
+      "items": [
+        "MDE DeviceInfo (7d arg_max by DeviceId): AzureResourceId =~ resourceId, OnboardingStatus == Onboarded, MergedToDeviceId empty, Timestamp <= SYNC_FRESHNESS_HOURS (24h), exactly 1 device",
+        "MDE AadDeviceId must be a valid non-empty GUID (otherwise Status = NoEntraDevice or InvalidEntraIdentifier)",
+        "Entra Graph /devices?$filter=deviceId eq AadDeviceId: exactly 1 directory object with accountEnabled == true; uses directory object id (never deviceId)"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Gate 5: Per-Account Cloud × OS Entra ID Group Criteria",
+      "items": [
+        "Group eligibility: securityEnabled == true, groupTypes empty (not Dynamic/Unified M365), onPremisesSyncEnabled != true, isAssignableToRole != true",
+        "AWS & GCP: <SYNC_AWS_WINDOWS_GROUP_PREFIX><AccountId>, <SYNC_AWS_LINUX_GROUP_PREFIX><AccountId>, <SYNC_GCP_WINDOWS_GROUP_PREFIX><ProjectId>, <SYNC_GCP_LINUX_GROUP_PREFIX><ProjectId>",
+        "Azure: <SYNC_AZURE_WINDOWS_GROUP_PREFIX><SubscriptionName>, <SYNC_AZURE_LINUX_GROUP_PREFIX><SubscriptionName> (AWS & GCP machines strictly excluded)"
+      ]
+    }
+  ]
+}

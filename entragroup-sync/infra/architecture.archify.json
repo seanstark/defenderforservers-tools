@@ -2,8 +2,8 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Azure Arc to Entra Security Group Synchronization",
-    "subtitle": "Event Grid + Timer discovery · MDE Advanced Hunting correlation · Verified add-only Entra group sync · Read-only portal",
+    "title": "Azure Arc & VM to Cloud × OS Entra Group Synchronization",
+    "subtitle": "Timer + MDE Extension Event Grid discovery · MDE Hunting correlation · Per-account Cloud × OS Entra group sync · Read-only portal",
     "output": "entragroup-sync/report/www/architecture.html",
     "animation": "trace",
     "visual_preset": "signal-flow",
@@ -14,9 +14,10 @@
       "id": "triggers",
       "type": "external",
       "label": "Discovery Triggers",
-      "sublabel": "Timer (30m) · Event Grid write",
+      "sublabel": "Timer (30m) · MDE Ext Succeeded",
       "pos": [20, 120],
-      "size": [190, 62]
+      "size": [190, 62],
+      "tag": "MDE.Windows / MDE.Linux"
     },
     {
       "id": "ingest_fn",
@@ -31,9 +32,10 @@
       "id": "arg_arm",
       "type": "cloud",
       "label": "Azure Resource Graph & ARM",
-      "sublabel": "HybridCompute · extensions · tags",
+      "sublabel": "Arc · Native VM · VMSS · Tags",
       "pos": [250, 10],
-      "size": [225, 62]
+      "size": [225, 62],
+      "tag": "!deallocated · !AKS"
     },
     {
       "id": "service_bus",
@@ -50,7 +52,7 @@
       "sublabel": "Invoke-MachineSync · Managed Identity",
       "pos": [730, 120],
       "size": [230, 62],
-      "tag": "PowerShell 7.4"
+      "tag": "PowerShell 7.6"
     },
     {
       "id": "mde_hunting",
@@ -65,10 +67,10 @@
       "id": "entra_graph",
       "type": "security",
       "label": "Microsoft Graph (Entra ID)",
-      "sublabel": "devices · groups · members/$ref",
+      "sublabel": "AU Auto-Create + Cloud × OS groups",
       "pos": [1010, 120],
       "size": [225, 62],
-      "tag": "Audit / Enforce"
+      "tag": "Groups Admin (AU) · Win/Lin"
     },
     {
       "id": "table_storage",
@@ -149,7 +151,7 @@
       "id": "worker-entra",
       "from": "machine_worker",
       "to": "entra_graph",
-      "label": "verify / add objectId",
+      "label": "Cloud × OS group sync",
       "variant": "security"
     },
     {

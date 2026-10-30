@@ -1,18 +1,18 @@
 param($EventGridEvent)
 $event = if ($EventGridEvent -is [string]) { ConvertFrom-Json $EventGridEvent -AsHashtable } else { $EventGridEvent }
+$validOps = @(
+    'Microsoft.GuestConfiguration/guestConfigurationAssignments/write',
+    'Microsoft.HybridCompute/machines/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/write',
+    'Microsoft.Compute/virtualMachines/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/write',
+    'Microsoft.Compute/virtualMachineScaleSets/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/write',
+    'Microsoft.HybridCompute/machines/extensions/write',
+    'Microsoft.Compute/virtualMachines/extensions/write',
+    'Microsoft.Compute/virtualMachineScaleSets/virtualMachines/extensions/write',
+    'Microsoft.Compute/virtualMachineScaleSets/extensions/write'
+)
 if ($event.eventType -ne 'Microsoft.Resources.ResourceWriteSuccess' -or
-    $event.data.operationName -ine 'Microsoft.HybridCompute/machines/write') {
+    $event.data.operationName -notin $validOps) {
     throw 'Unexpected event type or operation.'
 }
-& (Get-Module ArcEntraSync) {
-    param($id)
-    if ($id -notmatch '^/subscriptions/([0-9a-f-]{36})/resourceGroups/([^/?#%\\]+)/providers/Microsoft\.HybridCompute/machines/([^/?#%\\]+)$') {
-        throw 'Invalid Arc machine resource ID.'
-    }
-    $config = Get-SyncConfig
-    if (-not (Test-ResourceScope -Config $config -SubscriptionId $Matches[1] -ResourceGroup $Matches[2])) {
-        Write-Information "Ignoring out-of-scope Arc event: $id" -InformationAction Continue
-        return
-    }
-    Send-MachineWork $id 'EventGrid'
-} $event.subject
+$null = Invoke-MdeExtensionEvent -Subject ([string]$event.subject)
+

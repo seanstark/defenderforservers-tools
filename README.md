@@ -43,6 +43,8 @@ It starts in audit-only mode. Machines without an Entra device are reported with
 
 ![Azure Arc to Entra Security Group Synchronization Architecture](entragroup-sync/infra/architecture.archify.svg)
 
+![Machine Correlation and Entra ID Group Membership Evaluation Workflow](entragroup-sync/infra/evaluation.archify.svg)
+
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2Fentragroup-sync%2Fazuredeploy.json)
 
 [View the Arc to Entra synchronization guide](entragroup-sync/README.md)

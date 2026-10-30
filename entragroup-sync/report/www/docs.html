@@ -1,0 +1,1118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Documentation &amp; APIs — Cloud Server Correlation</title>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/docs.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#docs-main">Skip to documentation</a>
+  <header class="app-bar">
+    <a class="app-brand" href="/"><span class="brand-mark" aria-hidden="true">AE</span>Cloud Server Correlation</a>
+    <span class="app-context">Cloud Servers / Entra ID — Documentation &amp; APIs</span>
+    <div class="actions"><span class="read-only">Read-only report</span><button id="theme-toggle" class="secondary theme-toggle" type="button" aria-label="Switch color theme">Dark mode</button><a href="/.auth/logout">Sign out</a></div>
+  </header>
+  <aside class="sidebar" aria-label="Report navigation">
+    <p class="nav-heading">ASSET MANAGEMENT</p>
+    <nav>
+      <a href="/"><span aria-hidden="true">01</span>Device inventory</a>
+      <a href="/coverage.html"><span aria-hidden="true">02</span>Cloud &amp; group report</a>
+      <div class="nav-sub" role="group" aria-label="Cloud and group report sections">
+        <a class="nav-child" href="/coverage.html#coverage-accounts">By AWS / GCP / Subscription</a>
+        <a class="nav-child" href="/coverage.html#coverage-groups">Entra ID groups &amp; empty</a>
+        <a class="nav-child" href="/coverage.html#coverage-empty-scopes">Scopes with 0 servers</a>
+      </div>
+      <a href="/#device-status"><span aria-hidden="true">03</span>Status breakdowns</a>
+      <a href="/#processing-health"><span aria-hidden="true">04</span>Function App &amp; logs</a>
+      <a href="/permissions.html"><span aria-hidden="true">05</span>Permissions &amp; readiness</a>
+      <a class="nav-current" href="/docs.html" aria-current="page"><span aria-hidden="true">06</span>Documentation &amp; APIs</a>
+      <div class="nav-sub" role="group" aria-label="Documentation sections">
+        <a class="nav-child" href="#doc-archify" data-doc-target="doc-archify">Architecture</a>
+        <a class="nav-child" href="#doc-architecture" data-doc-target="doc-architecture">Workflow</a>
+        <a class="nav-child" href="#doc-queries" data-doc-target="doc-queries">KQL &amp; ARG queries</a>
+        <a class="nav-child" href="#doc-apis" data-doc-target="doc-apis">REST APIs</a>
+        <a class="nav-child" href="#doc-permissions" data-doc-target="doc-permissions">Permissions &amp; RBAC</a>
+        <a class="nav-child" href="#doc-scopes" data-doc-target="doc-scopes">Scope &amp; group routing</a>
+        <a class="nav-child" href="#doc-troubleshooting" data-doc-target="doc-troubleshooting">Troubleshooting</a>
+      </div>
+    </nav>
+    <div class="sidebar-note"><strong>Identity correlation</strong><p>Arc resource<br>MDE device<br>Entra device<br>Assigned security group</p><span>Add-only synchronization.<br>No devices or members are deleted.</span></div>
+  </aside>
+  <main id="docs-main" tabindex="-1">
+    <div class="page-heading">
+      <p class="eyebrow">ARCHITECTURE &amp; TECHNICAL REFERENCE</p>
+      <h1>Documentation &amp; APIs</h1>
+      <p class="muted">Interactive architecture and evaluation workflow diagrams, KQL &amp; Azure Resource Graph queries, REST APIs, RBAC permissions, and Cloud &times; OS group routing rules.</p>
+    </div>
+    <section id="documentation" class="panel docs-panel" aria-label="Solution documentation, queries, APIs, and permissions">
+      <div class="function-header">
+        <div>
+          <p class="eyebrow">ARCHITECTURE &amp; TECHNICAL REFERENCE</p>
+          <h2>Solution documentation, queries, APIs &amp; permissions</h2>
+          <p class="muted">How the Azure Function worker discovers Azure Arc servers, correlates Defender for Endpoint (MDE) telemetry, and manages Entra ID group membership.</p>
+        </div>
+      </div>
+      <div class="docs-content">
+        <details id="doc-archify" class="doc-section" open>
+          <summary>Architecture</summary>
+          <div class="doc-body">
+            <p class="muted">Generated and validated with <a href="https://github.com/tt-a1i/archify" target="_blank" rel="noopener noreferrer">Archify</a> (<code>showcase</code> quality profile · 9/9 layout &amp; route checks passed). Click any component node below to inspect its upstream/downstream connections and role in the synchronization pipeline.</p>
+            <div class="archify-canvas-wrap">
+              <svg class="archify-svg" viewBox="0 0 1275 450" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="signal-flow" data-quality-profile="showcase" data-node-ui="" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14">
+        <title id="archify-diagram-title">Azure Arc &amp; VM to Cloud × OS Entra Group Synchronization</title>
+        <desc id="archify-diagram-description">Timer + MDE Extension Event Grid discovery · MDE Hunting correlation · Per-account Cloud × OS Entra group sync · Read-only portal</desc>
+        <!-- Definitions -->
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-default" />
+          </marker>
+          <marker id="arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-emphasis" />
+          </marker>
+          <marker id="arrowhead-security" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-security" />
+          </marker>
+          <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-dashed" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Boundaries (behind everything) -->
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="Privileged Worker Plane (System-Assigned Managed Identity)" x="220" y="90" width="770" height="112" rx="12" class="c-region" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="security-group" data-composition-frame-id="1" data-composition-frame-label="Read-Only Report Plane (Table Reader only · no Graph or Queue access)" x="20" y="270" width="650" height="112" rx="8" class="c-security-group" stroke-width="1"/>
+
+        <!-- Connection paths (before components for correct z-order) -->
+        <g data-graph-role="automatic-crossover" data-step="0">
+          <path data-graph-role="automatic-crossover-underlay" d="M 210 151 L 250 151" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="triggers" data-edge-to="ingest_fn" data-edge-key="0" data-edge-id="trig-ingest" data-composition-points="210,151;250,151" data-composition-crossover="halo" data-composition-independent="true" d="M 210 151 L 250 151" class="a-emphasis" data-animate="edge" data-step="0" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" data-step="1">
+          <path data-graph-role="automatic-crossover-underlay" d="M 352.5 120 L 352.5 72" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="ingest_fn" data-edge-to="arg_arm" data-edge-label="KQL scope discovery" data-edge-key="1" data-edge-id="ingest-arg" data-composition-points="352.5,120;352.5,72" data-composition-crossover="halo" data-composition-independent="true" d="M 352.5 120 L 352.5 72" class="a-default" data-animate="edge" data-step="1" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" data-step="2">
+          <path data-graph-role="automatic-crossover-underlay" d="M 455 151 L 495 151" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="ingest_fn" data-edge-to="service_bus" data-edge-key="2" data-edge-id="ingest-bus" data-composition-points="455,151;495,151" data-composition-crossover="halo" data-composition-independent="true" d="M 455 151 L 495 151" class="a-emphasis" data-animate="edge" data-step="2" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" data-step="3">
+          <path data-graph-role="automatic-crossover-underlay" d="M 690 151 L 730 151" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="service_bus" data-edge-to="machine_worker" data-edge-key="3" data-edge-id="bus-worker" data-composition-points="690,151;730,151" data-composition-crossover="halo" data-composition-independent="true" d="M 690 151 L 730 151" class="a-emphasis" data-animate="edge" data-step="3" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" data-step="4">
+          <path data-graph-role="automatic-crossover-underlay" d="M 845 120 L 845 72" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="machine_worker" data-edge-to="mde_hunting" data-edge-label="AzureResourceId + AV" data-edge-key="4" data-edge-id="worker-mde" data-composition-points="845,120;845,72" data-composition-crossover="halo" data-composition-independent="true" d="M 845 120 L 845 72" class="a-security" data-animate="edge" data-step="4" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" data-step="5">
+          <path data-graph-role="automatic-crossover-underlay" d="M 860.05 182 L 860.05 198 Q 860.05 206 868.05 206 L 978 206 Q 986 206 986 198 L 986 159 Q 986 151 994 151 L 1010 151" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="machine_worker" data-edge-to="entra_graph" data-edge-label="Cloud × OS group sync" data-edge-key="5" data-edge-id="worker-entra" data-composition-points="860.05,182;860.05,206;986,206;986,151;1010,151" data-composition-crossover="halo" data-composition-independent="true" d="M 860.05 182 L 860.05 198 Q 860.05 206 868.05 206 L 978 206 Q 986 206 986 198 L 986 159 Q 986 151 994 151 L 1010 151" class="a-security" data-animate="edge" data-step="5" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" data-step="6">
+          <path data-graph-role="automatic-crossover-underlay" d="M 845 182 L 845 300" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="machine_worker" data-edge-to="table_storage" data-edge-label="state + history + logs" data-edge-key="6" data-edge-id="worker-table" data-composition-points="845,182;845,300" data-composition-crossover="halo" data-composition-independent="true" d="M 845 182 L 845 300" class="a-emphasis" data-animate="edge" data-step="6" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" data-step="7">
+          <path data-graph-role="automatic-crossover-underlay" d="M 760 331 L 640 331" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="table_storage" data-edge-to="report_fn" data-edge-label="read-only query" data-edge-key="7" data-edge-id="table-report" data-composition-points="760,331;640,331" data-composition-crossover="halo" data-composition-independent="true" d="M 760 331 L 640 331" class="a-default" data-animate="edge" data-step="7" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" data-step="8">
+          <path data-graph-role="automatic-crossover-underlay" d="M 420 331 L 280 331" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="report_fn" data-edge-to="portal_ui" data-edge-label="JSON + static assets" data-edge-key="8" data-edge-id="report-ui" data-composition-points="420,331;280,331" data-composition-crossover="halo" data-composition-independent="true" d="M 420 331 L 280 331" class="a-emphasis" data-animate="edge" data-step="8" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        </g>
+
+        <!-- Components -->
+        <g id="node-triggers" data-node-id="triggers" data-node-label="Discovery Triggers" tabindex="0" role="button" aria-label="Focus Discovery Triggers, Timer (30m) · MDE Ext Succeeded, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="Timer (30m) · MDE Ext Succeeded" data-node-tag="MDE.Windows / MDE.Linux" data-node-context="Architecture component">
+          <title>Discovery Triggers · Timer (30m) · MDE Ext Succeeded · Architecture component · MDE.Windows / MDE.Linux</title>
+          <rect x="20" y="120" width="190" height="62" rx="8" class="c-mask"/>
+          <rect x="20" y="120" width="190" height="62" rx="8" class="c-external" data-animate="node" data-step="0" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(26 126) scale(0.6875)">
+            <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
+            <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="115" y="149" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Discovery Triggers</text>
+        <text data-detail="context" x="115" y="165" class="t-muted" font-size="9" text-anchor="middle">Timer (30m) · MDE Ext Succeeded</text>
+        <text data-detail="fine" x="115" y="174" class="t-external" font-size="7" text-anchor="middle">MDE.Windows / MDE.Linux</text>
+        </g>
+
+        <g id="node-ingest_fn" data-node-id="ingest_fn" data-node-label="Inventory &amp; ArcEvent" tabindex="0" role="button" aria-label="Focus Inventory &amp; ArcEvent, MG / Sub / RG scope validation, Privileged Worker Plane (System-Assigned Managed Identity)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="MG / Sub / RG scope validation" data-node-tag="worker functions" data-node-context="Privileged Worker Plane (System-Assigned Managed Identity)">
+          <title>Inventory &amp; ArcEvent · MG / Sub / RG scope validation · Privileged Worker Plane (System-Assigned Managed Identity) · worker functions</title>
+          <rect x="250" y="120" width="205" height="62" rx="8" class="c-mask"/>
+          <rect x="250" y="120" width="205" height="62" rx="8" class="c-backend" data-animate="node" data-step="1" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(256 126) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="352.5" y="149" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Inventory &amp; ArcEvent</text>
+        <text data-detail="context" x="352.5" y="165" class="t-muted" font-size="9" text-anchor="middle">MG / Sub / RG scope validation</text>
+        <text data-detail="fine" x="352.5" y="174" class="t-backend" font-size="7" text-anchor="middle">worker functions</text>
+        </g>
+
+        <g id="node-arg_arm" data-node-id="arg_arm" data-node-label="Azure Resource Graph &amp; ARM" tabindex="0" role="button" aria-label="Focus Azure Resource Graph &amp; ARM, Arc · Native VM · VMSS · Tags, Architecture component" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="Arc · Native VM · VMSS · Tags" data-node-tag="!deallocated · !AKS" data-node-context="Architecture component">
+          <title>Azure Resource Graph &amp; ARM · Arc · Native VM · VMSS · Tags · Architecture component · !deallocated · !AKS</title>
+          <rect x="250" y="10" width="225" height="62" rx="8" class="c-mask"/>
+          <rect x="250" y="10" width="225" height="62" rx="8" class="c-cloud" data-animate="node" data-step="2" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(256 16) scale(0.6875)">
+            <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="362.5" y="39" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Azure Resource Graph &amp; ARM</text>
+        <text data-detail="context" x="362.5" y="55" class="t-muted" font-size="9" text-anchor="middle">Arc · Native VM · VMSS · Tags</text>
+        <text data-detail="fine" x="362.5" y="64" class="t-cloud" font-size="7" text-anchor="middle">!deallocated · !AKS</text>
+        </g>
+
+        <g id="node-service_bus" data-node-id="service_bus" data-node-label="Service Bus Queue" tabindex="0" role="button" aria-label="Focus Service Bus Queue, machines · 10 retries + DLQ, Privileged Worker Plane (System-Assigned Managed Identity)" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="machines · 10 retries + DLQ" data-node-context="Privileged Worker Plane (System-Assigned Managed Identity)">
+          <title>Service Bus Queue · machines · 10 retries + DLQ · Privileged Worker Plane (System-Assigned Managed Identity)</title>
+          <rect x="495" y="120" width="195" height="62" rx="8" class="c-mask"/>
+          <rect x="495" y="120" width="195" height="62" rx="8" class="c-messagebus" data-animate="node" data-step="3" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(501 126) scale(0.6875)">
+            <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
+            <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
+            <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
+            <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="592.5" y="149" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Service Bus Queue</text>
+        <text data-detail="context" x="592.5" y="165" class="t-muted" font-size="9" text-anchor="middle">machines · 10 retries + DLQ</text>
+        </g>
+
+        <g id="node-machine_worker" data-node-id="machine_worker" data-node-label="Machine Sync Worker" tabindex="0" role="button" aria-label="Focus Machine Sync Worker, Invoke-MachineSync · Managed Identity, Privileged Worker Plane (System-Assigned Managed Identity)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Invoke-MachineSync · Managed Identity" data-node-tag="PowerShell 7.6" data-node-context="Privileged Worker Plane (System-Assigned Managed Identity)">
+          <title>Machine Sync Worker · Invoke-MachineSync · Managed Identity · Privileged Worker Plane (System-Assigned Managed Identity) · PowerShell 7.6</title>
+          <rect x="730" y="120" width="230" height="62" rx="8" class="c-mask"/>
+          <rect x="730" y="120" width="230" height="62" rx="8" class="c-backend" data-animate="node" data-step="4" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(736 126) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="845" y="149" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Machine Sync Worker</text>
+        <text data-detail="context" x="845" y="165" class="t-muted" font-size="9" text-anchor="middle">Invoke-MachineSync · Managed Identity</text>
+        <text data-detail="fine" x="845" y="174" class="t-backend" font-size="7" text-anchor="middle">PowerShell 7.6</text>
+        </g>
+
+        <g id="node-mde_hunting" data-node-id="mde_hunting" data-node-label="Defender XDR Hunting" tabindex="0" role="button" aria-label="Focus Defender XDR Hunting, DeviceInfo · NetworkInfo · scid-2010, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="DeviceInfo · NetworkInfo · scid-2010" data-node-tag="runHuntingQuery" data-node-context="Architecture component">
+          <title>Defender XDR Hunting · DeviceInfo · NetworkInfo · scid-2010 · Architecture component · runHuntingQuery</title>
+          <rect x="730" y="10" width="230" height="62" rx="8" class="c-mask"/>
+          <rect x="730" y="10" width="230" height="62" rx="8" class="c-security" data-animate="node" data-step="5" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(736 16) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="845" y="39" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Defender XDR Hunting</text>
+        <text data-detail="context" x="845" y="55" class="t-muted" font-size="9" text-anchor="middle">DeviceInfo · NetworkInfo · scid-2010</text>
+        <text data-detail="fine" x="845" y="64" class="t-security" font-size="7" text-anchor="middle">runHuntingQuery</text>
+        </g>
+
+        <g id="node-entra_graph" data-node-id="entra_graph" data-node-label="Microsoft Graph (Entra ID)" tabindex="0" role="button" aria-label="Focus Microsoft Graph (Entra ID), AU Auto-Create + Cloud × OS groups, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="AU Auto-Create + Cloud × OS groups" data-node-tag="Groups Admin (AU) · Win/Lin" data-node-context="Architecture component">
+          <title>Microsoft Graph (Entra ID) · AU Auto-Create + Cloud × OS groups · Architecture component · Groups Admin (AU) · Win/Lin</title>
+          <rect x="1010" y="120" width="225" height="62" rx="8" class="c-mask"/>
+          <rect x="1010" y="120" width="225" height="62" rx="8" class="c-security" data-animate="node" data-step="6" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1016 126) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="1122.5" y="149" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Microsoft Graph (Entra ID)</text>
+        <text data-detail="context" x="1122.5" y="165" class="t-muted" font-size="9" text-anchor="middle">AU Auto-Create + Cloud × OS groups</text>
+        <text data-detail="fine" x="1122.5" y="174" class="t-security" font-size="7" text-anchor="middle">Groups Admin (AU) · Win/Lin</text>
+        </g>
+
+        <g id="node-table_storage" data-node-id="table_storage" data-node-label="Azure Table Storage" tabindex="0" role="button" aria-label="Focus Azure Table Storage, state · h_ history · log_ runs, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="state · h_ history · log_ runs" data-node-tag="atomic batch" data-node-context="Architecture component">
+          <title>Azure Table Storage · state · h_ history · log_ runs · Architecture component · atomic batch</title>
+          <rect x="760" y="300" width="230" height="62" rx="8" class="c-mask"/>
+          <rect x="760" y="300" width="230" height="62" rx="8" class="c-database" data-animate="node" data-step="7" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(766 306) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="875" y="329" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Azure Table Storage</text>
+        <text data-detail="context" x="875" y="345" class="t-muted" font-size="9" text-anchor="middle">state · h_ history · log_ runs</text>
+        <text data-detail="fine" x="875" y="354" class="t-database" font-size="7" text-anchor="middle">atomic batch</text>
+        </g>
+
+        <g id="node-report_fn" data-node-id="report_fn" data-node-label="Report Function App" tabindex="0" role="button" aria-label="Focus Report Function App, Easy Auth + Report.Reader check, Read-Only Report Plane (Table Reader only · no Graph or Queue access)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Easy Auth + Report.Reader check" data-node-tag="read-only MI" data-node-context="Read-Only Report Plane (Table Reader only · no Graph or Queue access)">
+          <title>Report Function App · Easy Auth + Report.Reader check · Read-Only Report Plane (Table Reader only · no Graph or Queue access) · read-only MI</title>
+          <rect x="420" y="300" width="220" height="62" rx="8" class="c-mask"/>
+          <rect x="420" y="300" width="220" height="62" rx="8" class="c-backend" data-animate="node" data-step="8" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(426 306) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="530" y="329" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Report Function App</text>
+        <text data-detail="context" x="530" y="345" class="t-muted" font-size="9" text-anchor="middle">Easy Auth + Report.Reader check</text>
+        <text data-detail="fine" x="530" y="354" class="t-backend" font-size="7" text-anchor="middle">read-only MI</text>
+        </g>
+
+        <g id="node-portal_ui" data-node-id="portal_ui" data-node-label="Device Inventory Portal" tabindex="0" role="button" aria-label="Focus Device Inventory Portal, KPIs · hover cards · drawer · logs, Read-Only Report Plane (Table Reader only · no Graph or Queue access)" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="KPIs · hover cards · drawer · logs" data-node-context="Read-Only Report Plane (Table Reader only · no Graph or Queue access)">
+          <title>Device Inventory Portal · KPIs · hover cards · drawer · logs · Read-Only Report Plane (Table Reader only · no Graph or Queue access)</title>
+          <rect x="50" y="300" width="230" height="62" rx="8" class="c-mask"/>
+          <rect x="50" y="300" width="230" height="62" rx="8" class="c-frontend" data-animate="node" data-step="9" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(56 306) scale(0.6875)">
+            <rect x="2" y="3" width="12" height="10" rx="2"/>
+            <path d="M2 6.5h12"/>
+            <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
+            <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="165" y="329" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Device Inventory Portal</text>
+        <text data-detail="context" x="165" y="345" class="t-muted" font-size="9" text-anchor="middle">KPIs · hover cards · drawer · logs</text>
+        </g>
+
+        <!-- Connection labels -->
+
+        <g data-detail="context" data-edge-from="ingest_fn" data-edge-to="arg_arm" data-edge-label="KQL scope discovery" data-edge-key="1" data-edge-id="ingest-arg">
+          <rect x="301.9" y="100" width="101.2" height="14" rx="3" class="c-mask"/>
+          <text x="352.5" y="110" class="t-edge-default" font-size="8" text-anchor="middle">KQL scope discovery</text>
+        </g>
+
+
+        <g data-detail="context" data-edge-from="machine_worker" data-edge-to="mde_hunting" data-edge-label="AzureResourceId + AV" data-edge-key="4" data-edge-id="worker-mde">
+          <rect x="792" y="100" width="106" height="14" rx="3" class="c-mask"/>
+          <text x="845" y="110" class="t-edge-security" font-size="8" text-anchor="middle">AzureResourceId + AV</text>
+        </g>
+        <g data-detail="context" data-edge-from="machine_worker" data-edge-to="entra_graph" data-edge-label="Cloud × OS group sync" data-edge-key="5" data-edge-id="worker-entra">
+          <rect x="867.625" y="186" width="110.8" height="14" rx="3" class="c-mask"/>
+          <text x="923.025" y="196" class="t-edge-security" font-size="8" text-anchor="middle">Cloud × OS group sync</text>
+        </g>
+        <g data-detail="context" data-edge-from="machine_worker" data-edge-to="table_storage" data-edge-label="state + history + logs" data-edge-key="6" data-edge-id="worker-table">
+          <rect x="723.4000000000001" y="234" width="115.6" height="14" rx="3" class="c-mask"/>
+          <text x="781.2" y="244" class="t-edge-emphasis" font-size="8" text-anchor="middle">state + history + logs</text>
+        </g>
+        <g data-detail="context" data-edge-from="table_storage" data-edge-to="report_fn" data-edge-label="read-only query" data-edge-key="7" data-edge-id="table-report">
+          <rect x="659" y="311" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="700" y="321" class="t-edge-default" font-size="8" text-anchor="middle">read-only query</text>
+        </g>
+        <g data-detail="context" data-edge-from="report_fn" data-edge-to="portal_ui" data-edge-label="JSON + static assets" data-edge-key="8" data-edge-id="report-ui">
+          <rect x="297" y="311" width="106" height="14" rx="3" class="c-mask"/>
+          <text x="350" y="321" class="t-edge-emphasis" font-size="8" text-anchor="middle">JSON + static assets</text>
+        </g>
+
+        <!-- Boundary labels (foreground masks keep routes out of titles) -->
+        <g data-graph-role="structural-frame-label" data-composition-frame-id="0" data-composition-frame-kind="region" data-composition-frame-label="Privileged Worker Plane (System-Assigned Managed Identity)">
+          <rect data-graph-role="structural-frame-label-mask" x="411.09999999999997" y="100" width="323.2" height="16" rx="3" class="c-mask"/>
+          <text data-boundary-label="" x="415.09999999999997" y="113" class="t-cloud" font-size="9" font-weight="600">Privileged Worker Plane (System-Assigned Managed Identity)</text>
+        </g>
+
+        <g data-graph-role="structural-frame-label" data-composition-frame-id="1" data-composition-frame-kind="security-group" data-composition-frame-label="Read-Only Report Plane (Table Reader only · no Graph or Queue access)">
+          <rect data-graph-role="structural-frame-label-mask" x="24" y="280" width="382.59999999999997" height="16" rx="3" class="c-mask"/>
+          <text data-boundary-label="" x="28" y="293" class="t-security" font-size="9" font-weight="600">Read-Only Report Plane (Table Reader only · no Graph or Queue access)</text>
+        </g>
+
+        <!-- Legend -->
+        <g data-legend="" data-legend-bridge="">
+          <text x="40" y="414" class="t-primary" font-size="12" font-weight="650">Legend</text>
+          <g data-legend-semantic-kind="frontend" data-legend-kind="frontend" data-legend-label="Frontend" data-legend-x="40" data-legend-baseline="434" data-legend-width="93">
+            <rect x="40" y="425" width="16" height="10" rx="2.5" class="c-frontend" stroke-width="1"/>
+            <text x="62" y="434" class="t-muted" font-size="10" font-weight="500">Frontend</text>
+          </g>
+          <g data-legend-semantic-kind="backend" data-legend-kind="backend" data-legend-label="Backend" data-legend-x="155" data-legend-baseline="434" data-legend-width="87">
+            <rect x="155" y="425" width="16" height="10" rx="2.5" class="c-backend" stroke-width="1"/>
+            <text x="177" y="434" class="t-muted" font-size="10" font-weight="500">Backend</text>
+          </g>
+          <g data-legend-semantic-kind="database" data-legend-kind="database" data-legend-label="Database" data-legend-x="264" data-legend-baseline="434" data-legend-width="93">
+            <rect x="264" y="425" width="16" height="10" rx="2.5" class="c-database" stroke-width="1"/>
+            <text x="286" y="434" class="t-muted" font-size="10" font-weight="500">Database</text>
+          </g>
+          <g data-legend-semantic-kind="cloud" data-legend-kind="cloud" data-legend-label="Cloud" data-legend-x="379" data-legend-baseline="434" data-legend-width="74">
+            <rect x="379" y="425" width="16" height="10" rx="2.5" class="c-cloud" stroke-width="1"/>
+            <text x="401" y="434" class="t-muted" font-size="10" font-weight="500">Cloud</text>
+          </g>
+          <g data-legend-semantic-kind="security" data-legend-kind="security" data-legend-label="Security" data-legend-x="475" data-legend-baseline="434" data-legend-width="93">
+            <rect x="475" y="425" width="16" height="10" rx="2.5" class="c-security" stroke-width="1"/>
+            <text x="497" y="434" class="t-muted" font-size="10" font-weight="500">Security</text>
+          </g>
+          <g data-legend-semantic-kind="messagebus" data-legend-kind="messagebus" data-legend-label="Message bus" data-legend-x="590" data-legend-baseline="434" data-legend-width="112">
+            <rect x="590" y="425" width="16" height="10" rx="2.5" class="c-messagebus" stroke-width="1"/>
+            <text x="612" y="434" class="t-muted" font-size="10" font-weight="500">Message bus</text>
+          </g>
+          <g data-legend-semantic-kind="external" data-legend-kind="external" data-legend-label="External" data-legend-x="724" data-legend-baseline="434" data-legend-width="93">
+            <rect x="724" y="425" width="16" height="10" rx="2.5" class="c-external" stroke-width="1"/>
+            <text x="746" y="434" class="t-muted" font-size="10" font-weight="500">External</text>
+          </g>
+        </g>
+      </svg>
+            </div>
+            <div id="archify-inspector" class="archify-inspector" aria-live="polite">
+              <strong>Interactive node inspector:</strong> <span id="archify-inspector-text" class="muted">Select any component node in the Archify diagram above to highlight its connected data flows and view its implementation details.</span>
+            </div>
+            <div class="doc-grid archify-cards">
+              <div class="doc-card">
+                <h3>Scoped Discovery &amp; Queueing</h3>
+                <ul class="doc-list">
+                  <li><code>Inventory</code> (NCRONTAB timer) and <code>ArcEvent</code> (Event Grid when <code>MDE.Windows</code> or <code>MDE.Linux</code> extension completes with <code>provisioningState == "Succeeded"</code>) validate Management Group, Subscription, and Resource Group scope.</li>
+                  <li>Azure Resource Graph discovers <code>Microsoft.HybridCompute/machines</code>, non-AKS Azure Native VMs, and VMSS instances.</li>
+                  <li>Service Bus queue decouples discovery spikes from per-machine correlation with 10-delivery dead-letter protection.</li>
+                </ul>
+              </div>
+              <div class="doc-card">
+                <h3>Hunting-Only MDE &amp; Per-Account Cloud &times; OS Group Sync</h3>
+                <ul class="doc-list">
+                  <li>All MDE telemetry (<code>DeviceInfo</code>, <code>DeviceNetworkInfo</code>, <code>scid-2010</code> AV mode, tags, <code>MachineGroup</code>) comes via Graph <code>/security/runHuntingQuery</code>.</li>
+                  <li>Routes each correlated Windows or Linux machine to its per-account Cloud &times; OS Entra security group (AWS by <code>AccountId</code> tag, GCP by <code>ProjectId</code> tag, or Azure by <code>SubscriptionName</code> with AWS &amp; GCP excluded).</li>
+                  <li><code>Audit</code> mode records <code>WouldAdd</code>; <code>Enforce</code> mode writes mutation intent first, adds directory object ID, and verifies read-back.</li>
+                </ul>
+              </div>
+              <div class="doc-card">
+                <h3>Isolated Read-Only Reporting</h3>
+                <ul class="doc-list">
+                  <li>Atomic Azure Table batch commits current state and <code>h_</code> history snapshots plus <code>system/inventory</code> and <code>log_</code> execution logs.</li>
+                  <li>Separate Report Function App has only <code>Storage Table Data Reader</code> and enforces Entra Easy Auth + <code>Report.Reader</code> role.</li>
+                  <li>Interactive Defender-style portal provides KPI filters, hover popovers, context drawer, Function App telemetry, and docs.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details id="doc-architecture" class="doc-section" open>
+          <summary>Workflow</summary>
+          <div class="doc-body">
+            <p class="muted">End-to-end machine evaluation and Entra ID group membership decision criteria generated and validated with <a href="https://github.com/tt-a1i/archify" target="_blank" rel="noopener noreferrer">Archify</a> (<code>showcase</code> quality profile · 9/9 layout &amp; route checks passed). Click any gate or stop node to inspect its exact pass/fail criteria.</p>
+            <div class="archify-canvas-wrap">
+              <svg class="archify-svg archify-workflow-svg" viewBox="0 0 1208 684" data-layout-contract="readable-v2" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="signal-flow" data-quality-profile="showcase" data-node-ui="">
+        <title id="archify-diagram-title">Machine Correlation &amp; Per-Account Cloud × OS Group Evaluation</title>
+        <desc id="archify-diagram-description">Step-by-step decision rules: Scope -&gt; ARM status -&gt; MDE DeviceInfo freshness -&gt; Entra device objectId -&gt; Per-Account Cloud (AWS/GCP/Azure) × OS (Windows/Linux) Group</desc>
+        <!-- Definitions -->
+        <defs>
+          <marker id="wf-arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-default" />
+          </marker>
+          <marker id="wf-arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-emphasis" />
+          </marker>
+          <marker id="wf-arrowhead-security" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-security" />
+          </marker>
+          <marker id="wf-arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-dashed" />
+          </marker>
+          <pattern id="wf-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#wf-grid)" />
+
+        <!-- Swimlanes -->
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="1140" height="106" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="74" class="t-muted" font-size="10" font-weight="600">01 / 1. Azure Scope &amp; Resource State</text>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="178" width="1140" height="114" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="200" class="t-muted" font-size="10" font-weight="600">02 / 2. MDE &amp; Entra Identity Criteria</text>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="312" width="1140" height="114" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="exception-lane" data-composition-frame-id="lane-2-exception" x="46" y="318" width="1128" height="102" rx="8" class="c-security-group" stroke-width="1"/>
+        <text x="54" y="334" class="t-security" font-size="10" font-weight="600">EX / Safety Stops (No Group Write)</text>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-3" x="40" y="446" width="1140" height="114" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="468" class="t-muted" font-size="10" font-weight="600">04 / 3. Per-Account Cloud × OS Group Routing</text>
+
+        <!-- Phase headers -->
+        <path d="M 83 35 H 361.4" class="a-default phase-rule" stroke-width="1" stroke-linecap="round" fill="none"/>
+        <rect x="147.39999999999998" y="27" width="149.6" height="16" rx="8" class="c-mask phase-chip"/>
+        <text x="222.2" y="38.5" class="t-muted" font-size="8" font-weight="600" text-anchor="middle" letter-spacing=".04em">Gate 1-2: Scope &amp; ARM State</text>
+        <path d="M 463.3999999999999 35 H 756.2" class="a-emphasis phase-rule" stroke-width="1" stroke-linecap="round" fill="none"/>
+        <rect x="527.8" y="27" width="164" height="16" rx="8" class="c-mask phase-chip"/>
+        <text x="609.8" y="38.5" class="t-backend" font-size="8" font-weight="600" text-anchor="middle" letter-spacing=".04em">Gate 3-4: MDE &amp; Entra Criteria</text>
+        <path d="M 800.2 35 H 1132.2" class="a-dashed phase-rule" stroke-width="1" stroke-linecap="round" fill="none"/>
+        <rect x="881.8000000000001" y="27" width="168.79999999999998" height="16" rx="8" class="c-mask phase-chip"/>
+        <text x="966.2" y="38.5" class="t-messagebus" font-size="8" font-weight="600" text-anchor="middle" letter-spacing=".04em">Gate 5-6: Cloud × OS Group Sync</text>
+
+        <!-- Workflow groups -->
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-0" x="424.4" y="216" width="370.80000000000007" height="72" rx="9" class="c-lane" stroke-width="1"/>
+        <text x="434.4" y="214" class="t-backend" font-size="7" font-weight="600">Exact ID correlation (no hostname/IP guessing)</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-1" x="246.39999999999998" y="350" width="548.8000000000001" height="72" rx="9" class="c-security-group" stroke-width="1"/>
+        <text x="256.4" y="348" class="t-security" font-size="7" font-weight="600">Ineligible states recorded without group write</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-2" x="761.2" y="484" width="410" height="72" rx="9" class="c-lane" stroke-width="1"/>
+        <text x="771.2" y="482" class="t-messagebus" font-size="7" font-weight="600">Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin)</text>
+
+        <!-- Edge paths -->
+        <path data-edge-from="arm_check" data-edge-to="mde_correlate" data-edge-label="Connected" data-edge-key="0" data-edge-id="arm-mde" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="330.4,154;330.4,253;428.4,253" d="M 330.4 154 L 330.4 245 Q 330.4 253 338.4 253 L 428.4 253" class="a-emphasis" data-animate="edge" data-step="1" stroke-width="1.8" marker-end="url(#wf-arrowhead-emphasis)"/>
+        <path data-edge-from="arm_check" data-edge-to="arc_blocked" data-edge-label="Offline / 404" data-edge-key="1" data-edge-id="arm-offline" data-composition-routing="workflow-v2-auto" data-edge-role="error" data-composition-points="311.4,154;311.4,170;20,170;20,437;323.4,437;323.4,421" d="M 311.4 154 L 311.4 162 Q 311.4 170 303.4 170 L 28 170 Q 20 170 20 178 L 20 429 Q 20 437 28 437 L 315.4 437 Q 323.4 437 323.4 429 L 323.4 421" class="a-security" data-animate="edge" data-step="8" stroke-width="1.4" marker-end="url(#wf-arrowhead-security)"/>
+        <path data-edge-from="cloud_group" data-edge-to="persist" data-edge-key="2" data-edge-id="cloud-persist" data-edge-role="return" data-composition-points="1167.2,521;1192,521;1192,120;1167.2,120" d="M 1167.2 521 L 1184 521 Q 1192 521 1192 513 L 1192 128 Q 1192 120 1184 120 L 1167.2 120" class="a-emphasis" data-animate="edge" data-step="5" stroke-width="1.8" marker-end="url(#wf-arrowhead-emphasis)"/>
+        <path data-edge-from="entra_resolve" data-edge-to="entra_blocked" data-edge-label="NotFound / Off" data-edge-key="3" data-edge-id="entra-ineligible" data-composition-routing="workflow-v2-auto" data-edge-role="error" data-composition-points="718.2,287;718.2,353" d="M 718.2 287 L 718.2 353" class="a-security" data-animate="edge" data-step="10" stroke-width="1.4" marker-end="url(#wf-arrowhead-security)"/>
+        <path data-edge-from="entra_resolve" data-edge-to="os_group" data-edge-label="objectId" data-edge-key="4" data-edge-id="entra-os-group" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="645.2,260;629.2,260;629.2,576;838.2,576;838.2,555" d="M 645.2 260 L 637.2 260 Q 629.2 260 629.2 268 L 629.2 568 Q 629.2 576 637.2 576 L 830.2 576 Q 838.2 576 838.2 568 L 838.2 555" class="a-emphasis" data-animate="edge" data-step="3" stroke-width="1.8" marker-end="url(#wf-arrowhead-emphasis)"/>
+        <path data-edge-from="mde_correlate" data-edge-to="entra_resolve" data-edge-label="AadDeviceId" data-edge-key="5" data-edge-id="mde-entra" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="574.4,253;645.2,253" d="M 574.4 253 L 645.2 253" class="a-emphasis" data-animate="edge" data-step="2" stroke-width="1.8" marker-end="url(#wf-arrowhead-emphasis)"/>
+        <path data-edge-from="mde_correlate" data-edge-to="mde_blocked" data-edge-label="0 / &gt;1 / &gt;24h" data-edge-key="6" data-edge-id="mde-ineligible" data-composition-routing="workflow-v2-auto" data-edge-role="error" data-composition-points="501.4,287;501.4,314;590.4,314;590.4,387;574.4,387" d="M 501.4 287 L 501.4 306 Q 501.4 314 509.4 314 L 582.4 314 Q 590.4 314 590.4 322 L 590.4 379 Q 590.4 387 582.4 387 L 574.4 387" class="a-security" data-animate="edge" data-step="12" stroke-width="1.4" marker-end="url(#wf-arrowhead-security)"/>
+        <path data-edge-from="os_group" data-edge-to="cloud_group" data-edge-label="Passive / Active" data-edge-key="7" data-edge-id="os-cloud-group" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="911.2,521;1021.2,521" d="M 911.2 521 L 1021.2 521" class="a-emphasis" data-animate="edge" data-step="4" stroke-width="1.8" marker-end="url(#wf-arrowhead-emphasis)"/>
+        <path data-edge-from="work_item" data-edge-to="arm_check" data-edge-label="In scope" data-edge-key="8" data-edge-id="work-arm" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="194,120;250.39999999999998,120" d="M 194 120 L 250.39999999999998 120" class="a-emphasis" data-animate="edge" data-step="0" stroke-width="1.8" marker-end="url(#wf-arrowhead-emphasis)"/>
+
+        <!-- Nodes -->
+        <g id="node-work_item" data-node-id="work_item" data-node-label="Gate 1: Scope Rule" tabindex="0" role="button" aria-label="Focus Gate 1: Scope Rule, Sub in SUB/MG &amp; RG match, 1. Azure Scope &amp; Resource State › Gate 1-2: Scope &amp; ARM State" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="Sub in SUB/MG &amp; RG match" data-node-tag="Arc · VM · VMSS (!AKS)" data-node-context="1. Azure Scope &amp; Resource State › Gate 1-2: Scope &amp; ARM State">
+          <title>Gate 1: Scope Rule · Sub in SUB/MG &amp; RG match · 1. Azure Scope &amp; Resource State › Gate 1-2: Scope &amp; ARM State · Arc · VM · VMSS (!AKS)</title>
+          <rect x="48" y="86" width="146" height="68" rx="8" class="c-mask"/>
+          <rect x="48" y="86" width="146" height="68" rx="8" class="c-messagebus" data-animate="node" data-step="0" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(54 92) scale(0.6875)">
+            <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
+            <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
+            <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
+            <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="126.4" y="107" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Gate 1: Scope Rule</text>
+          <text data-detail="context" x="121" y="124" class="t-muted" font-size="8" text-anchor="middle">Sub in SUB/MG &amp; RG match</text>
+        <text data-detail="fine" x="121" y="142" class="t-messagebus" font-size="7" text-anchor="middle">Arc · VM · VMSS (!AKS)</text>
+        </g>
+
+        <g id="node-arm_check" data-node-id="arm_check" data-node-label="Gate 2: ARM State" tabindex="0" role="button" aria-label="Focus Gate 2: ARM State, Arc==Connected / VM Running, 1. Azure Scope &amp; Resource State › Gate 1-2: Scope &amp; ARM State" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="Arc==Connected / VM Running" data-node-tag="Read OS, SubName &amp; Tags" data-node-context="1. Azure Scope &amp; Resource State › Gate 1-2: Scope &amp; ARM State">
+          <title>Gate 2: ARM State · Arc==Connected / VM Running · 1. Azure Scope &amp; Resource State › Gate 1-2: Scope &amp; ARM State · Read OS, SubName &amp; Tags</title>
+          <rect x="250.39999999999998" y="86" width="146" height="68" rx="8" class="c-mask"/>
+          <rect x="250.39999999999998" y="86" width="146" height="68" rx="8" class="c-cloud" data-animate="node" data-step="1" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(256.4 92) scale(0.6875)">
+            <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="325.5" y="107" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Gate 2: ARM State</text>
+          <text data-detail="context" x="323.4" y="124" class="t-muted" font-size="8" text-anchor="middle">Arc==Connected / VM Running</text>
+        <text data-detail="fine" x="323.4" y="142" class="t-cloud" font-size="7" text-anchor="middle">Read OS, SubName &amp; Tags</text>
+        </g>
+
+        <g id="node-persist" data-node-id="persist" data-node-label="Verify &amp; Commit" tabindex="0" role="button" aria-label="Focus Verify &amp; Commit, Audit=WouldAdd · Enforce=Add, 1. Azure Scope &amp; Resource State › Gate 5-6: Cloud × OS Group Sync" aria-pressed="false" data-node-kind="database" data-node-sublabel="Audit=WouldAdd · Enforce=Add" data-node-tag="Read-back + Table batch" data-node-context="1. Azure Scope &amp; Resource State › Gate 5-6: Cloud × OS Group Sync">
+          <title>Verify &amp; Commit · Audit=WouldAdd · Enforce=Add · 1. Azure Scope &amp; Resource State › Gate 5-6: Cloud × OS Group Sync · Read-back + Table batch</title>
+          <rect x="1021.2" y="86" width="146" height="68" rx="8" class="c-mask"/>
+          <rect x="1021.2" y="86" width="146" height="68" rx="8" class="c-database" data-animate="node" data-step="6" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(1027.2 92) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="1094.2" y="107" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Verify &amp; Commit</text>
+          <text data-detail="context" x="1094.2" y="124" class="t-muted" font-size="8" text-anchor="middle">Audit=WouldAdd · Enforce=Add</text>
+        <text data-detail="fine" x="1094.2" y="142" class="t-database" font-size="7" text-anchor="middle">Read-back + Table batch</text>
+        </g>
+
+        <g id="node-mde_correlate" data-node-id="mde_correlate" data-node-label="Gate 3: MDE Match" tabindex="0" role="button" aria-label="Focus Gate 3: MDE Match, AzureResourceId &amp; Onboarded, 2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria" aria-pressed="false" data-node-kind="security" data-node-sublabel="AzureResourceId &amp; Onboarded" data-node-tag="1 unmerged &lt;=24h + GUID" data-node-context="2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria">
+          <title>Gate 3: MDE Match · AzureResourceId &amp; Onboarded · 2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria · 1 unmerged &lt;=24h + GUID</title>
+          <rect x="428.4" y="219" width="146" height="68" rx="8" class="c-mask"/>
+          <rect x="428.4" y="219" width="146" height="68" rx="8" class="c-security" data-animate="node" data-step="2" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(434.4 225) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="503.5" y="240" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Gate 3: MDE Match</text>
+          <text data-detail="context" x="501.4" y="257" class="t-muted" font-size="8" text-anchor="middle">AzureResourceId &amp; Onboarded</text>
+        <text data-detail="fine" x="501.4" y="275" class="t-security" font-size="7" text-anchor="middle">1 unmerged &lt;=24h + GUID</text>
+        </g>
+
+        <g id="node-entra_resolve" data-node-id="entra_resolve" data-node-label="Gate 4: Entra Check" tabindex="0" role="button" aria-label="Focus Gate 4: Entra Check, deviceId == AadDeviceId, 2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria" aria-pressed="false" data-node-kind="security" data-node-sublabel="deviceId == AadDeviceId" data-node-tag="1 object &amp; accountEnabled" data-node-context="2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria">
+          <title>Gate 4: Entra Check · deviceId == AadDeviceId · 2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria · 1 object &amp; accountEnabled</title>
+          <rect x="645.2" y="219" width="146" height="68" rx="8" class="c-mask"/>
+          <rect x="645.2" y="219" width="146" height="68" rx="8" class="c-security" data-animate="node" data-step="3" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(651.2 225) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="718.2" y="251.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Gate 4: Entra Check</text>
+          <text data-detail="context" x="718.2" y="266.1" class="t-muted" font-size="8" text-anchor="middle">deviceId == AadDeviceId</text>
+        <text data-detail="fine" x="718.2" y="278.9" class="t-security" font-size="7" text-anchor="middle">1 object &amp; accountEnabled</text>
+        </g>
+
+        <g id="node-arc_blocked" data-node-id="arc_blocked" data-node-label="Stop: ArcNotConnected" tabindex="0" role="button" aria-label="Focus Stop: ArcNotConnected, Disconnected / Deallocated, Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 1-2: Scope &amp; ARM State" aria-pressed="false" data-node-kind="security" data-node-sublabel="Disconnected / Deallocated" data-node-tag="404 = ArcMissing" data-node-context="Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 1-2: Scope &amp; ARM State">
+          <title>Stop: ArcNotConnected · Disconnected / Deallocated · Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 1-2: Scope &amp; ARM State · 404 = ArcMissing</title>
+          <rect x="250.39999999999998" y="353" width="146" height="68" rx="8" class="c-mask"/>
+          <rect x="250.39999999999998" y="353" width="146" height="68" rx="8" class="c-security" data-animate="node" data-step="12" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(256.4 359) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="323.4" y="385.1" class="t-primary" font-size="10.9" font-weight="600" text-anchor="middle">Stop: ArcNotConnected</text>
+          <text data-detail="context" x="323.4" y="400" class="t-muted" font-size="8" text-anchor="middle">Disconnected / Deallocated</text>
+        <text data-detail="fine" x="323.4" y="412.8" class="t-security" font-size="7" text-anchor="middle">404 = ArcMissing</text>
+        </g>
+
+        <g id="node-mde_blocked" data-node-id="mde_blocked" data-node-label="Stop: MDE Blocked" tabindex="0" role="button" aria-label="Focus Stop: MDE Blocked, 0=Pending · &gt;24h=Stale, Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria" aria-pressed="false" data-node-kind="security" data-node-sublabel="0=Pending · &gt;24h=Stale" data-node-tag="&gt;1=Ambiguous · NoEntraId" data-node-context="Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria">
+          <title>Stop: MDE Blocked · 0=Pending · &gt;24h=Stale · Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria · &gt;1=Ambiguous · NoEntraId</title>
+          <rect x="428.4" y="353" width="146" height="68" rx="8" class="c-mask"/>
+          <rect x="428.4" y="353" width="146" height="68" rx="8" class="c-security" data-animate="node" data-step="12" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(434.4 359) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="503.5" y="374" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Stop: MDE Blocked</text>
+          <text data-detail="context" x="501.4" y="391" class="t-muted" font-size="8" text-anchor="middle">0=Pending · &gt;24h=Stale</text>
+        <text data-detail="fine" x="501.4" y="409" class="t-security" font-size="7" text-anchor="middle">&gt;1=Ambiguous · NoEntraId</text>
+        </g>
+
+        <g id="node-entra_blocked" data-node-id="entra_blocked" data-node-label="Stop: Entra / Group" tabindex="0" role="button" aria-label="Focus Stop: Entra / Group, NotFound · Disabled · NoTag, Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria" aria-pressed="false" data-node-kind="security" data-node-sublabel="NotFound · Disabled · NoTag" data-node-tag="GroupNotFound · MissingId" data-node-context="Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria">
+          <title>Stop: Entra / Group · NotFound · Disabled · NoTag · Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria · GroupNotFound · MissingId</title>
+          <rect x="645.2" y="353" width="146" height="68" rx="8" class="c-mask"/>
+          <rect x="645.2" y="353" width="146" height="68" rx="8" class="c-security" data-animate="node" data-step="12" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(651.2 359) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="718.2" y="385.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Stop: Entra / Group</text>
+          <text data-detail="context" x="718.2" y="400.1" class="t-muted" font-size="8" text-anchor="middle">NotFound · Disabled · NoTag</text>
+        <text data-detail="fine" x="718.2" y="412.9" class="t-security" font-size="7" text-anchor="middle">GroupNotFound · MissingId</text>
+        </g>
+
+        <g id="node-os_group" data-node-id="os_group" data-node-label="Gate 5: Cloud Scope" tabindex="0" role="button" aria-label="Focus Gate 5: Cloud Scope, AWS:Acct · GCP:Proj · Az:Sub, 3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync" aria-pressed="false" data-node-kind="backend" data-node-sublabel="AWS:Acct · GCP:Proj · Az:Sub" data-node-tag="Default=Passive (skip if Active)" data-node-context="3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync">
+          <title>Gate 5: Cloud Scope · AWS:Acct · GCP:Proj · Az:Sub · 3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync · Default=Passive (skip if Active)</title>
+          <rect x="765.2" y="487" width="146" height="68" rx="8" class="c-mask"/>
+          <rect x="765.2" y="487" width="146" height="68" rx="8" class="c-backend" data-animate="node" data-step="4" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(771.2 493) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="838.2" y="519.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Gate 5: Cloud Scope</text>
+          <text data-detail="context" x="838.2" y="534.1" class="t-muted" font-size="8" text-anchor="middle">AWS:Acct · GCP:Proj · Az:Sub</text>
+        <text data-detail="fine" x="838.2" y="546.9" class="t-backend" font-size="7" text-anchor="middle">Default=Passive (skip if Active)</text>
+        </g>
+
+        <g id="node-cloud_group" data-node-id="cloud_group" data-node-label="Gate 6: Cloud Group" tabindex="0" role="button" aria-label="Focus Gate 6: Cloud Group, &lt;Prefix&gt;{Passive|Active}-&lt;Id&gt;, 3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync" aria-pressed="false" data-node-kind="backend" data-node-sublabel="&lt;Prefix&gt;{Passive|Active}-&lt;Id&gt;" data-node-tag="AU Auto-Create + Flags" data-node-context="3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync">
+          <title>Gate 6: Cloud Group · &lt;Prefix&gt;{Passive|Active}-&lt;Id&gt; · 3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync · AU Auto-Create + Flags</title>
+          <rect x="1021.2" y="487" width="146" height="68" rx="8" class="c-mask"/>
+          <rect x="1021.2" y="487" width="146" height="68" rx="8" class="c-backend" data-animate="node" data-step="5" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1027.2 493) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="1094.2" y="519.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Gate 6: Cloud Group</text>
+          <text data-detail="context" x="1094.2" y="534" class="t-muted" font-size="7.9" text-anchor="middle">&lt;Prefix&gt;{Passive|Active}-&lt;Id&gt;</text>
+        <text data-detail="fine" x="1094.2" y="546.8" class="t-backend" font-size="7" text-anchor="middle">AU Auto-Create + Flags</text>
+        </g>
+
+        <!-- Edge labels -->
+        <g data-detail="context" data-edge-from="arm_check" data-edge-to="mde_correlate" data-edge-label="Connected" data-edge-key="0" data-edge-id="arm-mde">
+          <rect x="352.79999999999995" y="233" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
+          <text x="379.4" y="243" class="t-edge-emphasis" font-size="8" text-anchor="middle">Connected</text>
+        </g>
+        <g data-detail="context" data-edge-from="arm_check" data-edge-to="arc_blocked" data-edge-label="Offline / 404" data-edge-key="1" data-edge-id="arm-offline">
+          <rect x="135.5" y="417" width="72.4" height="14" rx="3" class="c-mask"/>
+          <text x="171.7" y="427" class="t-edge-security" font-size="8" text-anchor="middle">Offline / 404</text>
+        </g>
+
+        <g data-detail="context" data-edge-from="entra_resolve" data-edge-to="entra_blocked" data-edge-label="NotFound / Off" data-edge-key="3" data-edge-id="entra-ineligible">
+          <rect x="679.6" y="310" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="718.2" y="320" class="t-edge-security" font-size="8" text-anchor="middle">NotFound / Off</text>
+        </g>
+        <g data-detail="context" data-edge-from="entra_resolve" data-edge-to="os_group" data-edge-label="objectId" data-edge-key="4" data-edge-id="entra-os-group">
+          <rect x="709.5" y="556" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="733.7" y="566" class="t-edge-emphasis" font-size="8" text-anchor="middle">objectId</text>
+        </g>
+        <g data-detail="context" data-edge-from="mde_correlate" data-edge-to="entra_resolve" data-edge-label="AadDeviceId" data-edge-key="5" data-edge-id="mde-entra">
+          <rect x="578.4" y="233" width="62.8" height="14" rx="3" class="c-mask"/>
+          <text x="609.8" y="243" class="t-edge-emphasis" font-size="8" text-anchor="middle">AadDeviceId</text>
+        </g>
+        <g data-detail="context" data-edge-from="mde_correlate" data-edge-to="mde_blocked" data-edge-label="0 / &gt;1 / &gt;24h" data-edge-key="6" data-edge-id="mde-ineligible">
+          <rect x="509.7" y="294" width="72.4" height="14" rx="3" class="c-mask"/>
+          <text x="545.9" y="304" class="t-edge-security" font-size="8" text-anchor="middle">0 / &gt;1 / &gt;24h</text>
+        </g>
+        <g data-detail="context" data-edge-from="os_group" data-edge-to="cloud_group" data-edge-label="Passive / Active" data-edge-key="7" data-edge-id="os-cloud-group">
+          <rect x="922.8000000000001" y="501" width="86.8" height="14" rx="3" class="c-mask"/>
+          <text x="966.2" y="511" class="t-edge-emphasis" font-size="8" text-anchor="middle">Passive / Active</text>
+        </g>
+        <g data-detail="context" data-edge-from="work_item" data-edge-to="arm_check" data-edge-label="In scope" data-edge-key="8" data-edge-id="work-arm">
+          <rect x="198" y="100" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="222.2" y="110" class="t-edge-emphasis" font-size="8" text-anchor="middle">In scope</text>
+        </g>
+
+        <!-- Legend -->
+        <g data-legend="" data-legend-bridge="">
+          <text x="20" y="584" class="t-primary" font-size="12" font-weight="650">Legend</text>
+          <g data-legend-semantic-kind="backend" data-legend-kind="backend" data-legend-label="Agent logic" data-legend-x="20" data-legend-baseline="604" data-legend-width="95">
+            <rect x="20" y="596" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
+            <text x="42" y="604" class="t-muted" font-size="7.5" font-weight="500">Agent logic</text>
+          </g>
+          <g data-legend-semantic-kind="security" data-legend-kind="security" data-legend-label="Policy" data-legend-x="122" data-legend-baseline="604" data-legend-width="71">
+            <rect x="122" y="596" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
+            <text x="144" y="604" class="t-muted" font-size="7.5" font-weight="500">Policy</text>
+          </g>
+          <g data-legend-semantic-kind="messagebus" data-legend-kind="messagebus" data-legend-label="Tool action" data-legend-x="200" data-legend-baseline="604" data-legend-width="95">
+            <rect x="200" y="596" width="14" height="9" rx="2" class="c-messagebus" stroke-width="1"/>
+            <text x="222" y="604" class="t-muted" font-size="7.5" font-weight="500">Tool action</text>
+          </g>
+          <g data-legend-semantic-kind="database" data-legend-kind="database" data-legend-label="Context / trace" data-legend-x="302" data-legend-baseline="604" data-legend-width="113">
+            <rect x="302" y="596" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
+            <text x="324" y="604" class="t-muted" font-size="7.5" font-weight="500">Context / trace</text>
+          </g>
+          <g data-legend-semantic-kind="cloud" data-legend-kind="cloud" data-legend-label="Cloud service" data-legend-x="422" data-legend-baseline="604" data-legend-width="104">
+            <rect x="422" y="596" width="14" height="9" rx="2" class="c-cloud" stroke-width="1"/>
+            <text x="444" y="604" class="t-muted" font-size="7.5" font-weight="500">Cloud service</text>
+          </g>
+        </g>
+      </svg>
+            </div>
+            <div class="archify-inspector" aria-live="polite">
+              <strong>Interactive decision gate inspector:</strong> <span id="archify-workflow-inspector-text" class="muted">Select any gate or safety-stop node above to inspect the exact evaluation criteria, fields checked, and failure status.</span>
+            </div>
+            <div class="doc-grid archify-cards">
+              <div class="doc-card">
+                <h3>Gates 1–2: Scope &amp; ARM State Criteria</h3>
+                <ul class="doc-list">
+                  <li><strong>Supported resource types:</strong> <code>Microsoft.HybridCompute/machines</code>, <code>Microsoft.Compute/virtualMachines</code>, <code>Microsoft.ClassicCompute/virtualMachines</code>, and <code>Microsoft.Compute/virtualMachineScaleSets/virtualMachines</code> (excluding <code>Compute.AKS</code>).</li>
+                  <li><strong>Scope rule:</strong> <code>(Subscription in SYNC_SUBSCRIPTION_IDS OR SYNC_MANAGEMENT_GROUP_IDS) AND (SYNC_RESOURCE_GROUP_NAMES empty OR matching RG)</code>.</li>
+                  <li><strong>ARM state criteria:</strong> Arc <code>properties.status == "Connected"</code>; Azure VM / VMSS <code>PowerState</code> must not be <code>deallocated</code> or <code>stopped</code> (otherwise stops with <code>ArcNotConnected</code> or <code>ArcMissing</code> on HTTP 404).</li>
+                </ul>
+              </div>
+              <div class="doc-card">
+                <h3>Gates 3–4: MDE &amp; Entra Identity Criteria</h3>
+                <ul class="doc-list">
+                  <li><strong>MDE <code>DeviceInfo</code> criteria:</strong> Latest row per <code>DeviceId</code> over 7 days where <code>AzureResourceId =~ resourceId</code>, <code>OnboardingStatus == "Onboarded"</code>, <code>MergedToDeviceId == ""</code>, and <code>Timestamp &gt;= now() - SYNC_FRESHNESS_HOURS</code> (default 24h).</li>
+                  <li><strong>MDE stop conditions:</strong> 0 rows = <code>PendingMde</code>; only older rows = <code>StaleEvidence</code>; &gt;1 fresh unmerged devices = <code>Ambiguous</code>; empty <code>AadDeviceId</code> = <code>NoEntraDevice</code>; non-GUID = <code>InvalidEntraIdentifier</code>.</li>
+                  <li><strong>Entra device criteria:</strong> <code>GET /devices?$filter=deviceId eq '{AadDeviceId}'</code> must return <strong>exactly 1</strong> device with <code>accountEnabled == true</code> (0 = <code>EntraDeviceNotFound</code>, &gt;1 = <code>Ambiguous</code>, disabled = <code>EntraDeviceDisabled</code>). Uses directory <strong>object <code>id</code></strong>.</li>
+                </ul>
+              </div>
+              <div class="doc-card">
+                <h3>Gates 5–6: Per-Account Active / Passive Cloud &times; OS Group &amp; Flags</h3>
+                <ul class="doc-list">
+                  <li><strong>Global default mode (<code>SYNC_DEFAULT_GROUP_MODE</code>):</strong> Defaults to <code>Passive</code> (can be set to <code>Active</code>). Devices are added to their corresponding <code>Passive</code> (or <code>Active</code>) group by default: <code>&lt;Prefix&gt;{Passive|Active}-&lt;AccountId|ProjectId|SubscriptionName&gt;</code>.</li>
+                  <li><strong>Counterpart group protection:</strong> Queries <code>GET /devices/{objectId}/memberOf</code>. If <code>SYNC_DEFAULT_GROUP_MODE == "Passive"</code> and the device is already in an <strong>Active</strong> group, it is <strong>not</strong> added to the Passive group (and vice versa when default is <code>Active</code>).</li>
+                  <li><strong>Administrative Unit auto-creation (<code>SYNC_ADMIN_UNIT_ID</code>):</strong> When configured with <code>Groups Administrator</code> scoped to an Administrative Unit, <code>Enforce</code> mode automatically creates missing <code>Passive</code> and <code>Active</code> Cloud &times; OS groups inside the AU via <code>POST /directory/administrativeUnits/{auId}/members</code> (<code>#microsoft.graph.group</code>).</li>
+                  <li><strong>Table compliance flags:</strong> Flags devices when (1) in an <strong>Active</strong> group with MDE mode <code>Passive</code> (<em>Should be Active</em>), (2) in a <strong>Passive</strong> group with MDE mode <code>Active</code> (<em>Should be Active</em>), (3) in <strong>multiple</strong> groups (all groups shown in <code>Entra ID Group</code>), or (4) in a <strong>wrong group</strong> where AWS Account ID, GCP Project, or Azure Subscription does not match.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details id="doc-queries" class="doc-section" open>
+          <summary>Queries used (Azure Resource Graph &amp; Defender XDR Advanced Hunting)</summary>
+          <div class="doc-body">
+            <div class="doc-grid">
+              <div class="doc-card">
+                <h3>Azure Resource Graph — Azure Arc &amp; Native Virtual Machine discovery (with properties, tags, subscription name &amp; extensions)</h3>
+                <p class="muted">Discovers Azure Arc machines and non-deallocated, non-AKS Azure Native VMs and joins subscription display names and installed extensions in a single Resource Graph query:</p>
+                <pre><code>Resources
+| extend type = tolower(type)
+| where type == 'microsoft.hybridcompute/machines'
+    or (
+        type in ('microsoft.compute/virtualmachines', 'microsoft.classiccompute/virtualmachines')
+        and tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
+        and tostring(properties.virtualMachineProfile.extensionProfile) !contains 'Compute.AKS'
+    )
+| extend machineId = tolower(id)
+| join kind=leftouter (
+    ResourceContainers
+    | where type =~ 'microsoft.resources/subscriptions'
+    | project subscriptionId, subscriptionName = name
+) on subscriptionId
+| join kind=leftouter (
+    Resources
+    | where type in~ ('microsoft.hybridcompute/machines/extensions', 'microsoft.compute/virtualmachines/extensions')
+    | extend machineId = tolower(substring(id, 0, indexof(tolower(id), '/extensions/')))
+    | summarize argExtensions = make_list(strcat(name, ' (version: ', tostring(properties.typeHandlerVersion), '; state: ', tostring(properties.provisioningState), ')')) by machineId
+) on machineId
+| project id, name, type, subscriptionId, subscriptionName, resourceGroup, tags, properties, systemData, argExtensions
+| order by id asc</code></pre>
+              </div>
+              <div class="doc-card">
+                <h3>Azure Resource Graph — Virtual Machine Scale Set (VMSS) instance discovery (with properties, tags &amp; subscription name)</h3>
+                <p class="muted">Joins non-AKS Virtual Machine Scale Sets with running VMSS instances in <code>ComputeResources</code> and subscription names in <code>ResourceContainers</code>:</p>
+                <pre><code>Resources
+| extend type = tolower(type)
+| where type == 'microsoft.compute/virtualmachinescalesets'
+| extend extensions = tostring(properties.virtualMachineProfile.extensionProfile)
+| where extensions !contains 'Compute.AKS'
+| extend vmssId = tolower(id), vmssName = name, vmssTags = tags
+| project id, vmssName, vmssId, subscriptionId, resourceGroup, vmssTags
+| join kind=leftouter (
+    ResourceContainers
+    | where type =~ 'microsoft.resources/subscriptions'
+    | project subscriptionId, subscriptionName = name
+) on subscriptionId
+| join (ComputeResources
+| where type =~ "microsoft.compute/virtualmachinescalesets/virtualmachines"
+| extend vmssId = tolower(substring(id, 0, indexof(id, "/virtualMachines/")))
+| where tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
+) on vmssId
+| project id = id1, name = name1, type = type1, subscriptionId, subscriptionName, resourceGroup, tags = iff(isnull(tags1) or tostring(tags1) == '{}', vmssTags, tags1), properties = properties1, resources = resources1
+| order by id asc</code></pre>
+              </div>
+              <div class="doc-card">
+                <h3>Azure Resource Graph — Management group subscription resolution</h3>
+                <p class="muted">Resolves member subscriptions when <code>SYNC_MANAGEMENT_GROUP_IDS</code> is configured (cached 15 minutes):</p>
+                <pre><code>ResourceContainers
+| where type =~ 'microsoft.resources/subscriptions'
+| project subscriptionId</code></pre>
+              </div>
+              <div class="doc-card">
+                <h3>Defender Advanced Hunting — MDE device correlation &amp; tags</h3>
+                <p class="muted">Selects latest state per <code>DeviceId</code> before matching <code>AzureResourceId</code> (<code>POST /v1.0/security/runHuntingQuery</code>):</p>
+                <pre><code>DeviceInfo
+| where Timestamp &gt;= ago(7d)
+| summarize arg_max(Timestamp, *) by DeviceId
+| where AzureResourceId =~ "&lt;arc-resource-id&gt;"
+| project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId,
+    SensorHealthState, CloudPlatforms, AzureVmId, PublicIP,
+    DeviceManualTags, DeviceDynamicTags, RegistryDeviceTag, MachineGroup
+| take 101</code></pre>
+              </div>
+              <div class="doc-card">
+                <h3>Defender Advanced Hunting — Network adapter IP addresses</h3>
+                <p class="muted">Collects latest IPv4/IPv6 addresses per adapter for the correlated MDE <code>DeviceId</code>:</p>
+                <pre><code>DeviceNetworkInfo
+| where Timestamp &gt;= ago(7d) and DeviceId == "&lt;mde-device-id&gt;"
+| summarize arg_max(Timestamp, *) by DeviceId, NetworkAdapterName, MacAddress
+| project IPAddresses
+| take 101</code></pre>
+              </div>
+              <div class="doc-card">
+                <h3>Defender Advanced Hunting — Antivirus mode (<code>scid-2010</code>)</h3>
+                <p class="muted">Extracts AV mode from TVM configuration assessment (<code>0=Active</code>, <code>1=Passive</code>, <code>2=Disabled</code>, <code>3=Other</code>, <code>4=EDRBlocked</code>, <code>5=PassiveAudit</code>):</p>
+                <pre><code>DeviceTvmSecureConfigurationAssessment
+| where Timestamp &gt;= ago(7d) and DeviceId == "&lt;mde-device-id&gt;" and ConfigurationId == 'scid-2010'
+| summarize arg_max(Timestamp, *) by DeviceId
+| project DeviceId, Timestamp, AvMode = tostring(parse_json(Context)[0][0])
+| take 2</code></pre>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details id="doc-apis" class="doc-section" open>
+          <summary>REST APIs called</summary>
+          <div class="doc-body">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Service</th>
+                    <th scope="col">Method &amp; Endpoint</th>
+                    <th scope="col">Purpose</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Azure Resource Graph</td>
+                    <td><code>POST https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01</code></td>
+                    <td>Discover in-scope Azure Arc machines and resolve subscriptions under configured management groups.</td>
+                  </tr>
+                  <tr>
+                    <td>Azure Resource Manager (Arc, Native VMs &amp; VMSS Instances)</td>
+                    <td><code>GET https://management.azure.com{arcResourceId}?api-version=2024-07-10</code><br><code>GET https://management.azure.com{vmOrVmssInstanceId}?$expand=instanceView&amp;api-version=2024-07-01</code></td>
+                    <td>Read Arc, Azure Native VM, or VMSS instance status/powerState, OS, computer name, FQDN, cloud provider, VM ID, NIC IPs, Azure tags, <code>lastStatusChange</code>, and <code>systemData.createdAt</code>.</td>
+                  </tr>
+                  <tr>
+                    <td>Azure Resource Manager (Arc Extensions)</td>
+                    <td><code>GET https://management.azure.com{arcResourceId}/extensions?api-version=2024-07-10</code></td>
+                    <td>Enumerate installed Arc machine extensions and derive <code>MDE.Windows</code> / <code>MDE.Linux</code> Defender extension status.</td>
+                  </tr>
+                  <tr>
+                    <td>Azure Resource Manager (Subscriptions)</td>
+                    <td><code>GET https://management.azure.com/subscriptions/{subscriptionId}?api-version=2022-12-01</code></td>
+                    <td>Resolve human-readable subscription display name (cached per worker process).</td>
+                  </tr>
+                  <tr>
+                    <td>Microsoft Graph (Defender Hunting)</td>
+                    <td><code>POST https://graph.microsoft.com/v1.0/security/runHuntingQuery</code></td>
+                    <td>Run KQL queries against <code>DeviceInfo</code>, <code>DeviceNetworkInfo</code>, and <code>DeviceTvmSecureConfigurationAssessment</code>.</td>
+                  </tr>
+                  <tr>
+                    <td>Microsoft Graph (Entra Devices)</td>
+                    <td><code>GET https://graph.microsoft.com/v1.0/devices?$filter=deviceId eq '{aadDeviceId}'&amp;$select=id,deviceId,accountEnabled&amp;$top=2</code></td>
+                    <td>Resolve MDE <code>AadDeviceId</code> to the Entra directory object <code>id</code> and verify <code>accountEnabled</code>.</td>
+                  </tr>
+                  <tr>
+                    <td>Microsoft Graph (Entra Groups &amp; Administrative Units)</td>
+                    <td><code>GET /v1.0/devices/{objectId}/memberOf?$select=id,displayName,securityEnabled,groupTypes,onPremisesSyncEnabled,isAssignableToRole&amp;$top=100</code><br><code>GET /v1.0/groups?$filter=displayName eq '{cloudOsPrefix}{Passive|Active}-{cloudId}'&amp;$select=id,displayName,securityEnabled,groupTypes,onPremisesSyncEnabled,isAssignableToRole&amp;$top=2</code><br><code>POST /v1.0/directory/administrativeUnits/{adminUnitId}/members</code> (<code>@odata.type: "#microsoft.graph.group"</code>)</td>
+                    <td>Inspect existing Active/Passive/multi-group memberships on the device, resolve the target per-account Cloud &times; OS group by <code>displayName</code>, and (when <code>SYNC_ADMIN_UNIT_ID</code> is configured in <code>Enforce</code> mode) auto-create missing Active &amp; Passive security groups inside the Administrative Unit.</td>
+                  </tr>
+                  <tr>
+                    <td>Microsoft Graph (Group Membership)</td>
+                    <td><code>GET /groups/{groupId}/members/{objectId}?$select=id</code><br><code>POST /groups/{groupId}/members/$ref</code></td>
+                    <td>Verify direct group membership and (in <code>Enforce</code> mode only) add the verified Entra device object ID.</td>
+                  </tr>
+                  <tr>
+                    <td>Azure Table Storage &amp; Service Bus</td>
+                    <td><code>https://{account}.table.core.windows.net/machines</code><br><code>https://{namespace}.servicebus.windows.net/machines/messages</code></td>
+                    <td>Queue per-machine work items and commit atomic state + history snapshots and Function execution logs.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+        <details id="doc-permissions" class="doc-section" open>
+          <summary>Permissions, RBAC roles &amp; Function App configuration</summary>
+          <div class="doc-body">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Principal / Component</th>
+                    <th scope="col">Permission / Role</th>
+                    <th scope="col">Scope &amp; Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Worker Managed Identity</td>
+                    <td><strong>Microsoft Graph &amp; Entra (Administrative Unit Scoped — Recommended):</strong><br><code>ThreatHunting.Read.All</code>, <code>Device.Read.All</code> + <strong>Groups Administrator</strong> role scoped to Administrative Unit (<code>/administrativeUnits/{auId}</code>)</td>
+                    <td>Granted via <code>Grant-GraphPermissions.ps1 -AdminUnitId &lt;au-guid&gt;</code>. The worker only checks, creates, and manages Cloud &times; OS groups inside the Administrative Unit (<code>/directory/administrativeUnits/{auId}/members/microsoft.graph.group</code>) — <strong>no tenant-wide <code>GroupMember.Read.All</code> permission is needed</strong>.</td>
+                  </tr>
+                  <tr>
+                    <td>Worker Managed Identity</td>
+                    <td><strong>Alternative (Without Administrative Unit — Pre-Created Groups):</strong><br><code>ThreatHunting.Read.All</code>, <code>Device.Read.All</code>, <code>GroupMember.Read.All</code> + <strong>Group Owner</strong> on target Cloud &times; OS groups</td>
+                    <td>Used only when <code>SYNC_ADMIN_UNIT_ID</code> is not set (<code>Grant-GraphPermissions.ps1 -AssignGroupOwner -GroupNamePrefixes @(&lt;prefixes&gt;)</code>).</td>
+                  </tr>
+                  <tr>
+                    <td>Worker Managed Identity</td>
+                    <td><strong>Azure RBAC:</strong> <code>Reader</code> (Required for Azure Resource Graph)<br><code>Storage Table Data Contributor</code><br><code>Azure Service Bus Data Sender</code> &amp; <code>Receiver</code></td>
+                    <td><strong>Required:</strong> The Worker Function App's System-Assigned Managed Identity must have the Azure <code>Reader</code> role assigned on every target <strong>Subscription</strong> (<code>SYNC_SUBSCRIPTION_IDS</code>) or <strong>Management Group</strong> (<code>SYNC_MANAGEMENT_GROUP_IDS</code>) so it can query Azure Resource Graph (<code>Microsoft.ResourceGraph/resources</code>) and read Arc / VM / VMSS resources (without <code>Reader</code> on the target scope, Resource Graph returns 0 rows). Table Contributor on sync storage and Service Bus roles on the <code>machines</code> queue are assigned automatically by <code>main.bicep</code>.</td>
+                  </tr>
+                  <tr>
+                    <td>Report Managed Identity</td>
+                    <td><strong>Azure RBAC:</strong> <code>Storage Table Data Reader</code></td>
+                    <td>Read-only access to the sync storage table. Has no Microsoft Graph permissions and no Service Bus access.</td>
+                  </tr>
+                  <tr>
+                    <td>Report Users (Human Sign-In)</td>
+                    <td><strong>Entra App Role:</strong> <code>Report.Reader</code></td>
+                    <td>Enforced by App Service Authentication (Easy Auth) and verified on every HTML, JS, CSS, and JSON request.</td>
+                  </tr>
+                  <tr>
+                    <td>Worker App Settings</td>
+                    <td><code>SYNC_SUBSCRIPTION_IDS</code>, <code>SYNC_MANAGEMENT_GROUP_IDS</code>, <code>SYNC_RESOURCE_GROUP_NAMES</code>, <code>SYNC_DEFAULT_GROUP_MODE</code>, <code>SYNC_ADMIN_UNIT_ID</code>, <code>SYNC_AUTO_CREATE_GROUPS</code>, <code>SYNC_AWS_WINDOWS_GROUP_PREFIX</code>, <code>SYNC_AWS_LINUX_GROUP_PREFIX</code>, <code>SYNC_GCP_WINDOWS_GROUP_PREFIX</code>, <code>SYNC_GCP_LINUX_GROUP_PREFIX</code>, <code>SYNC_AZURE_WINDOWS_GROUP_PREFIX</code>, <code>SYNC_AZURE_LINUX_GROUP_PREFIX</code>, <code>SYNC_MODE</code>, <code>SYNC_FRESHNESS_HOURS</code>, <code>SYNC_SCHEDULE</code></td>
+                    <td>Controls target scope (Subscriptions, Management Groups, Resource Groups), global default group mode (<code>Passive</code> by default, or <code>Active</code>), optional Administrative Unit GUID (<code>SYNC_ADMIN_UNIT_ID</code>) for automatic group creation (<code>SYNC_AUTO_CREATE_GROUPS</code>), the six Cloud &times; OS group naming prefixes (AWS Windows/Linux ending in <code>AccountId</code> tag, GCP Windows/Linux ending in <code>ProjectId</code> tag, and Azure Windows/Linux ending in <code>SubscriptionName</code> with AWS &amp; GCP machines excluded), <code>Audit</code> vs. <code>Enforce</code> mode, MDE freshness window (1–168h), and timer schedule.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+        <details id="doc-scopes" class="doc-section" open>
+          <summary>Scope combination &amp; per-account Cloud &times; OS group routing rules</summary>
+          <div class="doc-body">
+            <p>When multiple scope settings are configured simultaneously, the worker evaluates scope using <strong>OR (union)</strong> between Management Groups and Subscriptions, and <strong>AND (intersection filter)</strong> for Resource Groups:</p>
+            <pre><code>InScope = (Subscription in SYNC_SUBSCRIPTION_IDS OR Subscription in SYNC_MANAGEMENT_GROUP_IDS)
+          AND (SYNC_RESOURCE_GROUP_NAMES is empty OR ResourceGroup in SYNC_RESOURCE_GROUP_NAMES)</code></pre>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col"><code>SYNC_MANAGEMENT_GROUP_IDS</code></th>
+                    <th scope="col"><code>SYNC_SUBSCRIPTION_IDS</code></th>
+                    <th scope="col"><code>SYNC_RESOURCE_GROUP_NAMES</code></th>
+                    <th scope="col">Resulting Scope</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Set (<code>mg-prod</code>)</td>
+                    <td>Empty</td>
+                    <td>Empty</td>
+                    <td>All Arc machines, Azure VMs, and VMSS instances in any subscription under <code>mg-prod</code>.</td>
+                  </tr>
+                  <tr>
+                    <td>Empty</td>
+                    <td>Set (<code>sub-1</code>)</td>
+                    <td>Set (<code>rg-arc</code>)</td>
+                    <td>Only machines in <code>rg-arc</code> within <code>sub-1</code>.</td>
+                  </tr>
+                  <tr>
+                    <td>Set (<code>mg-prod</code>)</td>
+                    <td>Empty</td>
+                    <td>Set (<code>rg-arc</code>)</td>
+                    <td>Only machines in a resource group named <code>rg-arc</code> across any subscription under <code>mg-prod</code>.</td>
+                  </tr>
+                  <tr>
+                    <td>Set (<code>mg-prod</code>)</td>
+                    <td>Set (<code>sub-extra</code>)</td>
+                    <td>Set (<code>rg-arc</code>)</td>
+                    <td>Only machines in <code>rg-arc</code> inside either <code>sub-extra</code> <strong>or</strong> any subscription under <code>mg-prod</code> (deduplicated per inventory pass).</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h3>Per-Account Active / Passive Cloud &times; OS Entra ID Group Routing (AWS, GCP &amp; Azure)</h3>
+            <p>Each correlated machine is routed to a dedicated Active or Passive Cloud &times; OS Entra ID security group for its AWS Account, GCP Project, or Azure Subscription and operating system (Windows or Linux). Global setting <code>SYNC_DEFAULT_GROUP_MODE</code> defaults to <code>Passive</code> (can be set to <code>Active</code>). If <code>SYNC_DEFAULT_GROUP_MODE</code> is <code>Passive</code> and a device is already a member of its <code>Active</code> group, it is not added to the <code>Passive</code> group (and vice versa). Because AWS and GCP Arc-enabled servers also reside inside an Azure subscription, AWS and GCP machines are strictly excluded from Azure Subscription groups:</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Cloud Platform</th>
+                    <th scope="col">OS</th>
+                    <th scope="col">Detection Rule</th>
+                    <th scope="col">Function App Setting</th>
+                    <th scope="col">Identifier Source</th>
+                    <th scope="col">Target Entra Group Name (Passive / Active)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>AWS</strong></td>
+                    <td>Windows</td>
+                    <td>Arc tag <code>AccountId</code> present or AWS provider + Windows OS</td>
+                    <td><code>SYNC_AWS_WINDOWS_GROUP_PREFIX</code></td>
+                    <td>Arc resource tag <code>AccountId</code></td>
+                    <td><code>&lt;SYNC_AWS_WINDOWS_GROUP_PREFIX&gt;{Passive|Active}-&lt;AccountId&gt;</code></td>
+                  </tr>
+                  <tr>
+                    <td><strong>AWS</strong></td>
+                    <td>Linux</td>
+                    <td>Arc tag <code>AccountId</code> present or AWS provider + Linux OS</td>
+                    <td><code>SYNC_AWS_LINUX_GROUP_PREFIX</code></td>
+                    <td>Arc resource tag <code>AccountId</code></td>
+                    <td><code>&lt;SYNC_AWS_LINUX_GROUP_PREFIX&gt;{Passive|Active}-&lt;AccountId&gt;</code></td>
+                  </tr>
+                  <tr>
+                    <td><strong>GCP</strong></td>
+                    <td>Windows</td>
+                    <td>Arc tag <code>ProjectId</code> present or GCP provider + Windows OS</td>
+                    <td><code>SYNC_GCP_WINDOWS_GROUP_PREFIX</code></td>
+                    <td>Arc resource tag <code>ProjectId</code></td>
+                    <td><code>&lt;SYNC_GCP_WINDOWS_GROUP_PREFIX&gt;{Passive|Active}-&lt;ProjectId&gt;</code></td>
+                  </tr>
+                  <tr>
+                    <td><strong>GCP</strong></td>
+                    <td>Linux</td>
+                    <td>Arc tag <code>ProjectId</code> present or GCP provider + Linux OS</td>
+                    <td><code>SYNC_GCP_LINUX_GROUP_PREFIX</code></td>
+                    <td>Arc resource tag <code>ProjectId</code></td>
+                    <td><code>&lt;SYNC_GCP_LINUX_GROUP_PREFIX&gt;{Passive|Active}-&lt;ProjectId&gt;</code></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Azure / Other Arc</strong></td>
+                    <td>Windows</td>
+                    <td>Neither AWS nor GCP + Windows OS</td>
+                    <td><code>SYNC_AZURE_WINDOWS_GROUP_PREFIX</code></td>
+                    <td>ARM Subscription <code>displayName</code></td>
+                    <td><code>&lt;SYNC_AZURE_WINDOWS_GROUP_PREFIX&gt;{Passive|Active}-&lt;SubscriptionName&gt;</code></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Azure / Other Arc</strong></td>
+                    <td>Linux</td>
+                    <td>Neither AWS nor GCP + Linux OS</td>
+                    <td><code>SYNC_AZURE_LINUX_GROUP_PREFIX</code></td>
+                    <td>ARM Subscription <code>displayName</code></td>
+                    <td><code>&lt;SYNC_AZURE_LINUX_GROUP_PREFIX&gt;{Passive|Active}-&lt;SubscriptionName&gt;</code></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+        <details id="doc-troubleshooting" class="doc-section" open>
+          <summary>Troubleshooting, KQL trace queries &amp; common status remediation</summary>
+          <div class="doc-body">
+            <p class="muted">Every execution of <code>ScheduledInventory</code>, <code>EventTrigger</code>, and <code>MachineWorker</code> writes structured operational traces to Application Insights and persists its full PowerShell execution transcript in the <code>ScriptOutput</code> column of <code>log_</code> rows (viewable inline under <a href="/#processing-health">04 Function App &amp; logs</a> &rarr; <strong>View script output</strong>).</p>
+            <div class="doc-grid">
+              <div class="doc-card">
+                <h3>1. Application Insights — All Sync Transcript &amp; Worker Traces</h3>
+                <p class="muted">Run in <strong>Application Insights &rarr; Monitoring &rarr; Logs</strong> to view all PowerShell output, queries, and correlation decisions:</p>
+                <pre><code>traces
+| where timestamp &gt; ago(24h)
+| where message startswith "[ScheduledInventory]"
+     or message startswith "[EventTrigger]"
+     or message startswith "[MachineWorker]"
+     or operation_Name in ("ScheduledInventory", "EventTrigger", "MachineWorker", "Dashboard")
+| project timestamp, operation_Name, severityLevel, message
+| order by timestamp desc</code></pre>
+              </div>
+              <div class="doc-card">
+                <h3>2. Application Insights — ARG &amp; MDE Queries + Row Counts</h3>
+                <p class="muted">Filter specifically to the executed Azure Resource Graph and Defender Hunting queries and how many rows each returned:</p>
+                <pre><code>traces
+| where timestamp &gt; ago(24h)
+| where message has_any ("ARG query:", "ARG page returned", "MDE query", "MDE DeviceInfo rows", "Completed:")
+| project timestamp, operation_Name, message
+| order by timestamp desc</code></pre>
+              </div>
+              <div class="doc-card">
+                <h3>3. Application Insights — Warnings, Errors &amp; Exceptions</h3>
+                <p class="muted">Surface any failed Graph/ARM calls, permission errors, or unhandled worker exceptions:</p>
+                <pre><code>union traces, exceptions
+| where timestamp &gt; ago(24h)
+| where severityLevel &gt;= 2 or itemType == "exception"
+| project timestamp, itemType, operation_Name, severityLevel, message, outerMessage, details
+| order by timestamp desc</code></pre>
+              </div>
+              <div class="doc-card">
+                <h3>4. Log Analytics Workspace — Equivalent <code>AppTraces</code> Query</h3>
+                <p class="muted">Run in the backing <strong>Log Analytics Workspace &rarr; Logs</strong> blade (uses <code>AppTraces</code> / <code>TimeGenerated</code> schema):</p>
+                <pre><code>AppTraces
+| where TimeGenerated &gt; ago(24h)
+| where Message startswith "[ScheduledInventory]"
+     or Message startswith "[EventTrigger]"
+     or Message startswith "[MachineWorker]"
+     or OperationName in ("ScheduledInventory", "EventTrigger", "MachineWorker", "Dashboard")
+| project TimeGenerated, OperationName, SeverityLevel, Message
+| order by TimeGenerated desc</code></pre>
+              </div>
+            </div>
+            <h3>Common Status Codes, Compliance Flags &amp; Remediation Guide</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Symptom / Status</th>
+                    <th scope="col">Root Cause</th>
+                    <th scope="col">Resolution</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong><code>InventorySync</code> discovers <code>0</code> machines</strong></td>
+                    <td>The Worker Function App's System-Assigned Managed Identity lacks the Azure <code>Reader</code> role on the target Subscription(s) (<code>SYNC_SUBSCRIPTION_IDS</code>) or Management Group(s) (<code>SYNC_MANAGEMENT_GROUP_IDS</code>), or <code>SYNC_RESOURCE_GROUP_NAMES</code> filters them out.</td>
+                    <td>Assign Azure <code>Reader</code> to the Worker Managed Identity on every target Subscription or Management Group. Without <code>Reader</code>, Azure Resource Graph silently returns <code>0</code> rows.</td>
+                  </tr>
+                  <tr>
+                    <td><strong><code>NoMdeMatch</code></strong></td>
+                    <td>No onboarded MDE <code>DeviceInfo</code> row matched the Azure Resource ID (<code>MdeAzureVmId</code>) or <code>vmId</code> (<code>LoggedOnUsers</code> / <code>DeviceName</code>) within the 30-day lookback window.</td>
+                    <td>Verify the <code>MDE.Windows</code> or <code>MDE.Linux</code> extension is installed and provisioned on the machine and that <code>OnboardingStatus == 'Onboarded'</code> in Defender for Endpoint.</td>
+                  </tr>
+                  <tr>
+                    <td><strong><code>StaleMde</code></strong></td>
+                    <td>The server matched an MDE record, but its latest <code>DeviceInfo.Timestamp</code> is older than <code>SYNC_FRESHNESS_HOURS</code> (default <code>24</code> hours).</td>
+                    <td>Check the MDE sensor health on the endpoint (<code>MdeSensorHealth</code>) or increase <code>SYNC_FRESHNESS_HOURS</code> (up to <code>168</code> hours).</td>
+                  </tr>
+                  <tr>
+                    <td><strong><code>AmbiguousMde</code></strong></td>
+                    <td>Multiple distinct MDE <code>DeviceId</code> records matched the same server within the freshness window.</td>
+                    <td>Group changes are paused by design (<code>Add-Only</code> fail-closed safety) until duplicate MDE records age out past <code>SYNC_FRESHNESS_HOURS</code> or are offboarded/merged in Defender XDR.</td>
+                  </tr>
+                  <tr>
+                    <td><strong><code>NoEntraDevice</code></strong></td>
+                    <td>MDE <code>DeviceInfo</code> matched the server, but <code>AadDeviceId</code> is empty.</td>
+                    <td>Ensure the server is Microsoft Entra joined / hybrid joined (or Arc-enabled server Entra identity is registered with MDE) so MDE reports <code>AadDeviceId</code>.</td>
+                  </tr>
+                  <tr>
+                    <td><strong><code>EntraDeviceNotFound</code></strong></td>
+                    <td>MDE reported an <code>AadDeviceId</code>, but <code>GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'</code> returned no device object in Entra ID.</td>
+                    <td>Verify the device object has not been deleted in Microsoft Entra ID and belongs to the same Entra tenant.</td>
+                  </tr>
+                  <tr>
+                    <td><strong><code>EntraDeviceDisabled</code></strong></td>
+                    <td>The correlated Microsoft Entra device object has <code>accountEnabled == false</code>.</td>
+                    <td>Re-enable the device in Microsoft Entra ID if the server is active; disabled devices are never added to security groups.</td>
+                  </tr>
+                  <tr>
+                    <td><strong><code>MissingIdentifier</code></strong></td>
+                    <td>Missing cloud account/project identifier required to build the target group name (<code>AccountId</code> tag for AWS Arc machines, <code>ProjectId</code> tag for GCP Arc machines, or Subscription <code>displayName</code> for Azure machines).</td>
+                    <td>Tag AWS Arc machines with <code>AccountId=&lt;12-digit-account-id&gt;</code>, tag GCP Arc machines with <code>ProjectId=&lt;gcp-project-id&gt;</code>, and ensure the Worker Managed Identity has <code>Reader</code> on the Azure Subscription.</td>
+                  </tr>
+                  <tr>
+                    <td><strong><code>GroupNotFound</code></strong></td>
+                    <td>The target Entra ID security group <code>&lt;Prefix&gt;{Passive|Active}-&lt;Identifier&gt;</code> does not exist in Entra ID, and automatic group creation is not enabled.</td>
+                    <td>Either pre-create the security group in Entra ID, or configure <code>SYNC_ADMIN_UNIT_ID</code> with <code>SYNC_AUTO_CREATE_GROUPS=true</code> and grant AU-scoped <code>Groups Administrator</code> via <code>Grant-GraphPermissions.ps1</code>.</td>
+                  </tr>
+                  <tr>
+                    <td><strong><code>WouldCreateGroupAndAdd</code></strong></td>
+                    <td>The target group does not exist yet, <code>SYNC_ADMIN_UNIT_ID</code> is configured, and the worker is running in <code>Audit</code> mode.</td>
+                    <td>Review the target group name in the portal. When ready, set <code>SYNC_MODE=Enforce</code> so the worker creates the <code>Passive</code> and <code>Active</code> groups inside the Administrative Unit and adds the device.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Flag (<code>i</code> icon): <code>Should be Active</code></strong></td>
+                    <td>Device is in an <code>Active</code> group while MDE Antivirus mode (<code>scid-2010</code>) is <code>Passive</code>, or in a <code>Passive</code> group while MDE Antivirus mode is <code>Active</code>.</td>
+                    <td>Hover over the <code>i</code> indicator in the <code>Entra ID Group</code> or <code>MDE antivirus mode</code> column to view the mismatch and move the device to the matching Active/Passive group or update its Defender AV configuration.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Flag (<code>i</code> icon): Multiple or Wrong Groups</strong></td>
+                    <td>Device is a member of more than one Cloud &times; OS group (<code>MemberGroups.length &gt; 1</code>) or belongs to a group whose AWS Account, GCP Project, or Azure Subscription does not match the machine.</td>
+                    <td>Hover over the <code>i</code> indicator in the <code>Entra ID Group</code> column to inspect all current Cloud &times; OS groups and remove stale group memberships in Microsoft Entra ID.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Graph <code>403 Forbidden</code> in Worker Logs</strong></td>
+                    <td>Missing Microsoft Graph application permissions, AU role assignment, or group ownership.</td>
+                    <td>Re-run <code>.\Grant-GraphPermissions.ps1</code> for your chosen mode (<code>Audit</code>, <code>Enforce -AdminUnitId &lt;guid&gt;</code>, or <code>Enforce -AssignGroupOwner</code>).</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Portal <code>401</code> / <code>403</code> or Stale Data</strong></td>
+                    <td>Signed-in user lacks the <code>Report.Reader</code> app role, or browser/server cache is serving a recent snapshot.</td>
+                    <td>Assign the user/group the <code>Report.Reader</code> role on the Report Enterprise Application in Entra ID. Click <strong>Refresh inventory</strong> in the portal toolbar to bypass the 15s server cache and 30s browser cache (<code>?refresh=1</code>).</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
+    <footer>Background processing uses a separate managed identity. Times are shown in your local timezone.</footer>
+  </main>
+</body>
+</html>
