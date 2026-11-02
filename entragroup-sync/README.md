@@ -75,9 +75,20 @@ For servers managed via MDE Security Settings Management (`MicrosoftSense` / MDE
 Choose **Option A** (automated PowerShell deployment) or **Option B** (Azure Portal button + zip upload):
 
 #### Option A: One-Command PowerShell Deployment (`Deploy.ps1` — Recommended)
-Deploys the Azure infrastructure, builds and uploads `worker.zip` and `report.zip`, assigns `Reader` RBAC, and creates the Event Grid subscription:
+Deploys the Azure infrastructure, builds and uploads `worker.zip` and `report.zip`, assigns `Reader` RBAC, and creates the Event Grid subscription.
+
+> **Important Prerequisites for `Deploy.ps1`:**
+> - **Active Azure CLI Subscription Context:** `Deploy.ps1` deploys the infrastructure into the Azure subscription that your Azure CLI context (`az account show`) is currently set to. Run `az account set --subscription '<target-hosting-subscription-id>'` first.
+> - **Existing Resource Group Required:** The target resource group (`-ResourceGroupName`) **must already exist** in that subscription before running `Deploy.ps1` (`Deploy.ps1` calls `az group show` and uses the existing resource group's location).
 
 ```powershell
+# 1. Set your Azure CLI context to the subscription that will host the Function Apps & Storage
+az account set --subscription '<hosting-subscription-guid>'
+
+# 2. Create the target resource group if it does not already exist
+az group create --name 'rg-arc-entra-sync' --location 'eastus'
+
+# 3. Run Deploy.ps1
 cd .\entragroup-sync
 $secret = Read-Host 'Report App Client Secret' -AsSecureString
 
