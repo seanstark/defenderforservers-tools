@@ -11,6 +11,15 @@ This Azure Machine Configuration solution reads that `intuneDeviceId` from Windo
 | **Windows** | `machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip` | Registry key: `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM`<br>Value name: `EnrollmentPayload` (`REG_SZ` JSON) | `Reasons[0].Phrase`: `intuneDeviceId=<guid>`<br>`IntuneDeviceId`: `<guid>` |
 | **Linux** | `machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip` | File path: `/var/opt/microsoft/mdatp/wdavstate`<br>Property: `mEnrollmentPayload` (escaped JSON) | `Reasons[0].Phrase`: `intuneDeviceId=<guid>`<br>`IntuneDeviceId`: `<guid>` |
 
+## Table of contents
+
+- [Overview](#overview)
+- [Combined Policies (Native VMs + Azure Arc in a Single Policy)](#combined-policies-native-vms--azure-arc-in-a-single-policy)
+- [Deploy and Assign the 4 Dedicated Azure Policy Definitions (Split by Native VMs vs. Azure Arc)](#deploy-and-assign-the-4-dedicated-azure-policy-definitions-split-by-native-vms-vs-azure-arc)
+  - [Portal Policy Definition JSON Paths](#portal-policy-definition-json-paths)
+- [Querying Reported `intuneDeviceId` Values in Azure Resource Graph](#querying-reported-intunedeviceid-values-in-azure-resource-graph)
+- [Integration with `entragroup-sync` Function App](#integration-with-entragroup-sync-function-app)
+
 ---
 
 ## Combined Policies (Native VMs + Azure Arc in a Single Policy)

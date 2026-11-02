@@ -5,6 +5,29 @@ Automatically discovers Azure Arc-enabled servers (AWS, GCP, on-premises), Azure
 - **Default mode:** `Audit` (observes and reports `WouldAdd` without modifying groups).
 - **Add-only safety:** Never deletes Entra devices or removes group members.
 
+## Table of contents
+
+- [Step-by-Step Deployment Guide](#step-by-step-deployment-guide)
+  - [Step 1: Create the Entra ID Administrative Unit & Report App Registration](#step-1-create-the-entra-id-administrative-unit--report-app-registration)
+  - [Step 2: Deploy the Azure Machine Configuration Policies (MDE Entra ID Device ID)](#step-2-deploy-the-azure-machine-configuration-policies-mde-entra-id-device-id)
+  - [Step 3: Deploy the Sync & Report Function Apps](#step-3-deploy-the-sync--report-function-apps)
+  - [Step 4: Configure the Web Portal Redirect URI](#step-4-configure-the-web-portal-redirect-uri)
+  - [Step 5: Grant Permissions to the Worker Managed Identity](#step-5-grant-permissions-to-the-worker-managed-identity)
+  - [Step 6: Verify in the Web Portal & Switch to `Enforce` Mode](#step-6-verify-in-the-web-portal--switch-to-enforce-mode)
+- [Architecture & Group Evaluation Workflow](#architecture--group-evaluation-workflow)
+  - [3-Tier Microsoft Entra ID Device Correlation Chain](#3-tier-microsoft-entra-id-device-correlation-chain)
+  - [Group Membership Evaluation Flow](#group-membership-evaluation-flow)
+- [Estimated Monthly Azure Cost](#estimated-monthly-azure-cost)
+  - [Total Monthly Cost by App Service Plan Tier](#total-monthly-cost-by-app-service-plan-tier)
+  - [Cost Breakdown by Azure Resource (`entragroup-sync/azuredeploy.json`)](#cost-breakdown-by-azure-resource-entragroup-syncazuredeployjson)
+  - [Required Permissions & RBAC Table](#required-permissions--rbac-table)
+- [Scope & Configuration Parameters](#scope--configuration-parameters)
+  - [How Scope Parameters Combine](#how-scope-parameters-combine)
+- [Troubleshooting & Diagnostics](#troubleshooting--diagnostics)
+  - [1. Application Insights & Log Analytics Trace Queries (KQL)](#1-application-insights--log-analytics-trace-queries-kql)
+  - [2. Common Status Codes, Flags & Remediation](#2-common-status-codes-flags--remediation)
+- [Local Validation & Preview](#local-validation--preview)
+
 ---
 
 ## Step-by-Step Deployment Guide
