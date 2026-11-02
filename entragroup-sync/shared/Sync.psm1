@@ -1162,7 +1162,17 @@ function Invoke-CloudRequest {
                 $errObj = ConvertFrom-Json -InputObject ([string]$response.Content) -AsHashtable -ErrorAction Stop
                 $errCode = [string](Get-InventoryValue $errObj @('error', 'code'))
                 $errMsg = [string](Get-InventoryValue $errObj @('error', 'message'))
-                if ($errCode -or $errMsg) { $safeErrorDetail = " ($errCode`: $errMsg)" }
+                $errDetails = @(Get-InventoryValue $errObj @('error', 'details'))
+                $detailParts = @()
+                foreach ($d in $errDetails) {
+                    if ($null -ne $d) {
+                        $dc = [string](Get-InventoryValue $d @('code'))
+                        $dm = [string](Get-InventoryValue $d @('message'))
+                        if ($dc -or $dm) { $detailParts += "$dc`: $dm" }
+                    }
+                }
+                $detailsSuffix = if ($detailParts.Count) { " [details: $($detailParts -join ' | ')]" } else { '' }
+                if ($errCode -or $errMsg -or $detailsSuffix) { $safeErrorDetail = " ($errCode`: $errMsg$detailsSuffix)" }
             }
             catch {}
         }
@@ -2159,24 +2169,14 @@ ${rgClause}| extend vmssId = tolower(id), vmssName = name, vmssTags = tags
              mgDisplayName = tostring(properties.managementGroupAncestorsChain[0].displayName)
     | project subscriptionId, subscriptionName = name, managementGroup = iff(isempty(mgDisplayName) or mgDisplayName == mgId, mgId, strcat(mgDisplayName, ' (', mgId, ')'))
 ) on subscriptionId
-| join (ComputeResources
-| where type =~ "microsoft.compute/virtualmachinescalesets/virtualmachines"
-| extend vmssId = tolower(substring(id, 0, indexof(id, "/virtualMachines/")))
-| where tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
+| join (
+    ComputeResources
+    | where type =~ "microsoft.compute/virtualmachinescalesets/virtualmachines"
+    | extend vmssId = tolower(substring(id, 0, indexof(id, "/virtualMachines/")))
+    | where tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
+    | project vmssId, instId = id, instName = name, instType = type, instTags = tags, instProps = properties
 ) on vmssId
-| extend machineId = tolower(id1)
-| join kind=leftouter (
-    GuestConfigurationResources
-    | where type =~ 'microsoft.guestconfiguration/guestconfigurationassignments'
-    | where tolower(name) startswith 'entraiddeviceid'
-    | extend machineId = tolower(substring(id, 0, indexof(tolower(id), '/providers/microsoft.guestconfiguration/')))
-    | extend reasonPhrase = tostring(properties.latestAssignmentReport.resources[0].reasons[0].phrase)
-    | parse reasonPhrase with * "intuneDeviceId=" gcEntraDeviceId
-    | where isnotempty(gcEntraDeviceId)
-    | summarize arg_max(tostring(properties.lastComplianceStatusChecked), gcEntraDeviceId) by machineId
-    | project machineId, gcEntraDeviceId
-) on machineId
-| project id = id1, name = name1, type = type1, subscriptionId, subscriptionName, managementGroup, resourceGroup, tags = iff(isnull(tags1) or tostring(tags1) == '{}', vmssTags, tags1), properties = properties1, resources = resources1, gcEntraDeviceId
+| project id = instId, name = instName, type = instType, subscriptionId, subscriptionName, managementGroup, resourceGroup, tags = iff(isnull(instTags) or tostring(instTags) == '{}', vmssTags, instTags), properties = instProps
 | order by id asc
 "@
         foreach ($target in @(Get-ScopeResourceGraphTargets $config)) {

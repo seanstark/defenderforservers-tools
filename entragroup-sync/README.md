@@ -345,6 +345,8 @@ AppTraces
 
 ### 2. Common Status Codes, Flags & Remediation
 
+The report shows **Correlation** separately from **Sync status**. A resolved Entra object remains **Correlated** even if a later group lookup, membership operation, or sync step fails. **Sync status: Failed** is not a failed identity match; inspect **Sync Error** in the Entra device tooltip or **Latest error** in device details. The optional Correlation and Sync status inventory columns expose both outcomes separately.
+
 | Symptom / Status | Cause | Resolution |
 | --- | --- | --- |
 | **`InventorySync` discovers `0` machines** (`Queued 0 machines across ...`) | The Worker Function App's System-Assigned Managed Identity lacks the Azure `Reader` role on the target Subscription(s) (`SYNC_SUBSCRIPTION_IDS`) or Management Group(s) (`SYNC_MANAGEMENT_GROUP_IDS`), or `SYNC_RESOURCE_GROUP_NAMES` does not match the machines' resource groups. | Assign the Azure `Reader` role to the Worker Managed Identity at the Subscription or Management Group scope (see [A. Assign Azure `Reader` Role](#a-assign-azure-reader-role-for-azure-resource-graph-discovery)) and check `SYNC_RESOURCE_GROUP_NAMES`. |
@@ -367,6 +369,9 @@ AppTraces
 ```powershell
 # Run the 40 unit/regression tests
 .\tests\Test-Solution.ps1
+
+# Validate dashboard correlation and sync status rendering
+node .\tests\Test-Dashboard.cjs
 
 # Start the local synthetic preview portal
 node .\tests\Serve-DashboardFixture.cjs

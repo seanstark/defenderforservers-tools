@@ -36,8 +36,8 @@ function Invoke-AzJson {
 $graphAppId = '00000003-0000-0000-c000-000000000000'
 $graph = Invoke-AzJson @('ad', 'sp', 'show', '--id', $graphAppId)
 $permissions = if ($AdminUnitId -ne [guid]::Empty) {
-    # When scoped to an Administrative Unit, the Worker only checks/manages groups inside that Administrative Unit via AU-scoped Groups Administrator.
-    @('ThreatHunting.Read.All', 'Device.Read.All')
+    # When scoped to an Administrative Unit, the Worker lists AU group members via AdministrativeUnit.Read.All and manages groups inside that AU via AU-scoped Groups Administrator.
+    @('ThreatHunting.Read.All', 'Device.Read.All', 'AdministrativeUnit.Read.All')
 }
 elseif ($Mode -eq 'Enforce' -and -not $AssignGroupOwner) {
     @('ThreatHunting.Read.All', 'Device.ReadWrite.All', 'GroupMember.ReadWrite.All')

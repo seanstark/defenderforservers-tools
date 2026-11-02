@@ -36,6 +36,14 @@
     return matched.length ? [...new Set(matched)].join("; ") : "Not installed";
   };
   const missing = "Not available";
+  function hasEntraCorrelation(machine) {
+    return Boolean(machine?.EntraObjectId || (machine?.EntraDeviceId &&
+      ["Verified", "WouldAdd", "Matched", "GroupNotFound", "MissingCloudIdentifier", "GroupNotConfigured"].includes(machine?.Status)));
+  }
+  function correlationBadge(machine) {
+    const correlated = hasEntraCorrelation(machine);
+    return text("span", correlated ? "Correlated" : "Not correlated", `badge ${correlated ? "good" : "attention"}`);
+  }
   function correlationMethodFor(machine) {
     const path = String(machine?.EntraCorrelationPath || "").trim();
     if (path === "MdeAadDeviceId") return "MDE AadDeviceId";
@@ -44,8 +52,7 @@
     if (path === "AadDeviceIdAmbiguous") return "Ambiguous (MDE AadDeviceId)";
     if (path === "GuestConfigIntuneDeviceIdAmbiguous") return "Ambiguous (Machine Configuration)";
     if (path === "MicrosoftSenseAmbiguous") return "Ambiguous (MicrosoftSense)";
-    const isCorrelated = Boolean(machine?.EntraObjectId || (machine?.EntraDeviceId && ["Verified", "WouldAdd", "Matched", "GroupNotFound", "MissingCloudIdentifier", "GroupNotConfigured"].includes(machine?.Status)));
-    if (isCorrelated) {
+    if (hasEntraCorrelation(machine)) {
       if (machine?.GuestConfigEntraDeviceId && String(machine.GuestConfigEntraDeviceId).toLowerCase() === String(machine.EntraDeviceId || "").toLowerCase()) {
         return "Machine Configuration (intuneDeviceId)";
       }
@@ -77,7 +84,8 @@
     { id: "MdeDeviceGroup", label: "MDE device group membership" },
     { id: "AzureTags", label: "Azure tags", tags: true, value: m => azureTagValues(m.AzureTags), empty: "No tags" },
     { id: "OS", label: "operating system" },
-    { id: "Status", label: "Correlation" },
+    { id: "CorrelationStatus", label: "Correlation", value: m => hasEntraCorrelation(m) ? "Correlated" : "Not correlated" },
+    { id: "Status", label: "Sync status" },
     { id: "Membership", label: "Entra ID Group", value: m => {
       if (Array.isArray(m.MemberGroups) && m.MemberGroups.length) {
         return m.MemberGroups.map(g => g.DisplayName || g.Id).filter(Boolean).join("; ");
@@ -506,12 +514,7 @@
     ]];
   }
   function entraHoverSpec(machine) {
-    const isFound = Boolean(machine.EntraObjectId || (machine.EntraDeviceId && ["Verified", "WouldAdd", "Matched", "GroupNotFound", "MissingCloudIdentifier", "GroupNotConfigured"].includes(machine.Status)));
-    const statusBadge = text(
-      "span",
-      isFound ? `Correlated (${machine.Status || "Matched"})` : `Not Found (${machine.Status || "Unresolved"})`,
-      `badge ${isFound ? "good" : machine.Status === "Failed" ? "bad" : "attention"}`
-    );
+    const isFound = hasEntraCorrelation(machine);
     const candidateHosts = [];
     for (const raw of [machine.ComputerName, machine.MdeDeviceName, machine.Fqdn, machine.MachineName]) {
       const clean = String(raw || "").trim();
@@ -553,8 +556,10 @@
     const devIdWrap = document.createElement("span");
     appendLink(devIdWrap, machine.EntraDeviceId || "Not available", deviceLink(machine, "entra"));
     const rows = [
-      ["Correlation Status", statusBadge],
+      ["Correlation Status", correlationBadge(machine)],
       [isFound ? "Correlation Details" : "Why Not Found", reason],
+      ["Sync Status", text("span", machine.Status || "Unresolved", `badge ${machine.Status === "Failed" ? "bad" : machine.Status === "Verified" ? "good" : "attention"}`)],
+      ["Sync Error", machine.Error || "None"],
       ["Entra Device ID", devIdWrap],
       ["Entra Object ID", machine.EntraObjectId || "Not resolved"],
       ["Machine Config intuneDeviceId", machine.GuestConfigEntraDeviceId || "Not reported"],
@@ -924,6 +929,7 @@
           const tags = column.value(machine);
           cell.append(tagPillsNode(tags, displayFor(machine, column)));
         }
+        else if (column.id === "CorrelationStatus") cell.append(correlationBadge(machine));
         else if (column.id === "Status") cell.append(text("span", displayFor(machine, column), `badge ${machine.Status === "Failed" ? "bad" : machine.Status === "Verified" ? "good" : "attention"}`));
         else if (["ArcStatus", "MdeOnboardingStatus", "MdeSensorHealth"].includes(column.id)) {
           const value = displayFor(machine, column);
@@ -1138,9 +1144,9 @@
     byId("detail-title").textContent = machine.MachineName;
     const summary = byId("detail-summary");
     summary.replaceChildren();
-    const correlated = Boolean(machine.MdeDeviceId && machine.EntraDeviceId && ["Verified", "WouldAdd", "Matched"].includes(machine.Status));
     const summaryItems = [
-      ["Correlated", text("span", `${correlated ? "Yes" : "No"} (${machine.Status || missing})`, `badge ${machine.Status === "Failed" ? "bad" : correlated ? "good" : "attention"}`)],
+      ["Correlation", correlationBadge(machine)],
+      ["Sync status", text("span", machine.Status || missing, `badge ${machine.Status === "Failed" ? "bad" : machine.Status === "Verified" ? "good" : "attention"}`)],
       ["Correlation method", text("span", correlationMethodFor(machine))],
       ["Entra ID Group", groupMembershipNode(machine)],
       ["Group & AV flags", groupFlagsNode(machine)],
