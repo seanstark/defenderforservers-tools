@@ -14,9 +14,23 @@ if ($AssignGroupOwner -and -not $ownerGroupIds.Count -and -not @($GroupNamePrefi
 }
 
 function Invoke-AzJson {
-    param([string[]]$Arguments)
+    param([string[]]$Arguments, [string]$Body = '')
+    if ($Body) {
+        $tempFile = Join-Path ([IO.Path]::GetTempPath()) "az-rest-body-$([guid]::NewGuid().ToString('N')).json"
+        try {
+            [IO.File]::WriteAllText($tempFile, $Body, [Text.UTF8Encoding]::new($false))
+            $output = & az @Arguments --headers 'Content-Type=application/json' --body "@$tempFile" --output json --only-show-errors
+            if ($LASTEXITCODE -ne 0) { throw 'Azure CLI command failed.' }
+            if (-not $output) { return @{} }
+            return (($output -join "`n") | ConvertFrom-Json -AsHashtable)
+        }
+        finally {
+            Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
+        }
+    }
     $output = & az @Arguments --output json --only-show-errors
     if ($LASTEXITCODE -ne 0) { throw 'Azure CLI command failed.' }
+    if (-not $output) { return @{} }
     ($output -join "`n") | ConvertFrom-Json -AsHashtable
 }
 $graphAppId = '00000003-0000-0000-c000-000000000000'
@@ -52,7 +66,7 @@ foreach ($permission in $permissions) {
             resourceId = $graph.id
             appRoleId = $role[0].id
         } | ConvertTo-Json -Compress
-        $null = Invoke-AzJson @('rest', '--method', 'POST', '--url', $uri, '--body', $body)
+        $null = Invoke-AzJson -Arguments @('rest', '--method', 'POST', '--url', $uri) -Body $body
         Write-Host "Granted $permission."
     }
 }
@@ -71,7 +85,7 @@ if ($AdminUnitId -ne [guid]::Empty) {
             roleDefinitionId = $groupsAdminRoleId
             directoryScopeId = $scopeId
         } | ConvertTo-Json -Compress
-        $null = Invoke-AzJson @('rest', '--method', 'POST', '--url', 'https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments', '--body', $roleBody)
+        $null = Invoke-AzJson -Arguments @('rest', '--method', 'POST', '--url', 'https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments') -Body $roleBody
         Write-Host "Assigned Groups Administrator role to $WorkerPrincipalId on Administrative Unit $AdminUnitId."
     }
 }
@@ -95,8 +109,7 @@ if ($AssignGroupOwner) {
             $ownerBody = @{
                 '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$WorkerPrincipalId"
             } | ConvertTo-Json -Compress
-            $null = & az rest --method POST --url "https://graph.microsoft.com/v1.0/groups/$groupId/owners/`$ref" --headers 'Content-Type=application/json' --body $ownerBody --only-show-errors
-            if ($LASTEXITCODE -ne 0) { throw "Failed to add $WorkerPrincipalId as owner of group $groupId." }
+            $null = Invoke-AzJson -Arguments @('rest', '--method', 'POST', '--url', "https://graph.microsoft.com/v1.0/groups/$groupId/owners/`$ref") -Body $ownerBody
             Write-Host "Added worker principal $WorkerPrincipalId as owner of group $groupId."
         }
     }

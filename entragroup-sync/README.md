@@ -80,6 +80,7 @@ Deploys the Azure infrastructure, builds and uploads `worker.zip` and `report.zi
 > **Important Prerequisites for `Deploy.ps1`:**
 > - **Active Azure CLI Subscription Context:** `Deploy.ps1` deploys the infrastructure into the Azure subscription that your Azure CLI context (`az account show`) is currently set to. Run `az account set --subscription '<target-hosting-subscription-id>'` first.
 > - **Existing Resource Group Required:** The target resource group (`-ResourceGroupName`) **must already exist** in that subscription before running `Deploy.ps1` (`Deploy.ps1` calls `az group show` and uses the existing resource group's location).
+> - **Omit Unused `-ManagementGroupIds` or `-SubscriptionIds` Parameters:** Because `-SubscriptionIds` is typed as `[guid[]]` and `-ManagementGroupIds` has a regex validation pattern, **remove `-ManagementGroupIds` from the command if you are only scoping by subscription(s), or remove `-SubscriptionIds` if you are only scoping by management group(s)** (do not pass placeholder text or `@('')`).
 
 ```powershell
 # 1. Set your Azure CLI context to the subscription that will host the Function Apps & Storage
@@ -88,7 +89,7 @@ az account set --subscription '<hosting-subscription-guid>'
 # 2. Create the target resource group if it does not already exist
 az group create --name 'rg-arc-entra-sync' --location 'eastus'
 
-# 3. Run Deploy.ps1
+# 3. Run Deploy.ps1 (remove -ManagementGroupIds or -SubscriptionIds if not used)
 cd .\entragroup-sync
 $secret = Read-Host 'Report App Client Secret' -AsSecureString
 
