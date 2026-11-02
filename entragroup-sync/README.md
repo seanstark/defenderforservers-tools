@@ -1,8 +1,11 @@
 # Cloud Server Correlation — Azure Arc & Virtual Machine to Entra ID Security Group Sync
 
-Automatically discovers Azure Arc-enabled servers (AWS, GCP, on-premises), Azure Virtual Machines, and Virtual Machine Scale Set (VMSS) instances, correlates them through Microsoft Defender for Endpoint (MDE) and Azure Machine Configuration to Microsoft Entra ID device objects, and assigns verified devices to per-account Cloud × OS × Active/Passive Entra ID security groups. Includes an authenticated **Cloud Server Correlation** web portal for device inventory, cloud/group coverage, permissions validation, and execution logs.
+1. Automatically discovers Azure Arc-enabled servers (AWS, GCP, on-premises), Azure Virtual Machines, and Virtual Machine Scale Set (VMSS) instances
+2. Correlates them through Microsoft Defender for Endpoint (MDE) and Azure Machine Configuration to Microsoft Entra ID device objects
+3. Assigns verified devices to per-account Cloud × OS × Active/Passive Entra ID security groups. 
+4. Includes an authenticated **Cloud Server Correlation** web portal for device inventory, cloud/group coverage, permissions validation, and execution logs.
 
-- **Default mode:** `Audit` (observes and reports `WouldAdd` without modifying groups).
+- **Default mode:** `Audit` (observes and reports without modifying groups).
 - **Add-only safety:** Never deletes Entra devices or removes group members.
 
 ## Table of contents
