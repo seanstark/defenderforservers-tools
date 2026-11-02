@@ -10,6 +10,7 @@ This repository contains Azure Policy and Azure Machine Configuration solutions 
   - [Defender for Endpoint SenseCM Entra ID device ID discovery](#defender-for-endpoint-sensecm-entra-id-device-id-discovery)
   - [Arc to Entra security group synchronization](#arc-to-entra-security-group-synchronization)
 - [Choose a solution](#choose-a-solution)
+- [Estimated monthly Azure cost](#estimated-monthly-azure-cost)
 - [Deployment guidance](#deployment-guidance)
 - [Repository structure](#repository-structure)
 
@@ -62,6 +63,8 @@ It starts in audit-only mode. Machines without an Entra device are reported with
 
 ![Azure Arc to Entra Security Group Synchronization Architecture](entragroup-sync/infra/architecture.archify.svg)
 
+![3-Tier Microsoft Entra ID Device Correlation Chain](entragroup-sync/infra/correlation.archify.svg)
+
 ![Machine Correlation and Entra ID Group Membership Evaluation Workflow](entragroup-sync/infra/evaluation.archify.svg)
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2Fentragroup-sync%2Fazuredeploy.json)
@@ -79,6 +82,30 @@ It starts in audit-only mode. Machines without an Entra device are reported with
 | Correlate Arc/MDE machines to Entra devices and add verified devices to a security group | [Arc to Entra sync](entragroup-sync/README.md) |
 | Filter policy applicability by Azure resource tags | Both solutions |
 | Audit settings before enabling automatic remediation | Both solutions |
+
+## Estimated monthly Azure cost
+
+- **Estimated Total Monthly Solution Cost:** **~$66 / month** *(~$65.25 – $71.75 / month in East US, Pay-As-You-Go USD)*
+
+### Total Monthly Cost by App Service Plan Tier
+
+| Plan Option | App Service Plan SKU | Estimated Total Monthly Solution Cost (All Resources Included) |
+| --- | --- | --- |
+| **Default (Recommended)** | **`B1` Basic** (1 instance) | **~$65.25 – $71.75 / month** *(~$66/mo typical)* |
+| **Standard** | **`S1` Standard** (1 instance) | **~$83.50 – $90.00 / month** |
+| **Premium** | **`P1v3` Premium v3** (1 instance) | **~$148.50 – $155.00 / month** |
+
+### Cost Breakdown by Azure Resource (`entragroup-sync/azuredeploy.json`)
+
+| Azure Resource | Default SKU / Tier | Estimated Monthly Cost (USD) | Notes |
+| --- | --- | --- | --- |
+| **App Service Plan** (`<prefix>-plan`, hosts both `worker` & `report` Function Apps) | **`B1` (Basic, 1 instance)** *(default)*<br>*(Optional: `S1` Standard or `P1v3` Premium)* | **~$54.75 / mo**<br>*(or ~$73/mo on `S1`, ~$138/mo on `P1v3`)* | Both the Worker and Report Function Apps share the same single App Service Plan (`serverFarmId`) at no extra per-app compute charge. |
+| **Azure Service Bus** (`<prefix>-bus`, `machines` queue) | **Standard** | **~$10.00 / mo** | ~$9.81 base fee + $0.05 per million messaging operations (1,000 servers × 48 runs/day ≈ 1.4M ops/mo ≈ $0.01). |
+| **3 × Azure Storage Accounts** (`sync<suffix>`, `worker<suffix>`, `report<suffix>`) | **Standard LRS (`StorageV2`)** | **~$0.50 – $2.00 / mo** | Table Storage (`machines` state, history, and logs) + Function host leases cost fractions of a cent per GB and ~$0.00036 per 10,000 transactions. |
+| **Application Insights & Log Analytics** (`<prefix>-insights`, `<prefix>-logs`) | **Pay-As-You-Go (`PerGB2018`, 30-day retention)** | **$0.00 – $5.00 / mo** | The first **5 GB/month** of Log Analytics ingestion per billing account is **free**; typical worker trace volume is <1–2 GB/month. |
+| **Azure Event Grid** (`Microsoft.EventGrid/eventSubscriptions`) | **System Topic** | **$0.00 / mo** | First **100,000 operations/month** are **free** ($0.60 per million after). |
+| **Microsoft Graph & Azure Resource Graph APIs** | **Included** | **$0.00 / mo** | No per-query charges for Azure Resource Graph, Defender Advanced Hunting, or Entra ID Graph API calls. |
+| **Total Core Infrastructure** | **Default (`B1` Plan)** | **~$65 – $72 / month** | Fixed baseline cost for the entire synchronization and reporting platform. |
 
 ## Deployment guidance
 

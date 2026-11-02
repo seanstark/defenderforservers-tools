@@ -73,3 +73,4 @@ GuestConfigurationResources
    - **Tier 1 (`MdeAadDeviceId`):** Uses `DeviceInfo.AadDeviceId` from MDE Advanced Hunting when present.
    - **Tier 2 (`GuestConfigurationIntuneDeviceId`):** Uses `gcEntraDeviceId` (`intuneDeviceId` from `GuestConfigurationResources`) to look up `GET /v1.0/devices?$filter=deviceId eq '{intuneDeviceId}'`.
    - **Tier 3 (`MicrosoftSenseHostnameAndOS`):** Falls back to `GET /v1.0/devices?$filter=displayName eq '{hostname}'` matching `operatingSystem` and `managementType == 'MicrosoftSense'`.
+

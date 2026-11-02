@@ -1071,6 +1071,99 @@ try {
             Assert-Equal $permBody.PortalTenant $env:SYNC_TENANT_ID
             Assert-Equal $permBody.Checks.Count 9
         }
+        Test-Case 'Bulk MDE hunting telemetry preloads DeviceInfo, NetworkInfo, and Antivirus without per-machine hunting calls' {
+            function script:Invoke-Graph {
+                param($Path, $Method, $Body)
+                if ($Path -eq '/security/runHuntingQuery') {
+                    Assert-True ($Body.Query.Contains('let MatchedDevices = DeviceInfo'))
+                    Assert-True ($Body.Query.Contains('let NetInfo = DeviceNetworkInfo'))
+                    Assert-True ($Body.Query.Contains('let AvInfo = DeviceTvmSecureConfigurationAssessment'))
+                    return @{
+                        Content = (@{
+                            results = @(
+                                @{
+                                    Timestamp = $now.ToString('o')
+                                    DeviceId = 'mde-bulk-1'
+                                    DeviceName = 'server01.example.com'
+                                    AadDeviceId = '44444444-4444-4444-4444-444444444444'
+                                    OnboardingStatus = 'Onboarded'
+                                    MergedToDeviceId = ''
+                                    SensorHealthState = 'Active'
+                                    CloudPlatforms = 'AWS'
+                                    AzureVmId = 'arc-vm-id'
+                                    AzureResourceId = $id
+                                    PublicIP = '203.0.113.10'
+                                    DeviceManualTags = '["BulkTag"]'
+                                    DeviceDynamicTags = '[]'
+                                    RegistryDeviceTag = ''
+                                    MachineGroup = 'BulkGroup'
+                                    NetIPs = @('[{"IPAddress":"10.20.30.40"}]')
+                                    AvMode = '1'
+                                    AvTimestamp = '2026-10-19T12:00:00Z'
+                                }
+                            )
+                        } | ConvertTo-Json -Depth 10 -Compress)
+                    }
+                }
+                if ($Path.StartsWith('/devices?')) {
+                    return @{ Content = '{"value":[{"id":"55555555-5555-5555-5555-555555555555","deviceId":"44444444-4444-4444-4444-444444444444","accountEnabled":true}]}' }
+                }
+                if ($Path.Contains('/memberOf')) {
+                    return @{ Content = '{"value":[]}' }
+                }
+                throw "Unexpected Graph call: $Path"
+            }
+            $bulkMap = Get-BulkMdeTelemetry -DiscoveredMachines @(
+                @{
+                    ResourceId = $id
+                    Row = @{ properties = @{ vmId = 'arc-vm-id'; status = 'Connected'; osType = 'Windows' } }
+                }
+            )
+            Assert-True ($bulkMap.ContainsKey($id.ToLowerInvariant()))
+            $entry = $bulkMap[$id.ToLowerInvariant()]
+            Assert-Equal $entry.Candidates.Count 1
+            Assert-Equal $entry.NetworkAddresses[0] '10.20.30.40'
+            Assert-Equal $entry.Antivirus.Mode 'Passive'
+
+            # Verify Invoke-MachineSync consumes MdeData without calling /security/runHuntingQuery
+            function script:Invoke-Graph {
+                param($Path)
+                if ($Path -eq '/security/runHuntingQuery') {
+                    throw 'Invoke-MachineSync must use preloaded MdeData without calling /security/runHuntingQuery'
+                }
+                if ($Path.StartsWith('/devices?')) {
+                    return @{ Content = '{"value":[{"id":"55555555-5555-5555-5555-555555555555","deviceId":"44444444-4444-4444-4444-444444444444","accountEnabled":true}]}' }
+                }
+                if ($Path.Contains('/memberOf')) {
+                    return @{ Content = '{"value":[]}' }
+                }
+                throw "Unexpected Graph call: $Path"
+            }
+            function script:Get-MachineState { $null }
+            function script:Invoke-CloudRequest { @{ Status = 200; Content = '{"properties":{"status":"Connected","osType":"Windows"}}' } }
+            function script:Resolve-GroupByDisplayName { @{ Id = '22222222-2222-2222-2222-222222222222'; DisplayName = 'MDfS-AWS-Windows-Passive-123456789012' } }
+            function script:Test-DirectMembership { $false }
+            function script:Save-MachineState { param($State) $script:SavedBulkState = $State }
+            function script:Write-FunctionLog {}
+            Invoke-MachineSync @{
+                ResourceId = $id
+                RunId = [guid]::NewGuid().ToString()
+                Source = 'Schedule'
+                ResourceData = @{
+                    name = 'server01'
+                    subscriptionName = 'Production subscription'
+                    tags = @{ AccountId = '123456789012' }
+                    argExtensions = @('MDE.Windows (version: 2.0; state: Succeeded)')
+                    gcEntraDeviceId = ''
+                    properties = @{ status = 'Connected'; osType = 'Windows'; vmId = 'arc-vm-id'; osProfile = @{ computerName = 'SERVER01' } }
+                }
+                MdeData = $entry
+            }
+            Assert-Equal $script:SavedBulkState.Status 'WouldAdd'
+            Assert-Equal $script:SavedBulkState.MdeDeviceId 'mde-bulk-1'
+            Assert-Equal $script:SavedBulkState.MdeAntivirusMode 'Passive'
+            Assert-True ('10.20.30.40' -in $script:SavedBulkState.IPAddresses)
+        }
         Write-Host "`n$script:Passed passed; $script:Failed failed."
         if ($script:Failed) { throw 'Solution tests failed.' }
     }

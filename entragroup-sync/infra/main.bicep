@@ -215,6 +215,8 @@ resource apps 'Microsoft.Web/sites@2023-12-01' = [for (kind, i) in ['worker', 'r
         { name: 'SYNC_MODE', value: syncMode }
         { name: 'SYNC_FRESHNESS_HOURS', value: string(freshnessHours) }
         { name: 'SYNC_SCHEDULE', value: schedule }
+        { name: 'PSWorkerInProcConcurrencyUpperBound', value: '8' }
+        { name: 'FUNCTIONS_WORKER_PROCESS_COUNT', value: '2' }
         { name: 'ServiceBusConnection__fullyQualifiedNamespace', value: '${bus.name}.servicebus.windows.net' }
         { name: 'ServiceBusConnection__credential', value: 'managedidentity' }
       ] : [

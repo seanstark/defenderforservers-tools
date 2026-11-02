@@ -1907,7 +1907,7 @@ ComputeResources
 }
 
 function Send-MachineWork {
-    param([string]$ResourceId, [string]$Source, [hashtable]$ResourceData = $null)
+    param([string]$ResourceId, [string]$Source, [hashtable]$ResourceData = $null, [hashtable]$MdeData = $null)
     $id = ConvertTo-ArcId $ResourceId
     $namespace = Get-Setting 'ServiceBusConnection__fullyQualifiedNamespace'
     if ($namespace -notmatch '^[a-z0-9-]+\.servicebus\.windows\.net$') { throw 'Invalid Service Bus namespace.' }
@@ -1917,6 +1917,9 @@ function Send-MachineWork {
     }
     if ($null -ne $ResourceData -and $ResourceData.ContainsKey('properties')) {
         $payload.ResourceData = $ResourceData
+    }
+    if ($null -ne $MdeData -and $MdeData.ContainsKey('Candidates')) {
+        $payload.MdeData = $MdeData
     }
     $null = Invoke-CloudRequest -Uri "https://$namespace/machines/messages" -Resource 'https://servicebus.azure.net' -Method POST -Body $payload
     if ($Source -eq 'EventGrid') {
@@ -1949,6 +1952,129 @@ function Get-ScopeResourceGraphTargets {
     return $targets
 }
 
+function Get-BulkMdeTelemetry {
+    param([array]$DiscoveredMachines)
+    $byResourceId = @{}
+    if (-not $DiscoveredMachines.Count) { return $byResourceId }
+    $modes = @{ '0' = 'Active'; '1' = 'Passive'; '2' = 'Disabled'; '3' = 'Other'; '4' = 'EDRBlocked'; '5' = 'PassiveAudit' }
+    $batchSize = 200
+    for ($offset = 0; $offset -lt $DiscoveredMachines.Count; $offset += $batchSize) {
+        $batch = @($DiscoveredMachines | Select-Object -Skip $offset -First $batchSize)
+        $resIds = [Collections.Generic.List[string]]::new()
+        $vmIds = [Collections.Generic.List[string]]::new()
+        $vmIdToResId = @{}
+        foreach ($item in $batch) {
+            $rid = ([string]$item.ResourceId).ToLowerInvariant()
+            if ($rid -and $rid -notin $resIds) { $resIds.Add($rid) }
+            $row = $item.Row
+            $vid = if ($null -ne $row) { ([string](Get-InventoryValue $row @('properties', 'vmId'))).Trim().ToLowerInvariant() } else { '' }
+            if ($vid) {
+                if ($vid -notin $vmIds) { $vmIds.Add($vid) }
+                $vmIdToResId[$vid] = $rid
+            }
+            $byResourceId[$rid] = @{
+                Candidates = [Collections.Generic.List[hashtable]]::new()
+                NetworkAddresses = @()
+                Antivirus = @{ Mode = ''; Timestamp = ''; Status = 'NoData' }
+            }
+        }
+        if (-not $resIds.Count) { continue }
+        $resLiterals = @($resIds | ForEach-Object { ConvertTo-Json -InputObject $_ -Compress }) -join ', '
+        $vmClause = ''
+        if ($vmIds.Count) {
+            $vmLiterals = @($vmIds | ForEach-Object { ConvertTo-Json -InputObject $_ -Compress }) -join ', '
+            $vmClause = " or tolower(AzureVmId) in ($vmLiterals)"
+        }
+        $bulkQuery = @"
+let MatchedDevices = DeviceInfo
+| where Timestamp >= ago(7d)
+| summarize arg_max(Timestamp, *) by DeviceId
+| where tolower(AzureResourceId) in ($resLiterals)${vmClause}
+| project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId,
+    SensorHealthState, CloudPlatforms, AzureVmId, AzureResourceId, PublicIP,
+    DeviceManualTags, DeviceDynamicTags, RegistryDeviceTag, MachineGroup;
+let NetInfo = DeviceNetworkInfo
+| where Timestamp >= ago(7d)
+| where DeviceId in ((MatchedDevices | project DeviceId))
+| summarize arg_max(Timestamp, *) by DeviceId, NetworkAdapterName, MacAddress
+| summarize NetIPs = make_list(IPAddresses) by DeviceId;
+let AvInfo = DeviceTvmSecureConfigurationAssessment
+| where Timestamp >= ago(7d) and ConfigurationId == 'scid-2010'
+| where DeviceId in ((MatchedDevices | project DeviceId))
+| summarize arg_max(Timestamp, *) by DeviceId
+| project DeviceId, AvTimestamp = Timestamp, AvMode = tostring(parse_json(Context)[0][0]);
+MatchedDevices
+| join kind=leftouter NetInfo on DeviceId
+| join kind=leftouter AvInfo on DeviceId
+"@
+        try {
+            Write-SyncTrace 'MDEHunting' "Executing bulk MDE hunting query for $($resIds.Count) machine(s)"
+            $huntResult = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $bulkQuery; Timespan = 'P7D' })
+            if (-not $huntResult.ContainsKey('results')) { continue }
+            $rows = @($huntResult.results)
+            Write-SyncTrace 'MDEHunting' "Bulk MDE hunting query returned $($rows.Count) device row(s) for $($resIds.Count) machine(s)"
+            foreach ($r in $rows) {
+                $rowResId = ([string]$r['AzureResourceId']).Trim().ToLowerInvariant()
+                $rowVmId = ([string]$r['AzureVmId']).Trim().ToLowerInvariant()
+                $targetResId = ''
+                if ($rowResId -and $byResourceId.ContainsKey($rowResId)) {
+                    $targetResId = $rowResId
+                }
+                elseif ($rowVmId -and $vmIdToResId.ContainsKey($rowVmId)) {
+                    $targetResId = $vmIdToResId[$rowVmId]
+                }
+                if (-not $targetResId) { continue }
+                $entry = $byResourceId[$targetResId]
+                $entry.Candidates.Add($r)
+
+                $parsedIps = [Collections.Generic.List[string]]::new()
+                $netIpsRaw = $r['NetIPs']
+                $netIpList = if ($netIpsRaw -is [string] -and -not [string]::IsNullOrWhiteSpace($netIpsRaw)) {
+                    try { ConvertFrom-Json -InputObject $netIpsRaw -AsHashtable } catch { @() }
+                } elseif ($netIpsRaw -is [Collections.IEnumerable]) {
+                    @($netIpsRaw)
+                } else { @() }
+                foreach ($adapterIps in $netIpList) {
+                    $ips = if ($adapterIps -is [string] -and -not [string]::IsNullOrWhiteSpace($adapterIps)) {
+                        try { ConvertFrom-Json -InputObject $adapterIps -AsHashtable } catch { @() }
+                    } else { $adapterIps }
+                    foreach ($ipObj in @($ips)) {
+                        $addr = [string](Get-InventoryValue $ipObj @('IPAddress'))
+                        if ($addr -and $addr -notin $parsedIps) { $parsedIps.Add($addr) }
+                    }
+                }
+                $entry.NetworkAddresses = @($parsedIps | Sort-Object -Unique)
+
+                $avCode = ([string]$r['AvMode']).Trim()
+                $avTs = [string]$r['AvTimestamp']
+                if (-not [string]::IsNullOrWhiteSpace($avCode) -and $modes.ContainsKey($avCode)) {
+                    $entry.Antivirus = @{ Mode = $modes[$avCode]; Timestamp = $avTs; Status = 'Reported' }
+                }
+                else {
+                    $entry.Antivirus = @{ Mode = ''; Timestamp = $avTs; Status = 'NoData' }
+                }
+            }
+        }
+        catch {
+            Write-Warning "Bulk MDE hunting query failed (workers will fall back to per-machine query): $($_.Exception.Message)"
+            return @{}
+        }
+    }
+    $finalMap = @{}
+    foreach ($k in $byResourceId.Keys) {
+        $candList = [Collections.Generic.List[hashtable]]::new()
+        foreach ($c in $byResourceId[$k].Candidates) { $candList.Add($c) }
+        $netList = [Collections.Generic.List[string]]::new()
+        foreach ($ip in $byResourceId[$k].NetworkAddresses) { $netList.Add([string]$ip) }
+        $finalMap[$k] = @{
+            Candidates = $candList
+            NetworkAddresses = $netList
+            Antivirus = $byResourceId[$k].Antivirus
+        }
+    }
+    return $finalMap
+}
+
 function Invoke-InventorySync {
     param([string]$TriggerReason = 'Scheduled timer (NCRONTAB schedule)')
     $runId = [guid]::NewGuid().ToString()
@@ -1966,6 +2092,7 @@ function Invoke-InventorySync {
             FreshnessHours = $config.FreshnessHours
         }
         $discovered = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $pendingQueue = [Collections.Generic.List[hashtable]]::new()
         $argMachineRows = 0
         $argVmssRows = 0
         $revisitedRows = 0
@@ -2085,8 +2212,8 @@ ${rgClause}| extend vmssId = tolower(id), vmssName = name, vmssTags = tags
                     foreach ($row in $rows) {
                         $rowId = if ($row.ContainsKey('id1') -and $row.id1) { [string]$row.id1 } else { [string]$row.id }
                         if ($rowId -and $discovered.Add($rowId)) {
-                            Write-SyncTrace 'Inventory' "Queueing discovered machine from [$queryLabel]: $rowId"
-                            Send-MachineWork $rowId 'Schedule' $row
+                            Write-SyncTrace 'Inventory' "Discovered machine from [$queryLabel]: $rowId"
+                            $pendingQueue.Add(@{ ResourceId = $rowId; Row = $row })
                         }
                     }
                     $skipToken = if ($result.ContainsKey('$skipToken')) { $result.'$skipToken' } else { '' }
@@ -2101,12 +2228,22 @@ ${rgClause}| extend vmssId = tolower(id), vmssName = name, vmssTags = tags
             foreach ($item in $page.Items) {
                 if ((Test-ResourceScope -Config $config -SubscriptionId $item.SubscriptionId -ResourceGroup $item.ResourceGroup) -and $discovered.Add($item.ArcResourceId)) {
                     $revisitedRows++
-                    Write-SyncTrace 'Inventory' "Queueing previously tracked machine from Table storage: $($item.ArcResourceId)"
-                    Send-MachineWork $item.ArcResourceId 'Schedule'
+                    Write-SyncTrace 'Inventory' "Discovered previously tracked machine from Table storage: $($item.ArcResourceId)"
+                    $pendingQueue.Add(@{ ResourceId = [string]$item.ArcResourceId; Row = $null })
                 }
             }
             $cursor = $page.Cursor
         } while ($cursor)
+
+        $bulkMdeMap = @{}
+        if ($pendingQueue.Count -gt 0 -and (Get-OptionalSetting 'IDENTITY_ENDPOINT')) {
+            $bulkMdeMap = Get-BulkMdeTelemetry -DiscoveredMachines @($pendingQueue)
+        }
+        foreach ($workItem in $pendingQueue) {
+            $normKey = ([string]$workItem.ResourceId).ToLowerInvariant()
+            $mdePayload = if ($bulkMdeMap.ContainsKey($normKey)) { $bulkMdeMap[$normKey] } else { $null }
+            Send-MachineWork -ResourceId $workItem.ResourceId -Source 'Schedule' -ResourceData $workItem.Row -MdeData $mdePayload
+        }
         $completedAt = [datetimeoffset]::UtcNow.ToString('o')
         $catalog = $null
         try {
@@ -2174,19 +2311,19 @@ ${rgClause}| extend vmssId = tolower(id), vmssName = name, vmssTags = tags
 function Get-Correlation {
     param([array]$Candidates, [int]$FreshnessHours, [datetimeoffset]$Now = [datetimeoffset]::UtcNow)
     $current = @($Candidates | Where-Object {
-        $_.OnboardingStatus -eq 'Onboarded' -and [string]::IsNullOrWhiteSpace([string]$_.MergedToDeviceId)
+        $null -ne $_ -and $_ -is [Collections.IDictionary] -and $_['OnboardingStatus'] -eq 'Onboarded' -and [string]::IsNullOrWhiteSpace([string]$_['MergedToDeviceId'])
     })
     if (-not $current.Count) { return @{ Status = 'PendingMde'; Candidate = $null } }
     $fresh = @($current | Where-Object {
-        $time = [datetimeoffset]$_.Timestamp
+        $time = [datetimeoffset]$_['Timestamp']
         $time -ge $Now.AddHours(-$FreshnessHours) -and $time -le $Now.AddMinutes(5)
     })
     if (-not $fresh.Count) { return @{ Status = 'StaleEvidence'; Candidate = $null } }
     if ($fresh.Count -ne 1) { return @{ Status = 'Ambiguous'; Candidate = $null } }
     $candidate = $fresh[0]
-    if ([string]::IsNullOrWhiteSpace([string]$candidate.AadDeviceId)) { return @{ Status = 'NoEntraDevice'; Candidate = $candidate } }
+    if ([string]::IsNullOrWhiteSpace([string]$candidate['AadDeviceId'])) { return @{ Status = 'NoEntraDevice'; Candidate = $candidate } }
     $guid = [guid]::Empty
-    if (-not [guid]::TryParse([string]$candidate.AadDeviceId, [ref]$guid) -or $guid -eq [guid]::Empty) {
+    if (-not [guid]::TryParse([string]$candidate['AadDeviceId'], [ref]$guid) -or $guid -eq [guid]::Empty) {
         return @{ Status = 'InvalidEntraIdentifier'; Candidate = $candidate }
     }
     return @{ Status = 'Matched'; Candidate = $candidate }
@@ -2935,23 +3072,41 @@ function Invoke-MachineSync {
                 ArcExtensions = $state.ArcExtensions
                 AzureTags = $state.AzureTags
             }
-            $candidates = @(Get-MdeCandidates -ResourceId $id -VirtualMachineId $state.VirtualMachineId)
+            $preloadedMde = if ($Work.ContainsKey('MdeData') -and $Work['MdeData'] -is [Collections.IDictionary] -and $Work['MdeData'].ContainsKey('Candidates')) {
+                [hashtable]$Work['MdeData']
+            } else { $null }
+            $candidates = @(
+                if ($null -ne $preloadedMde) {
+                    $preloadedMde['Candidates']
+                } else {
+                    Get-MdeCandidates -ResourceId $id -VirtualMachineId $state.VirtualMachineId
+                }
+            ) | Where-Object { $null -ne $_ -and $_ -is [Collections.IDictionary] }
             $correlation = Get-Correlation -Candidates $candidates -FreshnessHours $config.FreshnessHours
-            Write-SyncTrace 'MachineSync' "Correlation evaluated for $($state.MachineName): status=$($correlation.Status), candidates=$($candidates.Count), arcStatus=$($state.ArcStatus), os=$($state.OS)"
+            Write-SyncTrace 'MachineSync' "Correlation evaluated for $($state.MachineName): status=$($correlation.Status), candidates=$(@($candidates).Count), arcStatus=$($state.ArcStatus), os=$($state.OS)"
             $displayCandidate = $correlation.Candidate
             if (-not $displayCandidate) {
-                $unmerged = @($candidates | Where-Object { -not $_.MergedToDeviceId })
+                $unmerged = @($candidates | Where-Object { $null -ne $_ -and $_ -is [Collections.IDictionary] -and -not $_['MergedToDeviceId'] })
                 if ($unmerged.Count -eq 1) { $displayCandidate = $unmerged[0] }
             }
             if ($displayCandidate) {
                 Set-MdeInventory $state $displayCandidate
                 Invoke-InventoryStep $state 'MDE device tags' { Set-MdeTags $state $displayCandidate }
                 Invoke-InventoryStep $state 'MDE network addresses' {
-                    $state.IPAddresses = @(@($state.IPAddresses) + @(Get-MdeNetworkAddresses $state.MdeDeviceId) | Sort-Object -Unique)
+                    $netAddrs = if ($null -ne $preloadedMde -and $preloadedMde.ContainsKey('NetworkAddresses')) {
+                        @($preloadedMde['NetworkAddresses'])
+                    } else {
+                        @(Get-MdeNetworkAddresses $state.MdeDeviceId)
+                    }
+                    $state.IPAddresses = @(@($state.IPAddresses) + $netAddrs | Sort-Object -Unique)
                 }
                 $state.MdeAntivirusStatus = 'Failed'
                 Invoke-InventoryStep $state 'MDE antivirus mode' {
-                    $av = Get-MdeAntivirus $state.MdeDeviceId
+                    $av = if ($null -ne $preloadedMde -and $preloadedMde['Antivirus'] -is [Collections.IDictionary]) {
+                        $preloadedMde['Antivirus']
+                    } else {
+                        Get-MdeAntivirus $state.MdeDeviceId
+                    }
                     $state.MdeAntivirusMode = $av.Mode
                     $state.MdeAntivirusTimestamp = $av.Timestamp
                     $state.MdeAntivirusStatus = $av.Status

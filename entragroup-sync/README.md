@@ -178,9 +178,17 @@ az role assignment create --assignee-object-id $workerPrincipalId --assignee-pri
 
 ## Estimated Monthly Azure Cost
 
-The solution is designed to run on lightweight Azure resources. Below is the estimated monthly cost in **East US (Pay-As-You-Go USD)** for a typical environment (e.g., **100 to 1,000 servers** synced every 30 minutes):
+- **Estimated Total Monthly Solution Cost:** **~$66 / month** *(~$65.25 – $71.75 / month in East US, Pay-As-You-Go USD)*
 
-### 1. Core Infrastructure Cost (`entragroup-sync/azuredeploy.json`)
+### Total Monthly Cost by App Service Plan Tier
+
+| Plan Option | App Service Plan SKU | Estimated Total Monthly Solution Cost (All Resources Included) |
+| --- | --- | --- |
+| **Default (Recommended)** | **`B1` Basic** (1 instance) | **~$65.25 – $71.75 / month** *(~$66/mo typical)* |
+| **Standard** | **`S1` Standard** (1 instance) | **~$83.50 – $90.00 / month** |
+| **Premium** | **`P1v3` Premium v3** (1 instance) | **~$148.50 – $155.00 / month** |
+
+### Cost Breakdown by Azure Resource (`entragroup-sync/azuredeploy.json`)
 
 | Azure Resource | Default SKU / Tier | Estimated Monthly Cost (USD) | Notes |
 | --- | --- | --- | --- |
@@ -191,14 +199,6 @@ The solution is designed to run on lightweight Azure resources. Below is the est
 | **Azure Event Grid** (`Microsoft.EventGrid/eventSubscriptions`) | **System Topic** | **$0.00 / mo** | First **100,000 operations/month** are **free** ($0.60 per million after). |
 | **Microsoft Graph & Azure Resource Graph APIs** | **Included** | **$0.00 / mo** | No per-query charges for Azure Resource Graph, Defender Advanced Hunting, or Entra ID Graph API calls. |
 | **Total Core Infrastructure** | **Default (`B1` Plan)** | **~$65 – $72 / month** | Fixed baseline cost for the entire synchronization and reporting platform. |
-
-### 2. Azure Machine Configuration (Guest Configuration) Cost (`entraiddeviceid` / `entraiddeviceidlinux`)
-
-| Server Type | Azure Machine Configuration Pricing | Notes |
-| --- | --- | --- |
-| **Azure Native Virtual Machines & VMSS** | **$0.00 / mo (Included)** | Azure Machine Configuration is **free** for native Azure Virtual Machines and Virtual Machine Scale Sets. |
-| **Azure Arc-Enabled Servers** *(with Microsoft Defender for Servers Plan 2)* | **$0.00 / mo (Included)** | Included at no additional charge when **Microsoft Defender for Servers Plan 2** (or Azure Automanage / Windows Server Pay-As-You-Go / Software Assurance with Azure Hybrid Benefit) is enabled on the Arc server. |
-| **Azure Arc-Enabled Servers** *(without Defender for Servers Plan 2 or SA/AHB)* | **~$6.00 / server / mo** *(if `IncludeArcMachines = true`)* | Standard Azure Machine Configuration price for Arc-enabled servers when not covered by Defender for Servers Plan 2 or Windows Server SA/AHB. *(If you do not want to use Machine Configuration on Arc servers, Tier 1 `MDE AadDeviceId` and Tier 3 `MicrosoftSense (Hostname & OS)` fallback correlate Arc servers at **$0/mo** without Guest Configuration.)* |
 
 ---
 
