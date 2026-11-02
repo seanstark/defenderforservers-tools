@@ -292,10 +292,14 @@ footer { padding: 8px 0 0; font-size: 11px; }
 .drawer-heading p { margin: 0; }
 .drawer-heading button { flex-shrink: 0; }
 .detail-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 6px 10px; margin: 8px 0; }
-.summary-chip { display: grid; gap: 2px; padding: 6px 8px; border: 1px solid var(--cp-border); border-radius: 3px; background: var(--cp-surface); }
+.function-summary { grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); }
+.summary-chip { display: grid; gap: 2px; padding: 6px 8px; border: 1px solid var(--cp-border); border-radius: 3px; background: var(--cp-surface); min-width: 0; }
 .summary-chip-wide { grid-column: 1 / -1; }
 .summary-chip dt { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--cp-text-muted); }
-.summary-chip dd { margin: 0; font-size: 12px; font-weight: 600; color: var(--cp-text); }
+.summary-chip dd { margin: 0; font-size: 12px; font-weight: 600; color: var(--cp-text); min-width: 0; overflow-wrap: anywhere; }
+.summary-chip .status-value { display: flex; align-items: flex-start; white-space: normal; max-width: 100%; min-width: 0; line-height: 1.4; }
+.summary-chip .status-value::before { margin-top: 5px; flex-shrink: 0; }
+.summary-chip .status-value > span { min-width: 0; overflow-wrap: anywhere; }
 .drawer-content { flex: 1; min-height: 0; overflow: auto; padding: 8px 20px 20px; }
 .identity-section { border-bottom: 1px solid var(--cp-border); padding-bottom: 8px; }
 .identity-section > summary { font-weight: 600; padding: 10px 0; }

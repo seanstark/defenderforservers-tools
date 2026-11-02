@@ -1348,11 +1348,14 @@
     const statusTone = statusValue === "Running" ? "good" : statusValue === "Stopped" || statusValue === "Error" ? "bad" : "attention";
     const healthTone = healthValue === "Healthy" ? "good" : healthValue === "Unhealthy" ? "bad" : "attention";
     const runTone = ["Succeeded", "Verified", "WouldAdd", "Matched"].includes(lastStatus) ? "good" : lastStatus === "Failed" ? "bad" : "attention";
-    const statusSpan = text("span", `${statusValue}${health.FunctionAppName ? " (" : ""}`, `status-value ${statusTone}`);
+    const statusSpan = text("span", "", `status-value ${statusTone}`);
+    const statusText = text("span", statusValue);
     if (health.FunctionAppName) {
-      appendLink(statusSpan, health.FunctionAppName, portalUrl);
-      statusSpan.append(text("span", ")"));
+      statusText.append(text("span", " ("));
+      appendLink(statusText, health.FunctionAppName, portalUrl);
+      statusText.append(text("span", ")"));
     }
+    statusSpan.append(statusText);
     const aiSpan = document.createElement("span");
     appendLink(aiSpan, aiInfo.name ? `${aiInfo.name} (Search)` : "Open Transaction Search", aiInfo.searchUrl);
     const items = [
