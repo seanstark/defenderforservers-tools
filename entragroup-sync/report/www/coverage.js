@@ -413,6 +413,20 @@
     const totalPassive = machines.filter(m => ["Passive", "PassiveAudit"].includes(m.MdeAntivirusMode)).length;
     const totalConnected = machines.filter(m => m.ArcStatus === "Connected" || /^vm running$/i.test(String(m.ArcStatus || ""))).length;
     const totalDisconnected = machines.filter(m => m.ArcStatus === "Disconnected" || /^vm (stopped|deallocated)$/i.test(String(m.ArcStatus || ""))).length;
+    const syncMode = latestHealth?.SyncMode || latestHealth?.Parameters?.SYNC_MODE || "Audit";
+    const defaultGroupMode = latestHealth?.Parameters?.SYNC_DEFAULT_GROUP_MODE || "Passive";
+    const syncBadge = byId("header-sync-mode");
+    if (syncBadge) {
+      syncBadge.textContent = `Sync Mode: ${syncMode} (${syncMode === "Enforce" ? "Adds to group" : "Observe only"})`;
+      syncBadge.className = `badge mode-pill ${syncMode === "Enforce" ? "good" : "attention"}`;
+      syncBadge.hidden = false;
+    }
+    const groupModeBadge = byId("header-group-mode");
+    if (groupModeBadge) {
+      groupModeBadge.textContent = `Default Group: ${defaultGroupMode}`;
+      groupModeBadge.className = "badge mode-pill";
+      groupModeBadge.hidden = false;
+    }
     const kpis = [
       ["Total servers", String(machines.length), `${totalConnected} Connected · ${totalDisconnected} Disconnected`],
       ["AWS Accounts", `${awsScopes.length} (${awsScopes.filter(s => s.TotalServers === 0).length} empty)`, `${awsScopes.reduce((n, s) => n + s.TotalServers, 0)} servers across AWS accounts`],

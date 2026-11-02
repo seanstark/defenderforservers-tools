@@ -1345,6 +1345,25 @@
     const lastReason = health.LastRunReason || (health.LastSuccessfulInventory ? "Scheduled timer (NCRONTAB schedule)" : "No function runs recorded yet");
     const lastFunction = health.LastRunFunction || (health.LastSuccessfulInventory ? "Inventory" : missing);
     const lastStatus = health.LastRunStatus || (health.LastSuccessfulInventory ? "Succeeded" : missing);
+    const syncMode = health.SyncMode || health.Parameters?.SYNC_MODE || "Audit";
+    const defaultGroupMode = health.Parameters?.SYNC_DEFAULT_GROUP_MODE || "Passive";
+    const syncModeTone = syncMode === "Enforce" ? "good" : "attention";
+    const syncBadge = byId("header-sync-mode");
+    if (syncBadge) {
+      syncBadge.textContent = `Sync Mode: ${syncMode} (${syncMode === "Enforce" ? "Adds to group" : "Observe only"})`;
+      syncBadge.className = `badge mode-pill ${syncModeTone}`;
+      syncBadge.title = syncMode === "Enforce" ?
+        "SYNC_MODE is Enforce: verified devices are automatically added to their target Entra ID security group." :
+        "SYNC_MODE is Audit: devices are evaluated and reported as WouldAdd without modifying Entra ID groups.";
+      syncBadge.hidden = false;
+    }
+    const groupModeBadge = byId("header-group-mode");
+    if (groupModeBadge) {
+      groupModeBadge.textContent = `Default Group: ${defaultGroupMode}`;
+      groupModeBadge.className = "badge mode-pill";
+      groupModeBadge.title = `SYNC_DEFAULT_GROUP_MODE is ${defaultGroupMode}: correlated devices target <Prefix>${defaultGroupMode}-<AccountId|ProjectId|SubscriptionName> by default (unless already in the counterpart group).`;
+      groupModeBadge.hidden = false;
+    }
     const statusTone = statusValue === "Running" ? "good" : statusValue === "Stopped" || statusValue === "Error" ? "bad" : "attention";
     const healthTone = healthValue === "Healthy" ? "good" : healthValue === "Unhealthy" ? "bad" : "attention";
     const runTone = ["Succeeded", "Verified", "WouldAdd", "Matched"].includes(lastStatus) ? "good" : lastStatus === "Failed" ? "bad" : "attention";
@@ -1358,9 +1377,13 @@
     statusSpan.append(statusText);
     const aiSpan = document.createElement("span");
     appendLink(aiSpan, aiInfo.name ? `${aiInfo.name} (Search)` : "Open Transaction Search", aiInfo.searchUrl);
+    const syncModeSpan = text("span", `${syncMode} (${syncMode === "Enforce" ? "Enforcing group additions" : "Audit — observe only"})`, `badge ${syncModeTone}`);
+    const groupModeSpan = text("span", `${defaultGroupMode} group (<Prefix>${defaultGroupMode}-<Id>)`, "badge");
     const items = [
       ["Function App status", statusSpan],
       ["Function App health", text("span", healthValue, `badge ${healthTone}`)],
+      ["Sync mode (SYNC_MODE)", syncModeSpan],
+      ["Default group mode", groupModeSpan],
       ["Application Insights", aiSpan],
       ["Last run time", text("span", time(lastRunTime))],
       ["Why it ran", text("span", lastReason)],

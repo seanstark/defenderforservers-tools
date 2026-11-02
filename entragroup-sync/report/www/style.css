@@ -71,6 +71,8 @@ button:disabled { opacity: .6; cursor: wait; }
 .app-brand { display: flex; align-items: center; gap: 10px; color: var(--cp-text); text-decoration: none; font-size: 14px; font-weight: 600; white-space: nowrap; }
 .brand-mark { display: grid; place-items: center; width: 24px; height: 24px; background: var(--cp-accent-soft); border: 1px solid var(--cp-accent); color: var(--cp-accent); border-radius: 4px; font-size: 10px; font-weight: 700; }
 .app-context { color: var(--cp-text-muted); font-size: 12px; padding-left: 12px; border-left: 1px solid var(--cp-border); }
+.header-mode-badges { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.mode-pill { font-weight: 600; padding: 2px 8px; background: var(--cp-bg-elevated); white-space: nowrap; }
 .actions { display: flex; align-items: center; gap: 16px; margin-left: auto; white-space: nowrap; }
 .theme-toggle { padding: 3px 8px; font-size: 11px; }
 .read-only { color: var(--cp-text-muted); font-size: 11px; }
