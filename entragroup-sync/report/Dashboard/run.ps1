@@ -5,7 +5,7 @@ if (-not ($global:ReportApiCache -is [hashtable])) { $global:ReportApiCache = @{
 $headers = @{
     'Cache-Control' = 'no-store'
     'X-Content-Type-Options' = 'nosniff'
-    'Referrer-Policy' = 'no-referrer'
+    'Referrer-Policy' = 'same-origin'
     'Content-Security-Policy' = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
 }
 function New-HttpResponse {
@@ -31,6 +31,41 @@ try {
     }
     $rawPath = ([string]$Request.Params.path).Trim('/')
     $path = ($rawPath -replace '^(?i)api/report/?', '').Trim('/')
+    $manualSyncConfigured = -not [string]::IsNullOrWhiteSpace((Get-OptionalSetting 'ServiceBusConnection__fullyQualifiedNamespace'))
+    $manualSyncUnavailableReason = 'Manual sync is not configured. Deploy the updated infrastructure to configure the inventory-sync queue, queue-scoped permissions, and report Service Bus namespace.'
+    if ($path -eq 'sync' -and $Request.Method -eq 'POST') {
+        if (-not (Test-ReportSyncRequest $Request)) {
+            Write-Warning 'Manual inventory request denied: same-origin action header missing or invalid.'
+            Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 403 -ContentType 'application/json; charset=utf-8' -Body '{"error":"A same-origin sync action request is required."}' -Headers $headers)
+            return
+        }
+        if (-not $manualSyncConfigured) {
+            Write-Warning $manualSyncUnavailableReason
+            $body = ConvertTo-Json -InputObject @{ error = $manualSyncUnavailableReason } -Compress
+            Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 503 -ContentType 'application/json; charset=utf-8' -Body $body -Headers $headers)
+            return
+        }
+        $status = Get-InventoryJobStatus
+        if ($status.IsRunning) {
+            Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 409 -ContentType 'application/json; charset=utf-8' -Body '{"error":"An inventory sync is already running."}' -Headers $headers)
+            return
+        }
+        $result = New-ReportSyncRequest
+        Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 202 -ContentType 'application/json; charset=utf-8' -Body (ConvertTo-Json -InputObject $result -Compress) -Headers $headers)
+        return
+    }
+    if ($Request.Method -ne 'GET' -or $path -eq 'sync') {
+        $headers['Allow'] = if ($path -eq 'sync') { 'POST' } else { 'GET' }
+        Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 405 -ContentType 'application/json; charset=utf-8' -Body '{"error":"Method not allowed."}' -Headers $headers)
+        return
+    }
+    if ($path -eq 'sync-status') {
+        $result = Get-InventoryJobStatus
+        $result.CanStartSync = $manualSyncConfigured
+        $result.StartSyncUnavailableReason = if ($manualSyncConfigured) { '' } else { $manualSyncUnavailableReason }
+        Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 200 -ContentType 'application/json; charset=utf-8' -Body (ConvertTo-Json -InputObject $result -Compress) -Headers $headers)
+        return
+    }
     $content = switch ($path) {
         '' { @{ File = 'index.html'; Type = 'text/html; charset=utf-8' } }
         'index.html' { @{ File = 'index.html'; Type = 'text/html; charset=utf-8' } }

@@ -2,14 +2,22 @@
 
 1. Automatically discovers Azure Arc-enabled servers (AWS, GCP, on-premises), Azure Virtual Machines, and Virtual Machine Scale Set (VMSS) instances
 2. Correlates them through Microsoft Defender for Endpoint (MDE) and Azure Machine Configuration to Microsoft Entra ID device objects
-3. Assigns verified devices to per-account Cloud × OS × Active/Passive Entra ID security groups. 
+3. Adds verified devices to Entra ID Security Groups based on AWS Account, GCP Project, or Azure Subscription
+  - **Default group names:** `dfs-<cloud provider>-<cloud account>-<os>-<mde mode>`
+    - `dfs-aws-123456789012-windows-passive`
+    - `dfs-gcp-my-project-linux-active`
+    - `dfs-azure-trydex-main-linux-passive`
+    - Windows and Linux have separate active/passive groups for each cloud account, with a hyphen between OS and mode (`windows-active`, `windows-passive`, `linux-active`, `linux-passive`). Azure uses the subscription name, AWS uses the `AccountId` tag, and GCP uses the `ProjectId` tag. The existing default mode remains `Passive`; the naming change does not change mode-selection behavior.
 4. Includes an authenticated **Cloud Server Correlation** web portal for device inventory, cloud/group coverage, permissions validation, and execution logs.
 
+- **Not in group:** Shows devices without confirmed managed-group membership, including unknown/unverified devices; their original membership status remains visible.
 - **Default mode:** `Audit` (observes and reports without modifying groups).
 - **Add-only safety:** Never deletes Entra devices or removes group members.
+- **Inventory-first group provisioning:** Prepares each discovered cloud-account/OS active/passive pair before queuing device correlation; groups may exist before any device successfully correlates.
 
 ## Table of contents
 
+- [Solution at a Glance](#solution-at-a-glance)
 - [Step-by-Step Deployment Guide](#step-by-step-deployment-guide)
   - [Step 1: Create the Entra ID Administrative Unit & Report App Registration](#step-1-create-the-entra-id-administrative-unit--report-app-registration)
   - [Step 2: Deploy the Azure Machine Configuration Policies (MDE Entra ID Device ID)](#step-2-deploy-the-azure-machine-configuration-policies-mde-entra-id-device-id)
@@ -33,6 +41,25 @@
 
 ---
 
+## Solution at a Glance
+
+| Resources created | Purpose |
+| --- | --- |
+| App Service plan | Hosts both Function Apps. |
+| Worker and report Function Apps | Run synchronization and serve the web portal using managed identities. |
+| Three Storage Accounts | Store Function host data, device state, history, and logs. |
+| Service Bus namespace and two queues | Queue device work (`machines`) and manual requests (`inventory-sync`). |
+| Application Insights and Log Analytics | Collect telemetry and diagnostics. |
+| Event Grid subscriptions | Forward relevant resource updates to the worker. |
+| Monitoring alerts | Detect dead-letter messages and stale inventory. |
+| Entra security groups | Create missing cloud-account/OS Active/Passive groups when auto-create and Enforce mode are enabled. |
+
+| Sync trigger | When it runs |
+| --- | --- |
+| Schedule | Every 30 minutes by default, including discovery of newly connected machines. |
+| Event Grid | Successful relevant MDE extension updates, or Machine Configuration assignment updates whose current status is `Compliant`. |
+| Manual | A signed-in `Report.Reader` user clicks **Start sync**. |
+
 ## Step-by-Step Deployment Guide
 
 Follow these **6 straightforward steps** to deploy the solution end-to-end.
@@ -41,7 +68,7 @@ Follow these **6 straightforward steps** to deploy the solution end-to-end.
 
 1. **Create an Entra ID Administrative Unit (Recommended):**
    - In the [Microsoft Entra admin center](https://entra.microsoft.com) &rarr; **Identity** &rarr; **Roles & admins** &rarr; **Admin units**, create a new Administrative Unit (e.g., `Defender for Servers Groups`) and copy its **Object ID** (`SYNC_ADMIN_UNIT_ID`).
-   - The Function App will only query, create, and manage Cloud × OS security groups inside this Administrative Unit.
+   - The Function App will only query, create, and manage cloud-account security groups inside this Administrative Unit.
 2. **Create the Web Portal App Registration:**
    - Go to **Identity** &rarr; **Applications** &rarr; **App registrations** &rarr; **New registration** (Single tenant).
    - Under **Certificates & secrets**, create a new **Client secret** and copy its **Value**.
@@ -50,6 +77,17 @@ Follow these **6 straightforward steps** to deploy the solution end-to-end.
      - **Allowed member types:** `Users/Groups`
      - **Value:** `Report.Reader`
    - Go to **Enterprise applications** &rarr; select your app &rarr; **Users and groups**, and assign your users/groups to the **`Report.Reader`** role.
+   - The same `Report.Reader` role authorizes **Start sync**; no additional role is required.
+
+#### Live inventory status and manual synchronization
+
+The Device inventory page checks uncached `GET /sync-status` every 15 seconds while visible, independently of cached device data. It shows the active inventory job, trigger, start time, and last outcome. **Start sync** sends a same-origin `POST /sync` with `X-Sync-Action: start`; signed-in users with `Report.Reader` in the configured tenant can invoke it. Use the Function App's default HTTPS hostname for this action. No Function keys, Graph tokens, or worker management permissions are exposed to the browser.
+
+The report identity remains a **Table Data Reader**, with **Service Bus Data Sender only on `inventory-sync`**. The worker receives requests on that dedicated queue and runs the same inventory workflow as the timer, using the existing scope and `Audit`/`Enforce` mode. Deploy the updated infrastructure as well as both ZIP packages to enable this feature on an existing installation; uploading ZIPs alone does not create the queue, RBAC assignments, or report namespace setting.
+
+An atomic Table Storage claim prevents overlapping timer/manual inventory runs across instances. Requests covered by a run that started after they were queued are coalesced rather than starting another pass. Manual requests expire after 15 minutes. A missing completion becomes **Interrupted** after 15 minutes; the next request can recover the claim. This recovery requires the worker's bounded `functionTimeout` to remain **at most 10 minutes** (including any `AzureFunctionsJobHost__functionTimeout` override); the worker validates this before claiming a job. Do not remove that execution bound. Check worker logs and the `inventory-sync` dead-letter queue if a request does not start.
+
+**Inventory completion is not completion of all device synchronization:** discovery, group preparation, and machine queueing finish first; per-device workers may continue afterward. **Refresh inventory** only refreshes report data and never starts a job.
 
 ---
 
@@ -102,12 +140,12 @@ $secret = Read-Host 'Report App Client Secret' -AsSecureString
     -SubscriptionIds @('<subscription-guid>') `
     -ManagementGroupIds @('<optional-management-group-id>') `
     -AdminUnitId '<entra-administrative-unit-guid>' `
-    -AwsWindowsGroupPrefix 'MDfS-AWS-Windows-' `
-    -AwsLinuxGroupPrefix 'MDfS-AWS-Linux-' `
-    -GcpWindowsGroupPrefix 'MDfS-GCP-Windows-' `
-    -GcpLinuxGroupPrefix 'MDfS-GCP-Linux-' `
-    -AzureWindowsGroupPrefix 'MDfS-Azure-Windows-' `
-    -AzureLinuxGroupPrefix 'MDfS-Azure-Linux-' `
+    -AwsWindowsGroupPrefix 'dfs-aws-{id}-windows-{mode}' `
+    -AwsLinuxGroupPrefix 'dfs-aws-{id}-linux-{mode}' `
+    -GcpWindowsGroupPrefix 'dfs-gcp-{id}-windows-{mode}' `
+    -GcpLinuxGroupPrefix 'dfs-gcp-{id}-linux-{mode}' `
+    -AzureWindowsGroupPrefix 'dfs-azure-{id}-windows-{mode}' `
+    -AzureLinuxGroupPrefix 'dfs-azure-{id}-linux-{mode}' `
     -ReportClientId '<report-app-client-id>' `
     -ReportClientSecret $secret
 ```
@@ -122,7 +160,7 @@ $secret = Read-Host 'Report App Client Secret' -AsSecureString
    az functionapp deployment source config-zip --resource-group '<resource-group>' --name '<worker-app-name>' --src .\entragroup-sync\packages\worker.zip
    az functionapp deployment source config-zip --resource-group '<resource-group>' --name '<report-app-name>' --src .\entragroup-sync\packages\report.zip
    ```
-3. *(Optional for Option B)* Deploy the Subscription Event Grid trigger & `Reader` role (`infra/subscription.bicep`) so machines sync immediately when `entraiddeviceid` Machine Configuration assignments or `MDE.Windows`/`MDE.Linux` extensions finish:
+3. *(Optional for Option B)* Deploy the Subscription Event Grid trigger & `Reader` role (`infra/subscription.bicep`). For `entraiddeviceid*` assignment write events, the worker reads the current assignment and queues synchronization only when `properties.complianceStatus` is `Compliant`; noncompliant, pending, unknown, or missing statuses are logged and skipped. `MDE.Windows`/`MDE.Linux` extension events still require successful provisioning. Scheduled and manual inventory are unchanged; a compliance transition alone is not guaranteed to emit a resource-write event:
    ```powershell
    $subId = '<subscription-guid>'
    $rg = '<resource-group>'
@@ -150,7 +188,7 @@ $secret = Read-Host 'Report App Client Secret' -AsSecureString
 
 The Worker Function App's System-Assigned Managed Identity needs:
 1. **Azure `Reader`** on your target Subscription(s) or Management Group(s) so Azure Resource Graph can discover servers and `GuestConfigurationResources`.
-2. **Microsoft Graph (`ThreatHunting.Read.All` & `Device.Read.All`) + Administrative Unit `Groups Administrator`** (`Grant-GraphPermissions.ps1`).
+2. **Microsoft Graph (`ThreatHunting.Read.All`, `Device.Read.All`, and `AdministrativeUnit.Read.All`) + Administrative Unit `Groups Administrator`** when using `SYNC_ADMIN_UNIT_ID` (`Grant-GraphPermissions.ps1`). The Graph application permission permits AU discovery; the scoped directory role permits group management within the AU.
 
 ```powershell
 # 1. Get the Worker Function App's Managed Identity Principal ID
@@ -201,6 +239,17 @@ az role assignment create --assignee-object-id $workerPrincipalId --assignee-pri
 
 ### Group Membership Evaluation Flow
 
+The scheduled inventory prepares groups before the per-device evaluation below:
+
+1. Derive and deduplicate the expected active/passive names from discovered resource OS, AWS/GCP tags, provider metadata, and subscription names. Available bulk MDE cloud-platform metadata is also used. Disabled routes and missing identifiers are skipped with a trace; previously tracked resources without fresh metadata use the worker fallback.
+2. Read the AU's existing groups with pagination and validate matching names. In `Enforce` mode with auto-creation enabled, create missing groups through the same atomic reservations used by event workers. Existing duplicate required names fail the inventory pass rather than selecting an arbitrary ID. Missing groups can require additional fresh AU reads inside the guarded creation path.
+3. Publish the AU group IDs and metadata to the shared `machines` table, then queue machine work. The inventory log records existing, created, would-create, and missing counts. `Audit` mode writes only report/cache data and reports missing groups; it never creates Graph groups or creation reservations.
+4. Machine workers reuse the shared catalog for name lookup and membership discovery. Correlation and per-device membership checks still run. A new account arriving between inventories uses the guarded on-demand creation fallback.
+
+The shared catalog expires after **30 minutes** and is also cached in each runspace until that expiry. Entries use `PartitionKey=au-groups-<AU ID>`, one row per group object ID, with a generation marker; `PartitionKey=group-catalogs`, `RowKey=<AU ID>` publishes the generation, count, and expiry only after all rows are saved. Reads are paginated, so a large AU is not stored in a single Table property. Expired, absent, or concurrently overwritten/incomplete snapshots cause a fresh Graph listing; storage/Graph errors are surfaced. A publication failure stops that inventory pass before any machine work is queued. Stable per-group rows are reused on subsequent inventories; rows from removed groups are excluded by generation.
+
+Before using a group resolved from shared metadata for a membership update, the worker rechecks its live security-group properties and display name, and verifies that it still belongs to the configured AU before writing. Deleted, renamed, removed-from-AU, or ineligible groups fail closed until inventory/manual reconciliation; cached IDs never authorize creating a replacement. Groups are still created only inside the configured AU, and the worker never removes devices from existing groups.
+
 ![Machine Correlation and Entra ID Group Membership Evaluation Workflow](infra/evaluation.archify.svg)
 
 | Gate | Evaluation Criteria | Pass Outcome | Fail / Stop Outcome (No Group Write) |
@@ -210,7 +259,7 @@ az role assignment create --assignee-object-id $workerPrincipalId --assignee-pri
 | **Gate 3: MDE Match** | Latest `DeviceInfo` row per `DeviceId` (7d) where `AzureResourceId =~ id` (or `AzureVmId =~ vmId`), `OnboardingStatus == "Onboarded"`, `MergedToDeviceId == ""`, `Timestamp <= SYNC_FRESHNESS_HOURS` (24h), and **count == 1** | Proceed to Gate 4 (even if `AadDeviceId` is empty on MDE-managed servers) | `PendingMde` (0), `StaleEvidence` (>24h), `Ambiguous` (>1), or `InvalidEntraIdentifier` |
 | **Gate 4: 3-Tier Entra ID Correlation** | **Tier 1 (`MdeAadDeviceId`):** `GET /devices?$filter=deviceId eq '{AadDeviceId}'`<br>**Tier 2 (`GuestConfigurationIntuneDeviceId`):** Joins `GuestConfigurationResources` (`entraiddeviceid` / `entraiddeviceidlinux` assignment reason `intuneDeviceId=<guid>`) &rarr; `GET /devices?$filter=deviceId eq '{intuneDeviceId}'`<br>**Tier 3 (`MicrosoftSenseHostnameAndOS`):** `GET /devices?$filter=displayName eq '{hostname}'` matching `operatingSystem` and `managementType == "MicrosoftSense"` | Extract Entra directory **object `id`** (`accountEnabled == true`) | `NoEntraDevice`, `EntraDeviceNotFound` (0), `Ambiguous` (>1), or `EntraDeviceDisabled` |
 | **Gate 5: Cloud, OS & Default Mode** | Resolves OS (`Windows` vs `Linux`), Cloud (`AWS` via `AccountId` tag, `GCP` via `ProjectId` tag, or `Azure` via `SubscriptionName`; AWS & GCP excluded from Azure Subscription groups), and `SYNC_DEFAULT_GROUP_MODE` (`Passive` by default, or `Active`) | Inspect existing group memberships (inside `SYNC_ADMIN_UNIT_ID` when configured); if already in Active when default is Passive (or Passive when default is Active), do not add to counterpart group | `GroupNotConfigured` or `MissingCloudIdentifier` |
-| **Gate 6: Per-Account Active/Passive Group & Flags** | **AWS Win / Lin:** `<Prefix>{Passive|Active}-<AccountId>`<br>**GCP Win / Lin:** `<Prefix>{Passive|Active}-<ProjectId>`<br>**Azure Win / Lin:** `<Prefix>{Passive|Active}-<SubscriptionName>` | `Audit` = `WouldAdd`; `Enforce` = `POST /members/$ref` + read-back (`Verified`); evaluates compliance flags (AV mode mismatch `Should be Active`, `Multiple groups`, `Wrong group`) | `GroupNotFound` or `Failed` |
+| **Gate 6: Per-Account Active/Passive Group & Flags** | **AWS:** `dfs-aws-<accountid>-<os>-<mode>`<br>**GCP:** `dfs-gcp-<projectid>-<os>-<mode>`<br>**Azure:** `dfs-azure-<subscriptionname>-<os>-<mode>`<br>Lowercase `windows` / `linux`, then a hyphen and `active` / `passive`; separate groups per OS | `Audit` = `WouldAdd`; `Enforce` = `POST /members/$ref` + read-back (`Verified`); evaluates compliance flags (AV mode mismatch `Should be Active`, `Multiple groups`, `Wrong group`) | `GroupNotFound` or `Failed` |
 
 ---
 
@@ -247,12 +296,12 @@ az role assignment create --assignee-object-id $workerPrincipalId --assignee-pri
 | **Worker Managed Identity** | `Reader` | Azure RBAC | Target Subscription(s) (`SYNC_SUBSCRIPTION_IDS`) or Management Group(s) (`SYNC_MANAGEMENT_GROUP_IDS`) | `Deploy.ps1` (`subscription.bicep`) or manual `az role assignment create` | **Required** to query Azure Resource Graph (`Microsoft.ResourceGraph/resources`), resolve subscription display names, and read Azure Arc, Native VM, VMSS, and `MDE.Windows` / `MDE.Linux` extension resources. *(Without `Reader`, Resource Graph returns 0 rows.)* |
 | **Worker Managed Identity** | `ThreatHunting.Read.All` | Microsoft Graph (Application) | Tenant | `Grant-GraphPermissions.ps1` | Run KQL Advanced Hunting queries (`POST /v1.0/security/runHuntingQuery`) against `DeviceInfo`, `DeviceNetworkInfo`, and `DeviceTvmSecureConfigurationAssessment` (`scid-2010`). |
 | **Worker Managed Identity** | `Device.Read.All` | Microsoft Graph (Application) | Tenant | `Grant-GraphPermissions.ps1` | Resolve MDE `AadDeviceId` to the Entra device object `id` and inspect `accountEnabled`. |
-| **Worker Managed Identity** *(Recommended: Administrative Unit Scoped)* | `Groups Administrator` (`fdd7a751-b60b-444a-984c-02652fe8fa1c`) | Microsoft Entra Directory Role | Administrative Unit (`/administrativeUnits/{SYNC_ADMIN_UNIT_ID}`) | `Grant-GraphPermissions.ps1 -AdminUnitId <guid>` | List and check groups inside the Administrative Unit (`/directory/administrativeUnits/{id}/members/microsoft.graph.group`), automatically create missing Active & Passive Cloud × OS security groups (`Enforce` mode), and verify/add device members without needing tenant-wide `GroupMember.Read.All`. |
+| **Worker Managed Identity** *(Recommended: Administrative Unit Scoped)* | `Groups Administrator` (`fdd7a751-b60b-444a-984c-02652fe8fa1c`) | Microsoft Entra Directory Role | Administrative Unit (`/administrativeUnits/{SYNC_ADMIN_UNIT_ID}`) | `Grant-GraphPermissions.ps1 -AdminUnitId <guid>` | Manage groups inside the Administrative Unit, automatically create missing active/passive cloud-account security groups (`Enforce` mode), and verify/add device members. AU listing additionally requires Graph `AdministrativeUnit.Read.All` (see Step 5). |
 | **Worker Managed Identity** *(Alternative when `SYNC_ADMIN_UNIT_ID` is not used)* | `GroupMember.Read.All` + **Group Owner** | Microsoft Graph (Application) + Entra Group Ownership | Tenant (Read) + Target Security Groups (Write) | `Grant-GraphPermissions.ps1 -AssignGroupOwner -GroupNamePrefixes @(...)` | Only needed when `SYNC_ADMIN_UNIT_ID` is not configured and pre-created tenant-wide groups are used instead. |
-| **Worker Managed Identity** | `Storage Table Data Contributor`<br>`Azure Service Bus Data Sender`<br>`Azure Service Bus Data Receiver` | Azure RBAC | Sync Storage Account & Service Bus `machines` Queue | Automatic (`infra/main.bicep` / `azuredeploy.json`) | Queue per-machine work items and commit atomic state, change history (`h_`), and execution log (`log_`) rows. |
+| **Worker Managed Identity** | `Storage Table Data Contributor`<br>`Azure Service Bus Data Sender`<br>`Azure Service Bus Data Receiver` | Azure RBAC | Sync Storage Account; Sender/Receiver on `machines`; Receiver on `inventory-sync` | Automatic (`infra/main.bicep` / `azuredeploy.json`) | Queue per-machine work, receive manual inventory requests, and commit state, history, logs, and inventory job claims. |
 | **Worker & Report Managed Identities** | `Storage Blob Data Owner`<br>`Storage Queue Data Contributor`<br>`Storage Table Data Contributor` | Azure RBAC | Respective Host Storage Accounts (`worker<suffix>`, `report<suffix>`) | Automatic (`infra/main.bicep` / `azuredeploy.json`) | Identity-based `AzureWebJobsStorage` for the Azure Functions runtime (no storage shared keys used). |
-| **Report Managed Identity** | `Storage Table Data Reader` | Azure RBAC | Sync Storage Account (`sync<suffix>`) | Automatic (`infra/main.bicep` / `azuredeploy.json`) | Read-only access to the `machines` table for serving the web portal. Has **no** Microsoft Graph permissions and **no** Service Bus access. |
-| **Report Users (Human Sign-In)** | `Report.Reader` | Microsoft Entra App Role | Report App Registration / Enterprise Application | Entra Admin (`Enterprise applications` &rarr; `Users and groups`) | Enforced by App Service Authentication (Easy Auth) and verified on every HTML, JS, CSS, and JSON request. |
+| **Report Managed Identity** | `Storage Table Data Reader`<br>`Azure Service Bus Data Sender` | Azure RBAC | Sync Storage Account (`sync<suffix>`); Sender only on `inventory-sync` queue | Automatic (`infra/main.bicep` / `azuredeploy.json`) | Read-only table access; sends authenticated users' inventory requests. No Microsoft Graph permissions or access to the `machines` queue. |
+| **Report Users (Human Sign-In)** | `Report.Reader` | Microsoft Entra App Role | Report App Registration / Enterprise Application | Entra Admin (`Enterprise applications` &rarr; `Users and groups`) | Allows viewing the report and starting sync. Easy Auth and the configured tenant/app role are checked on every request. |
 
 ## Scope & Configuration Parameters
 
@@ -264,17 +313,21 @@ All active Function App parameters are also displayed live on the portal under *
 | `SYNC_MANAGEMENT_GROUP_IDS` (`-ManagementGroupIds`) | Comma-separated management group IDs (at least one subscription or management group is required) |
 | `SYNC_RESOURCE_GROUP_NAMES` (`-ResourceGroupNames`) | Optional comma-separated resource group names to restrict discovery and events |
 | `SYNC_DEFAULT_GROUP_MODE` (`-DefaultGroupMode`) | Global default target group mode (`Passive` by default, or `Active`). If set to `Passive` and a device is in an `Active` group, it is not added to `Passive` (and vice versa) |
-| `SYNC_ADMIN_UNIT_ID` (`-AdminUnitId`) | Optional Microsoft Entra ID Administrative Unit GUID. When set (with AU-scoped `Groups Administrator` assigned to the worker), missing Active/Passive Cloud × OS groups are automatically created inside the Administrative Unit in `Enforce` mode |
-| `SYNC_AUTO_CREATE_GROUPS` (`-AutoCreateGroups`) | Automatically create missing Active & Passive Cloud × OS groups inside `SYNC_ADMIN_UNIT_ID` in `Enforce` mode (defaults to `true` when `SYNC_ADMIN_UNIT_ID` is set) |
-| `SYNC_AWS_WINDOWS_GROUP_PREFIX` (`-AwsWindowsGroupPrefix`) | Naming prefix for AWS Windows Active/Passive Entra ID security groups ending in the Arc `AccountId` tag (`<Prefix>{Passive|Active}-<AccountId>`) |
-| `SYNC_AWS_LINUX_GROUP_PREFIX` (`-AwsLinuxGroupPrefix`) | Naming prefix for AWS Linux Active/Passive Entra ID security groups ending in the Arc `AccountId` tag (`<Prefix>{Passive|Active}-<AccountId>`) |
-| `SYNC_GCP_WINDOWS_GROUP_PREFIX` (`-GcpWindowsGroupPrefix`) | Naming prefix for GCP Windows Active/Passive Entra ID security groups ending in the Arc `ProjectId` tag (`<Prefix>{Passive|Active}-<ProjectId>`) |
-| `SYNC_GCP_LINUX_GROUP_PREFIX` (`-GcpLinuxGroupPrefix`) | Naming prefix for GCP Linux Active/Passive Entra ID security groups ending in the Arc `ProjectId` tag (`<Prefix>{Passive|Active}-<ProjectId>`) |
-| `SYNC_AZURE_WINDOWS_GROUP_PREFIX` (`-AzureWindowsGroupPrefix`) | Naming prefix for Azure Windows Active/Passive Entra ID security groups ending in the Azure Subscription name (`<Prefix>{Passive|Active}-<SubscriptionName>`; AWS and GCP machines are excluded) |
-| `SYNC_AZURE_LINUX_GROUP_PREFIX` (`-AzureLinuxGroupPrefix`) | Naming prefix for Azure Linux Active/Passive Entra ID security groups ending in the Azure Subscription name (`<Prefix>{Passive|Active}-<SubscriptionName>`; AWS and GCP machines are excluded) |
+| `SYNC_ADMIN_UNIT_ID` (`-AdminUnitId`) | Optional Microsoft Entra ID Administrative Unit GUID. When set (with the required worker permissions), missing active/passive cloud-account groups are automatically created inside the Administrative Unit in `Enforce` mode |
+| `SYNC_AUTO_CREATE_GROUPS` (`-AutoCreateGroups`) | Automatically create missing active/passive cloud-account groups inside `SYNC_ADMIN_UNIT_ID` in `Enforce` mode (defaults to `true` when `SYNC_ADMIN_UNIT_ID` is set) |
+| `SYNC_AWS_WINDOWS_GROUP_PREFIX` (`-AwsWindowsGroupPrefix`) | AWS Windows template; default `dfs-aws-{id}-windows-{mode}`. `{id}` is the Arc `AccountId` tag |
+| `SYNC_AWS_LINUX_GROUP_PREFIX` (`-AwsLinuxGroupPrefix`) | AWS Linux template; default `dfs-aws-{id}-linux-{mode}`. `{id}` is the Arc `AccountId` tag |
+| `SYNC_GCP_WINDOWS_GROUP_PREFIX` (`-GcpWindowsGroupPrefix`) | GCP Windows template; default `dfs-gcp-{id}-windows-{mode}`. `{id}` is the Arc `ProjectId` tag |
+| `SYNC_GCP_LINUX_GROUP_PREFIX` (`-GcpLinuxGroupPrefix`) | GCP Linux template; default `dfs-gcp-{id}-linux-{mode}`. `{id}` is the Arc `ProjectId` tag |
+| `SYNC_AZURE_WINDOWS_GROUP_PREFIX` (`-AzureWindowsGroupPrefix`) | Azure Windows template; default `dfs-azure-{id}-windows-{mode}`. `{id}` is the subscription name; AWS/GCP machines are excluded |
+| `SYNC_AZURE_LINUX_GROUP_PREFIX` (`-AzureLinuxGroupPrefix`) | Azure Linux template; default `dfs-azure-{id}-linux-{mode}`. `{id}` is the subscription name; AWS/GCP machines are excluded |
 | `SYNC_MODE` (`-SyncMode`) | `Audit` (default) or `Enforce` |
 | `SYNC_FRESHNESS_HOURS` (`-FreshnessHours`) | Maximum age of MDE evidence in hours (`1`–`168`, default `24`) |
 | `SYNC_SCHEDULE` (`-Schedule`) | Timer NCRONTAB schedule (default `0 */30 * * * *`) |
+
+Complete templates containing `{id}` (or `{0}`) and `{mode}` produce entirely lowercase names, including the account identifier. Existing custom literal prefixes retain their legacy formatting behavior. Set a cloud/OS prefix to an empty string to disable that route; the deployment defaults enable all six routes.
+
+Existing deployments retain their configured prefixes until those app settings are updated. Changing the settings targets new group names; it does not rename/delete old groups or migrate/remove their members. Review policies referencing old group IDs and existing memberships before switching conventions. The report identifies Windows and Linux groups separately and flags OS mismatches. Explicit custom templates shared by Windows and Linux remain supported and are labeled OS category `All`; they are not the defaults.
 
 ### How Scope Parameters Combine
 
@@ -347,8 +400,30 @@ AppTraces
 
 The report shows **Correlation** separately from **Sync status**. A resolved Entra object remains **Correlated** even if a later group lookup, membership operation, or sync step fails. **Sync status: Failed** is not a failed identity match; inspect **Sync Error** in the Entra device tooltip or **Latest error** in device details. The optional Correlation and Sync status inventory columns expose both outcomes separately.
 
+#### AU group lookup returns HTTP 403 after granting permissions
+
+For `GET /directory/administrativeUnits/{id}/members/microsoft.graph.group`, verify that the **worker** managed identity has the `AdministrativeUnit.Read.All` Microsoft Graph application permission, in addition to its AU-scoped `Groups Administrator` role. Run `Grant-GraphPermissions.ps1` with both `-WorkerPrincipalId` and `-AdminUnitId` if the grant is missing.
+
+An assigned permission does not guarantee that the worker's current access token contains it. If the assignment exists but the worker token's `roles` claim still lacks `AdministrativeUnit.Read.All` (or a broader applicable AU-read permission), managed-identity authorization propagation/token caching can continue to produce HTTP 403. Azure's managed-identity backend caches tokens per resource URI for around 24 hours; restarting the Function app or clearing its in-process token cache does not force the backend to refresh. Allow propagation and token renewal, then verify the AU listing succeeds using the worker identity. Inspect only token claims and HTTP results; never log the access token itself. See [Microsoft's managed identity authorization guidance](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/managed-identity-best-practice-recommendations#limitation-of-using-managed-identities-for-authorization).
+
+The worker consistently requests Graph tokens for `https://graph.microsoft.com` (without a trailing slash), including readiness token inspection. Older builds used the trailing-slash form, which can have a separate managed-identity cache entry. Updating an older build can therefore select a token with current grants, but is not a general forced-refresh mechanism; verify the token claims and actual AU query rather than assuming an update or restart refreshes permissions.
+
+Do not grant tenant-wide write permissions or recreate the worker's system-assigned identity to work around this delay. If the renewed token contains the required permission but the request still fails, investigate AU visibility (hidden membership also requires `Member.Read.Hidden`) and tenant restrictions separately.
+
+#### Duplicate group prevention and recovery
+
+Entra security group display names are not unique. Parallel workers must not rely on an in-memory cache or the mail nickname to prevent duplicate creation. Both the inventory provisioner and the event-worker fallback bypass shared catalog data, refresh the AU lookup, and atomically insert a durable reservation before creating a group in the existing `machines` table (`PartitionKey=group-creations`, `RowKey=SHA256(lowercase(AU ID + newline + display name))`). All worker instances for the same AU must use the same sync storage account. Successful reservations retain the group object ID, so a stale directory listing cannot cause another create. The shared lookup catalog is separate from these durable creation reservations.
+
+The group-create POST is never automatically retried. If its result is uncertain, or the worker stops before recording the group ID, the reservation remains pending and subsequent workers fail closed with the reservation path in the error. This favors avoiding duplicates over automatically recovering an uncertain write.
+
+- **Existing duplicate names:** pause affected synchronization, inspect group object IDs, memberships, and any policies/applications referencing them, and have an administrator choose the canonical group. Merge memberships or rename/remove redundant groups only after reviewing those dependencies. The worker does not select an arbitrary duplicate or delete groups.
+- **Deleted completed group:** when the recorded group ID returns Graph HTTP 404 and the reservation is at least 30 minutes old, an Enforce worker with auto-creation enabled conditionally replaces the completed reservation using its ETag, then refreshes the AU lookup before reusing or recreating the group. The age check protects newly created groups during directory replication. The previous group ID is retained in the reservation and recovery is logged. Concurrent workers cannot both acquire recovery. Renamed or invalid groups, authorization errors, missing creation timestamps, and missing ETags still block creation.
+- **Pending reservation:** first confirm the original worker/request has finished and inspect Entra audit logs and a fresh AU listing. If a single matching group exists, subsequent fresh lookups can reuse it; reconcile the reservation's `GroupId` to that verified object ID. Pending or uncertain reservations are never automatically replaced.
+- Remove a pending reservation to permit another create **only after** confirming the original operation cannot still complete and no matching group exists. Do not clear reservations merely because a timeout elapsed. Stop all workers sharing that storage while performing manual recovery.
+
 | Symptom / Status | Cause | Resolution |
 | --- | --- | --- |
+| **`Table transaction failed or conflicted`** | A state/history batch did not confirm both operations. The error includes inner HTTP statuses and the Table service error code when available. | Deploy the latest packages, which decode binary multipart responses. If the error persists, inspect the reported status/code; a concurrency conflict requires retry, while a size or validation error requires correcting the entity. |
 | **`InventorySync` discovers `0` machines** (`Queued 0 machines across ...`) | The Worker Function App's System-Assigned Managed Identity lacks the Azure `Reader` role on the target Subscription(s) (`SYNC_SUBSCRIPTION_IDS`) or Management Group(s) (`SYNC_MANAGEMENT_GROUP_IDS`), or `SYNC_RESOURCE_GROUP_NAMES` does not match the machines' resource groups. | Assign the Azure `Reader` role to the Worker Managed Identity at the Subscription or Management Group scope (see [A. Assign Azure `Reader` Role](#a-assign-azure-reader-role-for-azure-resource-graph-discovery)) and check `SYNC_RESOURCE_GROUP_NAMES`. |
 | **`NoMdeMatch`** | No onboarded MDE `DeviceInfo` record matched the Azure Resource ID (`MdeAzureVmId`) or `vmId` (`LoggedOnUsers` / `DeviceName`) within the 30-day lookback window. | Verify the `MDE.Windows` or `MDE.Linux` extension is installed and provisioned on the machine and that `OnboardingStatus == 'Onboarded'` in Defender for Endpoint. |
 | **`StaleMde`** | The machine matched an MDE record, but its latest `DeviceInfo.Timestamp` is older than `SYNC_FRESHNESS_HOURS` (default `24` hours). | Check the MDE sensor health on the endpoint (`MdeSensorHealth`), or increase `SYNC_FRESHNESS_HOURS` (up to `168` hours). |
@@ -357,12 +432,14 @@ The report shows **Correlation** separately from **Sync status**. A resolved Ent
 | **`EntraDeviceNotFound`** | MDE reported an `AadDeviceId`, but `GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'` returned no device object in Entra ID. | Verify the device has not been deleted in Microsoft Entra ID and belongs to the same Entra tenant. |
 | **`EntraDeviceDisabled`** | The correlated Microsoft Entra device object has `accountEnabled == false`. | Re-enable the device in Microsoft Entra ID if the server is still active; disabled devices are never added to security groups. |
 | **`MissingIdentifier`** | Missing cloud account/project identifier required to build the target group name (`AccountId` tag for AWS Arc machines, `ProjectId` tag for GCP Arc machines, or Subscription `displayName` for Azure machines). | Tag AWS Arc machines with `AccountId=<12-digit-account-id>`, tag GCP Arc machines with `ProjectId=<gcp-project-id>`, and ensure the Worker Managed Identity has `Reader` on the Azure Subscription. |
-| **`GroupNotFound`** | The target Entra ID security group `<Prefix>{Passive\|Active}-<Identifier>` does not exist in Entra ID, and automatic group creation is not enabled. | Either pre-create the security group in Entra ID, or configure `SYNC_ADMIN_UNIT_ID` with `SYNC_AUTO_CREATE_GROUPS=true` and grant AU-scoped `Groups Administrator` via `Grant-GraphPermissions.ps1`. |
+| **`GroupNotFound`** | The target Entra ID security group `dfs-<cloud>-<account>-<os>-<mode>` does not exist in Entra ID, and automatic group creation is not enabled. | Either pre-create the security group in Entra ID, or configure `SYNC_ADMIN_UNIT_ID` with `SYNC_AUTO_CREATE_GROUPS=true` and grant AU-scoped `Groups Administrator` via `Grant-GraphPermissions.ps1`. |
 | **`WouldCreateGroupAndAdd`** | The target group does not exist yet, `SYNC_ADMIN_UNIT_ID` is configured, and the worker is running in `Audit` mode. | Review the target group name in the portal. When ready, set `SYNC_MODE=Enforce` so the worker creates the `Passive` and `Active` groups in the Administrative Unit and adds the device. |
 | **Flag (`i` icon): `Should be Active`** | Device is in an `Active` group while MDE Antivirus mode (`scid-2010`) is `Passive`, or in a `Passive` group while MDE Antivirus mode is `Active`. | Hover over the `i` indicator in the `Entra ID Group` or `MDE antivirus mode` column to see the exact mismatch and move the device to the matching Active/Passive group or update its Defender AV configuration. |
-| **Flag (`i` icon): Multiple or Wrong Groups** | Device is a member of more than one Cloud × OS group (`MemberGroups.length > 1`) or belongs to a group whose AWS Account, GCP Project, or Azure Subscription does not match the machine. | Hover over the `i` indicator in the `Entra ID Group` column to inspect all current Cloud × OS groups and remove stale group memberships in Microsoft Entra ID. |
+| **Flag (`i` icon): Multiple or Wrong Groups** | Device is a member of more than one managed group (`MemberGroups.length > 1`) or belongs to a group whose AWS Account, GCP Project, or Azure Subscription does not match the machine. | Hover over the `i` indicator in the `Entra ID Group` column to inspect current managed groups and review stale memberships in Microsoft Entra ID. |
 | **Graph `403 Forbidden` in Worker Logs** | Missing Microsoft Graph application permissions, AU role assignment, or group ownership. | Re-run `.\Grant-GraphPermissions.ps1` for your chosen mode (`Audit`, `Enforce -AdminUnitId <guid>`, or `Enforce -AssignGroupOwner`). |
 | **Portal `401` / `403` or Stale Data** | Signed-in user lacks the `Report.Reader` app role, or browser/server cache is serving a recent snapshot. | Assign the user/group the `Report.Reader` role on the Report Enterprise Application in Entra ID. Click **Refresh inventory** in the portal toolbar to bypass the 15s server cache and 30s browser cache (`?refresh=1`). |
+| **Start sync returns `403` / non-JSON permission error** | Easy Auth can reject browser POSTs before the function runs, including when `no-referrer` suppresses the referrer header. | Deploy the current report package and hard-refresh the browser. The report and sync fetch use `same-origin` referrer policy, preserving [Easy Auth CSRF protection](https://learn.microsoft.com/en-us/azure/app-service/overview-authentication-authorization#mitigation-of-cross-site-request-forgery) without sending referrers to external sites. |
+| **Start sync disabled / manual sync not configured (`503`)** | The report's Service Bus namespace setting is missing, often because only ZIP packages were updated. | Redeploy the updated infrastructure to configure `ServiceBusConnection__fullyQualifiedNamespace`, the `inventory-sync` queue, report Sender, and worker Receiver permissions. ZIP upload alone does not provision these resources. |
 
 ## Local Validation & Preview
 

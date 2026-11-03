@@ -2,8 +2,8 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Azure Arc & VM to Cloud × OS Entra Group Synchronization",
-    "subtitle": "Timer + MDE Extension Event Grid discovery · MDE Hunting correlation · Per-account Cloud × OS Entra group sync · Read-only portal",
+    "title": "Azure Arc & VM to Cloud account Entra Group Synchronization",
+    "subtitle": "Timer + MDE Extension Event Grid discovery · MDE Hunting correlation · Per-account Cloud account Entra group sync · Read-only portal",
     "output": "entragroup-sync/report/www/architecture.html",
     "animation": "trace",
     "visual_preset": "signal-flow",
@@ -67,7 +67,7 @@
       "id": "entra_graph",
       "type": "security",
       "label": "Microsoft Graph (Entra ID)",
-      "sublabel": "AU Auto-Create + Cloud × OS groups",
+      "sublabel": "AU Auto-Create + Cloud account groups",
       "pos": [1010, 120],
       "size": [225, 62],
       "tag": "Groups Admin (AU) · Win/Lin"
@@ -88,7 +88,7 @@
       "sublabel": "Easy Auth + Report.Reader check",
       "pos": [420, 300],
       "size": [220, 62],
-      "tag": "read-only MI"
+      "tag": "Table Reader + sync Sender"
     },
     {
       "id": "portal_ui",
@@ -107,7 +107,7 @@
     },
     {
       "kind": "security-group",
-      "label": "Read-Only Report Plane (Table Reader only · no Graph or Queue access)",
+      "label": "Report Plane (Table Reader · sync-request Sender · no Graph)",
       "wraps": ["report_fn", "portal_ui"]
     }
   ],
@@ -151,7 +151,7 @@
       "id": "worker-entra",
       "from": "machine_worker",
       "to": "entra_graph",
-      "label": "Cloud × OS group sync",
+      "label": "Cloud account group sync",
       "variant": "security"
     },
     {
@@ -202,10 +202,11 @@
     },
     {
       "dot": "violet",
-      "title": "Isolated Read-Only Reporting",
+      "title": "Isolated Role-Based Reporting",
       "items": [
         "Atomic Azure Table batch commits current state and h_ history snapshots plus system/inventory and log_ execution logs",
-        "Separate Report Function App has only Storage Table Data Reader and enforces Entra Easy Auth + Report.Reader role",
+        "Report has Table Data Reader plus Sender only on inventory-sync; Report.Reader in the configured tenant authorizes viewing and starting inventory",
+        "Manual sync requests reach the worker through a separate inventory-sync queue (control path not drawn); timer/manual runs share an atomic job claim",
         "Interactive Defender-style portal provides KPI filters, hover popovers, context drawer, Function App telemetry, and docs"
       ]
     }

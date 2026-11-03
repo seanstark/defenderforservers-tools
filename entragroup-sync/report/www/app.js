@@ -40,6 +40,12 @@
     return Boolean(machine?.EntraObjectId || (machine?.EntraDeviceId &&
       ["Verified", "WouldAdd", "Matched", "GroupNotFound", "MissingCloudIdentifier", "GroupNotConfigured"].includes(machine?.Status)));
   }
+  function hasManagedGroupMembership(machine) {
+    return machine.Membership === "Present" ||
+      (Array.isArray(machine.MemberGroups) && machine.MemberGroups.some(group => group?.Id || group?.DisplayName)) ||
+      (Array.isArray(machine.GroupIds) && machine.GroupIds.some(Boolean)) ||
+      (Array.isArray(machine.GroupNames) && machine.GroupNames.some(Boolean));
+  }
   function correlationBadge(machine) {
     const correlated = hasEntraCorrelation(machine);
     return text("span", correlated ? "Correlated" : "Not correlated", `badge ${correlated ? "good" : "attention"}`);
@@ -733,6 +739,135 @@
       localStorage.removeItem(dataCacheKey);
     } catch {}
   }
+  let syncState = null;
+  let syncStatusBusy = false;
+  let syncRequestBusy = false;
+  let syncRequestError = "";
+  let syncStatusError = "";
+  let pendingSync = "";
+  const pendingSyncKey = "arc-entra-pending-sync-v1";
+  try { pendingSync = sessionStorage.getItem(pendingSyncKey) || ""; }
+  catch (error) { console.warn("Could not restore pending sync request.", error); }
+
+  function inventorySyncView(job, requestedAt, now = Date.now()) {
+    const pending = Number.isFinite(Date.parse(requestedAt)) &&
+      !(Date.parse(job?.StartedAt) >= Date.parse(requestedAt));
+    const waiting = pending && now - Date.parse(requestedAt) < 15 * 60 * 1000;
+    let label = "No monitored run recorded";
+    let details = job?.Message || "No live status available yet.";
+    if (job?.IsRunning) {
+      label = "Inventory sync running";
+      details = `${job.TriggerReason || "Inventory"} | Started ${time(job.StartedAt)}. Device processing continues independently.`;
+    } else if (waiting) {
+      label = "Sync requested - waiting for worker";
+      details = "The request was accepted into the queue; the inventory job has not started yet.";
+    } else if (pending) {
+      label = "Sync request did not start within 15 minutes";
+      details = "Check the worker and inventory-sync dead-letter queue before retrying.";
+    } else if (job?.Status === "Succeeded") {
+      label = "Inventory idle - last run succeeded";
+      details = `Completed ${time(job.CompletedAt)}. Queued device processing may still be running.`;
+    } else if (job?.Status === "Failed" || job?.Status === "Interrupted") {
+      label = `Inventory ${job.Status.toLowerCase()}`;
+      details = `${job.Message} ${job.CompletedAt ? `Completed ${time(job.CompletedAt)}.` : ""}`;
+    }
+    return { label, details, disabled: !job?.CanStartSync || Boolean(job?.IsRunning) || waiting };
+  }
+
+  function renderInventorySync() {
+    const view = inventorySyncView(syncState, pendingSync);
+    byId("sync-status").textContent = syncState ? view.label : "Live inventory status unavailable";
+    byId("sync-details").textContent = view.details;
+    byId("start-sync").disabled = syncRequestBusy || view.disabled;
+    byId("start-sync").textContent = syncRequestBusy ? "Requesting sync..." : "Start sync";
+    byId("sync-access").textContent = syncState?.StartSyncUnavailableReason ||
+      (syncState?.CanStartSync ?
+        "Start sync uses the worker's configured scope and Audit/Enforce mode. Refresh inventory only reloads this report." :
+        "Sign in with Report.Reader to view status and start synchronization.");
+    byId("sync-error").textContent = [syncRequestError, syncStatusError].filter(Boolean).join(" ");
+    byId("sync-error").hidden = !syncRequestError && !syncStatusError;
+  }
+
+  async function readSyncResponse(response, action) {
+    const body = await response.text();
+    const contentType = (response.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
+    const isJson = contentType === "application/json" || contentType.endsWith("+json");
+    let result = null;
+    let invalidJson = false;
+    if (isJson) {
+      try { result = JSON.parse(body); }
+      catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+        invalidJson = true;
+      }
+    }
+    if (!response.ok) {
+      const detail = typeof result?.error === "string" ? result.error :
+        invalidJson ? "The server returned an invalid JSON error response." :
+        contentType === "text/plain" ? body.replace(/\s+/g, " ").trim().slice(0, 300) :
+        "The server returned a non-JSON or unspecified error response.";
+      const advice = [401, 403].includes(response.status) ?
+        " Check your sign-in, Report.Reader role, and App Service authentication/CSRF settings." : "";
+      throw new Error(`${action} failed (HTTP ${response.status}). ${detail}${advice}`);
+    }
+    if (!isJson || invalidJson) {
+      throw new Error(`${action} returned ${invalidJson ? "invalid JSON" : "non-JSON"} (HTTP ${response.status}); the expected response could not be confirmed.`);
+    }
+    return result;
+  }
+
+  async function pollInventorySync() {
+    if (syncStatusBusy) return;
+    syncStatusBusy = true;
+    try {
+      const response = await fetch(base + "sync-status", {
+        credentials: "same-origin", cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15000)
+      });
+      const result = await readSyncResponse(response, "Live sync status");
+      if (typeof result?.Status !== "string" || typeof result?.IsRunning !== "boolean" || typeof result?.CanStartSync !== "boolean") {
+        throw new Error("Live sync status returned an unexpected response. Check the report deployment.");
+      }
+      syncState = result;
+      syncStatusError = "";
+    } catch (error) {
+      syncState = null;
+      syncStatusError = error.message;
+    } finally {
+      syncStatusBusy = false;
+      renderInventorySync();
+    }
+  }
+
+  async function startInventorySync() {
+    if (syncRequestBusy || inventorySyncView(syncState, pendingSync).disabled) return;
+    syncRequestBusy = true;
+    syncRequestError = "";
+    renderInventorySync();
+    let deliveryUncertain = true;
+    try {
+      const response = await fetch(base + "sync", {
+        method: "POST", credentials: "same-origin", cache: "no-store", redirect: "error",
+        referrerPolicy: "same-origin",
+        headers: { "Content-Type": "application/json", "X-Sync-Action": "start" },
+        body: "{}", signal: AbortSignal.timeout(15000)
+      });
+      deliveryUncertain = response.ok || response.status >= 500;
+      const result = await readSyncResponse(response, "Sync request");
+      if (response.status !== 202 || !result?.RequestId || !Number.isFinite(Date.parse(result?.RequestedAt))) {
+        throw new Error("Unexpected sync response; request acceptance could not be confirmed.");
+      }
+      pendingSync = result.RequestedAt;
+      try { sessionStorage.setItem(pendingSyncKey, pendingSync); }
+      catch (error) { console.warn("Could not persist pending sync request.", error); }
+      renderInventorySync();
+    } catch (error) {
+      syncRequestError = error.message + (deliveryUncertain ? " Delivery could not be confirmed; check live status before retrying." : "");
+    } finally {
+      syncRequestBusy = false;
+      renderInventorySync();
+    }
+  }
+
   async function get(path, forceRefresh = false) {
     const sep = path.includes("?") ? "&" : "?";
     const fullPath = forceRefresh ? `${path}${sep}refresh=1` : path;
@@ -989,7 +1124,7 @@
         "Status not in ('Verified', 'WouldAdd', 'Failed') or GroupFlags is non-empty."
       ],
       "group-flags": [
-        "Devices with group compliance flags: Active/Passive MDE antivirus mode mismatch ('Should be Active'), membership in multiple Cloud × OS groups, or membership in a group whose AWS Account ID, GCP Project, or Azure Subscription does not match.",
+        "Devices with group compliance flags: Active/Passive MDE antivirus mode mismatch ('Should be Active'), membership in multiple managed groups, or membership in a group whose AWS Account ID, GCP Project, or Azure Subscription does not match.",
         "GroupFlags.length > 0."
       ],
       "failed": [
@@ -997,8 +1132,8 @@
         "Status == 'Failed'."
       ],
       "not-in-group": [
-        "Correlated Entra devices where Microsoft Graph confirmed the device is currently not a direct member of the target security group.",
-        "Membership == 'Absent' (excludes devices with unknown membership or no Entra identity)."
+        "Devices without confirmed membership in a managed Entra security group, including unknown membership, missing groups, and uncorrelated devices. Unknown does not mean verified absence.",
+        "Membership is not 'Present' and no observed MemberGroups, GroupIds, or GroupNames are recorded. A target GroupId or GroupName alone is not membership."
       ],
       "membership-unknown": [
         "Machines where Entra group membership could not be checked because correlation did not reach a valid, enabled Entra device or a run failed.",
@@ -1067,7 +1202,7 @@
       ["no-entra", "No Entra device", m => ["NoEntraDevice", "EntraDeviceNotFound"].includes(m.Status)],
       ["attention", "Needs attention", m => !["Verified", "WouldAdd", "Failed"].includes(m.Status) || (Array.isArray(m.GroupFlags) && m.GroupFlags.length > 0)],
       ["failed", "Failed", m => m.Status === "Failed"],
-      ["not-in-group", "Not in group", m => m.Membership === "Absent"],
+      ["not-in-group", "Not in group", m => !hasManagedGroupMembership(m)],
       ["membership-unknown", "Membership unknown", m => !m.Membership || m.Membership === "Unknown"]
     ];
     byId("summary").replaceChildren(...stats.map(([key, label, matches]) => makeCard({
@@ -1415,15 +1550,15 @@
       ["SYNC_MODE", "Synchronization mode (Audit observes only; Enforce adds verified devices to group)"],
       ["SYNC_DEFAULT_GROUP_MODE", "Global default target group mode (Passive or Active; defaults to Passive and skips adding if already in counterpart group)"],
       ["SYNC_ADMIN_UNIT_ID", "Microsoft Entra ID Administrative Unit GUID for AU-scoped automatic security group creation and management"],
-      ["SYNC_AUTO_CREATE_GROUPS", "Automatically create missing Active/Passive Cloud × OS groups inside SYNC_ADMIN_UNIT_ID in Enforce mode"],
+      ["SYNC_AUTO_CREATE_GROUPS", "Automatically create missing active/passive cloud-account groups inside SYNC_ADMIN_UNIT_ID in Enforce mode"],
       ["SYNC_SCHEDULE", "NCRONTAB timer schedule for full Azure Resource Graph inventory"],
       ["SYNC_FRESHNESS_HOURS", "Maximum age in hours for MDE DeviceInfo telemetry (1–168)"],
-      ["SYNC_AWS_WINDOWS_GROUP_PREFIX", "Naming prefix for AWS Windows Active/Passive Entra ID groups (ends in AWS AccountId tag)"],
-      ["SYNC_AWS_LINUX_GROUP_PREFIX", "Naming prefix for AWS Linux Active/Passive Entra ID groups (ends in AWS AccountId tag)"],
-      ["SYNC_GCP_WINDOWS_GROUP_PREFIX", "Naming prefix for GCP Windows Active/Passive Entra ID groups (ends in GCP ProjectId tag)"],
-      ["SYNC_GCP_LINUX_GROUP_PREFIX", "Naming prefix for GCP Linux Active/Passive Entra ID groups (ends in GCP ProjectId tag)"],
-      ["SYNC_AZURE_WINDOWS_GROUP_PREFIX", "Naming prefix for Azure Windows Active/Passive Entra ID groups (ends in Azure Subscription name; excludes AWS & GCP machines)"],
-      ["SYNC_AZURE_LINUX_GROUP_PREFIX", "Naming prefix for Azure Linux Active/Passive Entra ID groups (ends in Azure Subscription name; excludes AWS & GCP machines)"],
+      ["SYNC_AWS_WINDOWS_GROUP_PREFIX", "AWS Windows template; default dfs-aws-{id}-windows-{mode}, lowercase; id = AccountId tag"],
+      ["SYNC_AWS_LINUX_GROUP_PREFIX", "AWS Linux template; default dfs-aws-{id}-linux-{mode}, lowercase; id = AccountId tag"],
+      ["SYNC_GCP_WINDOWS_GROUP_PREFIX", "GCP Windows template; default dfs-gcp-{id}-windows-{mode}, lowercase; id = ProjectId tag"],
+      ["SYNC_GCP_LINUX_GROUP_PREFIX", "GCP Linux template; default dfs-gcp-{id}-linux-{mode}, lowercase; id = ProjectId tag"],
+      ["SYNC_AZURE_WINDOWS_GROUP_PREFIX", "Azure Windows template; default dfs-azure-{id}-windows-{mode}, lowercase; id = subscription name"],
+      ["SYNC_AZURE_LINUX_GROUP_PREFIX", "Azure Linux template; default dfs-azure-{id}-linux-{mode}, lowercase; id = subscription name"],
       ["SYNC_SUBSCRIPTION_IDS", "Scoped Azure subscription GUIDs"],
       ["SYNC_MANAGEMENT_GROUP_IDS", "Scoped Azure management group IDs"],
       ["SYNC_RESOURCE_GROUP_NAMES", "Scoped Azure resource group names"],
@@ -1563,6 +1698,7 @@
     if (byId("column-picker").open) renderColumnOptions();
   });
   byId("refresh").addEventListener("click", () => refresh(true));
+  byId("start-sync").addEventListener("click", startInventorySync);
   byId("theme-toggle").addEventListener("click", () => setTheme(currentTheme() === "dark" ? "light" : "dark"));
   byId("more").addEventListener("click", loadHistory);
   byId("more-logs").addEventListener("click", loadMoreLogs);
@@ -1645,5 +1781,8 @@
   renderHeaders();
   const cachedAgeMs = Date.now() - loadCachedSnapshot();
   if (cachedAgeMs > 30000) void refresh(false);
+  void pollInventorySync();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) void pollInventorySync(); });
+  window.setInterval(() => { if (!document.hidden) void pollInventorySync(); }, 15000);
   window.setInterval(() => { if (!document.hidden && byId("hover-popover").hidden) void refresh(false); }, 60000);
 })();

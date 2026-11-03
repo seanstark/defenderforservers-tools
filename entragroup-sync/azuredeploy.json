@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "6794328317128417525"
+      "templateHash": "5931560229687450894"
     }
   },
   "parameters": {
@@ -54,44 +54,44 @@
     },
     "awsWindowsGroupPrefix": {
       "type": "string",
-      "defaultValue": "",
+      "defaultValue": "dfs-aws-{id}-windows-{mode}",
       "metadata": {
-        "description": "AWS Windows Group Naming Prefix: Prefix for AWS Windows Entra ID security groups (such as MDfS-AWS-Windows-). The worker appends Passive-AccountId or Active-AccountId using the AWS AccountId resource tag."
+        "description": "AWS Windows group naming template. Defaults to lowercase dfs-aws-{AccountId}-windows-{mode}. Use {id} for the AccountId resource tag and {mode} for active/passive. Empty disables this cloud/OS."
       }
     },
     "awsLinuxGroupPrefix": {
       "type": "string",
-      "defaultValue": "",
+      "defaultValue": "dfs-aws-{id}-linux-{mode}",
       "metadata": {
-        "description": "AWS Linux Group Naming Prefix: Prefix for AWS Linux Entra ID security groups (such as MDfS-AWS-Linux-). The worker appends Passive-AccountId or Active-AccountId using the AWS AccountId resource tag."
+        "description": "AWS Linux group naming template. Defaults to lowercase dfs-aws-{AccountId}-linux-{mode}. Use {id} for the AccountId resource tag and {mode} for active/passive. Empty disables this cloud/OS."
       }
     },
     "gcpWindowsGroupPrefix": {
       "type": "string",
-      "defaultValue": "",
+      "defaultValue": "dfs-gcp-{id}-windows-{mode}",
       "metadata": {
-        "description": "GCP Windows Group Naming Prefix: Prefix for GCP Windows Entra ID security groups (such as MDfS-GCP-Windows-). The worker appends Passive-ProjectId or Active-ProjectId using the GCP ProjectId resource tag."
+        "description": "GCP Windows group naming template. Defaults to lowercase dfs-gcp-{ProjectId}-windows-{mode}. Use {id} for the ProjectId resource tag and {mode} for active/passive. Empty disables this cloud/OS."
       }
     },
     "gcpLinuxGroupPrefix": {
       "type": "string",
-      "defaultValue": "",
+      "defaultValue": "dfs-gcp-{id}-linux-{mode}",
       "metadata": {
-        "description": "GCP Linux Group Naming Prefix: Prefix for GCP Linux Entra ID security groups (such as MDfS-GCP-Linux-). The worker appends Passive-ProjectId or Active-ProjectId using the GCP ProjectId resource tag."
+        "description": "GCP Linux group naming template. Defaults to lowercase dfs-gcp-{ProjectId}-linux-{mode}. Use {id} for the ProjectId resource tag and {mode} for active/passive. Empty disables this cloud/OS."
       }
     },
     "azureWindowsGroupPrefix": {
       "type": "string",
-      "defaultValue": "",
+      "defaultValue": "dfs-azure-{id}-windows-{mode}",
       "metadata": {
-        "description": "Azure Windows Group Naming Prefix: Prefix for Azure Windows Entra ID security groups (such as MDfS-Azure-Windows-). The worker appends Passive-SubscriptionName or Active-SubscriptionName. AWS and GCP Arc machines are automatically excluded."
+        "description": "Azure Windows group naming template. Defaults to lowercase dfs-azure-{SubscriptionName}-windows-{mode}. Use {id} for the subscription name and {mode} for active/passive. Empty disables this cloud/OS."
       }
     },
     "azureLinuxGroupPrefix": {
       "type": "string",
-      "defaultValue": "",
+      "defaultValue": "dfs-azure-{id}-linux-{mode}",
       "metadata": {
-        "description": "Azure Linux Group Naming Prefix: Prefix for Azure Linux Entra ID security groups (such as MDfS-Azure-Linux-). The worker appends Passive-SubscriptionName or Active-SubscriptionName. AWS and GCP Arc machines are automatically excluded."
+        "description": "Azure Linux group naming template. Defaults to lowercase dfs-azure-{SubscriptionName}-linux-{mode}. Use {id} for the subscription name and {mode} for active/passive. Empty disables this cloud/OS."
       }
     },
     "defaultGroupMode": {
@@ -116,7 +116,7 @@
       "type": "bool",
       "defaultValue": "[not(empty(parameters('adminUnitId')))]",
       "metadata": {
-        "description": "Auto-Create Missing Entra Groups: When true (and adminUnitId is set), the worker automatically creates missing Active and Passive Cloud and OS security groups inside the Administrative Unit when running in Enforce mode."
+        "description": "Auto-Create Missing Entra Groups: When true (and adminUnitId is set), the worker automatically creates separate active and passive cloud-account security groups for Windows and Linux inside the Administrative Unit when running in Enforce mode."
       }
     },
     "reportClientId": {
@@ -317,6 +317,21 @@
       ]
     },
     {
+      "type": "Microsoft.ServiceBus/namespaces/queues",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)), 'inventory-sync')]",
+      "properties": {
+        "lockDuration": "PT5M",
+        "maxDeliveryCount": 10,
+        "defaultMessageTimeToLive": "PT15M",
+        "deadLetteringOnMessageExpiration": true,
+        "enablePartitioning": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ServiceBus/namespaces', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))]"
+      ]
+    },
+    {
       "copy": {
         "name": "apps",
         "count": "[length(createArray('worker', 'report'))]"
@@ -339,7 +354,7 @@
           "ftpsState": "Disabled",
           "powerShellVersion": "7.6",
           "use32BitWorkerProcess": false,
-          "appSettings": "[concat(createArray(createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME', 'value', 'powershell'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME_VERSION', 'value', '7.6'), createObject('name', 'AzureWebJobsDisableHomepage', 'value', 'true'), createObject('name', 'AzureWebJobsStorage__accountName', 'value', format('{0}{1}', createArray('worker', 'report')[copyIndex()], variables('suffix'))), createObject('name', 'AzureWebJobsStorage__credential', 'value', 'managedidentity'), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix'))), '2020-02-02').ConnectionString), createObject('name', 'SYNC_STORAGE_ACCOUNT', 'value', format('sync{0}', variables('suffix'))), createObject('name', 'SYNC_TENANT_ID', 'value', parameters('tenantId')), createObject('name', 'SYNC_WORKER_FUNCTION_RESOURCE_ID', 'value', resourceId('Microsoft.Web/sites', variables('workerName'))), createObject('name', 'SYNC_APPINSIGHTS_RESOURCE_ID', 'value', resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix'))))), if(equals(copyIndex(), 0), createArray(createObject('name', 'SYNC_SUBSCRIPTION_IDS', 'value', join(parameters('subscriptionIds'), ',')), createObject('name', 'SYNC_MANAGEMENT_GROUP_IDS', 'value', join(parameters('managementGroupIds'), ',')), createObject('name', 'SYNC_RESOURCE_GROUP_NAMES', 'value', join(parameters('resourceGroupNames'), ',')), createObject('name', 'SYNC_AWS_WINDOWS_GROUP_PREFIX', 'value', parameters('awsWindowsGroupPrefix')), createObject('name', 'SYNC_AWS_LINUX_GROUP_PREFIX', 'value', parameters('awsLinuxGroupPrefix')), createObject('name', 'SYNC_GCP_WINDOWS_GROUP_PREFIX', 'value', parameters('gcpWindowsGroupPrefix')), createObject('name', 'SYNC_GCP_LINUX_GROUP_PREFIX', 'value', parameters('gcpLinuxGroupPrefix')), createObject('name', 'SYNC_AZURE_WINDOWS_GROUP_PREFIX', 'value', parameters('azureWindowsGroupPrefix')), createObject('name', 'SYNC_AZURE_LINUX_GROUP_PREFIX', 'value', parameters('azureLinuxGroupPrefix')), createObject('name', 'SYNC_DEFAULT_GROUP_MODE', 'value', parameters('defaultGroupMode')), createObject('name', 'SYNC_ADMIN_UNIT_ID', 'value', parameters('adminUnitId')), createObject('name', 'SYNC_AUTO_CREATE_GROUPS', 'value', string(parameters('autoCreateGroups'))), createObject('name', 'SYNC_MODE', 'value', parameters('syncMode')), createObject('name', 'SYNC_FRESHNESS_HOURS', 'value', string(parameters('freshnessHours'))), createObject('name', 'SYNC_SCHEDULE', 'value', parameters('schedule')), createObject('name', 'PSWorkerInProcConcurrencyUpperBound', 'value', '8'), createObject('name', 'FUNCTIONS_WORKER_PROCESS_COUNT', 'value', '2'), createObject('name', 'ServiceBusConnection__fullyQualifiedNamespace', 'value', format('{0}.servicebus.windows.net', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))), createObject('name', 'ServiceBusConnection__credential', 'value', 'managedidentity')), createArray(createObject('name', 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', 'value', parameters('reportClientSecret')))))]"
+          "appSettings": "[concat(createArray(createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME', 'value', 'powershell'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME_VERSION', 'value', '7.6'), createObject('name', 'AzureWebJobsDisableHomepage', 'value', 'true'), createObject('name', 'AzureWebJobsStorage__accountName', 'value', format('{0}{1}', createArray('worker', 'report')[copyIndex()], variables('suffix'))), createObject('name', 'AzureWebJobsStorage__credential', 'value', 'managedidentity'), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix'))), '2020-02-02').ConnectionString), createObject('name', 'SYNC_STORAGE_ACCOUNT', 'value', format('sync{0}', variables('suffix'))), createObject('name', 'SYNC_TENANT_ID', 'value', parameters('tenantId')), createObject('name', 'SYNC_WORKER_FUNCTION_RESOURCE_ID', 'value', resourceId('Microsoft.Web/sites', variables('workerName'))), createObject('name', 'SYNC_APPINSIGHTS_RESOURCE_ID', 'value', resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix'))))), if(equals(copyIndex(), 0), createArray(createObject('name', 'SYNC_SUBSCRIPTION_IDS', 'value', join(parameters('subscriptionIds'), ',')), createObject('name', 'SYNC_MANAGEMENT_GROUP_IDS', 'value', join(parameters('managementGroupIds'), ',')), createObject('name', 'SYNC_RESOURCE_GROUP_NAMES', 'value', join(parameters('resourceGroupNames'), ',')), createObject('name', 'SYNC_AWS_WINDOWS_GROUP_PREFIX', 'value', parameters('awsWindowsGroupPrefix')), createObject('name', 'SYNC_AWS_LINUX_GROUP_PREFIX', 'value', parameters('awsLinuxGroupPrefix')), createObject('name', 'SYNC_GCP_WINDOWS_GROUP_PREFIX', 'value', parameters('gcpWindowsGroupPrefix')), createObject('name', 'SYNC_GCP_LINUX_GROUP_PREFIX', 'value', parameters('gcpLinuxGroupPrefix')), createObject('name', 'SYNC_AZURE_WINDOWS_GROUP_PREFIX', 'value', parameters('azureWindowsGroupPrefix')), createObject('name', 'SYNC_AZURE_LINUX_GROUP_PREFIX', 'value', parameters('azureLinuxGroupPrefix')), createObject('name', 'SYNC_DEFAULT_GROUP_MODE', 'value', parameters('defaultGroupMode')), createObject('name', 'SYNC_ADMIN_UNIT_ID', 'value', parameters('adminUnitId')), createObject('name', 'SYNC_AUTO_CREATE_GROUPS', 'value', string(parameters('autoCreateGroups'))), createObject('name', 'SYNC_MODE', 'value', parameters('syncMode')), createObject('name', 'SYNC_FRESHNESS_HOURS', 'value', string(parameters('freshnessHours'))), createObject('name', 'SYNC_SCHEDULE', 'value', parameters('schedule')), createObject('name', 'PSWorkerInProcConcurrencyUpperBound', 'value', '8'), createObject('name', 'FUNCTIONS_WORKER_PROCESS_COUNT', 'value', '2'), createObject('name', 'ServiceBusConnection__fullyQualifiedNamespace', 'value', format('{0}.servicebus.windows.net', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))), createObject('name', 'ServiceBusConnection__credential', 'value', 'managedidentity')), createArray(createObject('name', 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', 'value', parameters('reportClientSecret')), createObject('name', 'ServiceBusConnection__fullyQualifiedNamespace', 'value', format('{0}.servicebus.windows.net', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))))))]"
         }
       },
       "dependsOn": [
@@ -454,6 +469,38 @@
         "[resourceId('Microsoft.Web/sites', if(equals(0, 0), variables('workerName'), variables('reportName')))]",
         "[resourceId('Microsoft.Web/sites', if(equals(0, 0), variables('workerName'), variables('reportName')))]",
         "[resourceId('Microsoft.ServiceBus/namespaces/queues', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)), 'machines')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.ServiceBus/namespaces/queues', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)), 'inventory-sync')]",
+      "name": "[guid(resourceId('Microsoft.ServiceBus/namespaces/queues', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)), 'inventory-sync'), resourceId('Microsoft.Web/sites', if(equals(1, 0), variables('workerName'), variables('reportName'))), variables('busSender'))]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', if(equals(1, 0), variables('workerName'), variables('reportName'))), '2023-12-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('busSender'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', if(equals(1, 0), variables('workerName'), variables('reportName')))]",
+        "[resourceId('Microsoft.Web/sites', if(equals(1, 0), variables('workerName'), variables('reportName')))]",
+        "[resourceId('Microsoft.ServiceBus/namespaces/queues', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)), 'inventory-sync')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.ServiceBus/namespaces/queues', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)), 'inventory-sync')]",
+      "name": "[guid(resourceId('Microsoft.ServiceBus/namespaces/queues', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)), 'inventory-sync'), resourceId('Microsoft.Web/sites', if(equals(0, 0), variables('workerName'), variables('reportName'))), variables('busReceiver'))]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', if(equals(0, 0), variables('workerName'), variables('reportName'))), '2023-12-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('busReceiver'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', if(equals(0, 0), variables('workerName'), variables('reportName')))]",
+        "[resourceId('Microsoft.Web/sites', if(equals(0, 0), variables('workerName'), variables('reportName')))]",
+        "[resourceId('Microsoft.ServiceBus/namespaces/queues', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)), 'inventory-sync')]"
       ]
     },
     {

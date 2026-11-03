@@ -20,23 +20,23 @@ param managementGroupIds array = []
 @description('Scoped Resource Group Names: Optional list of Resource Group names (such as rg-arc-servers) to restrict discovery. Leave empty to include all resource groups in the scoped subscriptions and management groups.')
 param resourceGroupNames array = []
 
-@description('AWS Windows Group Naming Prefix: Prefix for AWS Windows Entra ID security groups (such as MDfS-AWS-Windows-). The worker appends Passive-AccountId or Active-AccountId using the AWS AccountId resource tag.')
-param awsWindowsGroupPrefix string = ''
+@description('AWS Windows group naming template. Defaults to lowercase dfs-aws-{AccountId}-windows-{mode}. Use {id} for the AccountId resource tag and {mode} for active/passive. Empty disables this cloud/OS.')
+param awsWindowsGroupPrefix string = 'dfs-aws-{id}-windows-{mode}'
 
-@description('AWS Linux Group Naming Prefix: Prefix for AWS Linux Entra ID security groups (such as MDfS-AWS-Linux-). The worker appends Passive-AccountId or Active-AccountId using the AWS AccountId resource tag.')
-param awsLinuxGroupPrefix string = ''
+@description('AWS Linux group naming template. Defaults to lowercase dfs-aws-{AccountId}-linux-{mode}. Use {id} for the AccountId resource tag and {mode} for active/passive. Empty disables this cloud/OS.')
+param awsLinuxGroupPrefix string = 'dfs-aws-{id}-linux-{mode}'
 
-@description('GCP Windows Group Naming Prefix: Prefix for GCP Windows Entra ID security groups (such as MDfS-GCP-Windows-). The worker appends Passive-ProjectId or Active-ProjectId using the GCP ProjectId resource tag.')
-param gcpWindowsGroupPrefix string = ''
+@description('GCP Windows group naming template. Defaults to lowercase dfs-gcp-{ProjectId}-windows-{mode}. Use {id} for the ProjectId resource tag and {mode} for active/passive. Empty disables this cloud/OS.')
+param gcpWindowsGroupPrefix string = 'dfs-gcp-{id}-windows-{mode}'
 
-@description('GCP Linux Group Naming Prefix: Prefix for GCP Linux Entra ID security groups (such as MDfS-GCP-Linux-). The worker appends Passive-ProjectId or Active-ProjectId using the GCP ProjectId resource tag.')
-param gcpLinuxGroupPrefix string = ''
+@description('GCP Linux group naming template. Defaults to lowercase dfs-gcp-{ProjectId}-linux-{mode}. Use {id} for the ProjectId resource tag and {mode} for active/passive. Empty disables this cloud/OS.')
+param gcpLinuxGroupPrefix string = 'dfs-gcp-{id}-linux-{mode}'
 
-@description('Azure Windows Group Naming Prefix: Prefix for Azure Windows Entra ID security groups (such as MDfS-Azure-Windows-). The worker appends Passive-SubscriptionName or Active-SubscriptionName. AWS and GCP Arc machines are automatically excluded.')
-param azureWindowsGroupPrefix string = ''
+@description('Azure Windows group naming template. Defaults to lowercase dfs-azure-{SubscriptionName}-windows-{mode}. Use {id} for the subscription name and {mode} for active/passive. Empty disables this cloud/OS.')
+param azureWindowsGroupPrefix string = 'dfs-azure-{id}-windows-{mode}'
 
-@description('Azure Linux Group Naming Prefix: Prefix for Azure Linux Entra ID security groups (such as MDfS-Azure-Linux-). The worker appends Passive-SubscriptionName or Active-SubscriptionName. AWS and GCP Arc machines are automatically excluded.')
-param azureLinuxGroupPrefix string = ''
+@description('Azure Linux group naming template. Defaults to lowercase dfs-azure-{SubscriptionName}-linux-{mode}. Use {id} for the subscription name and {mode} for active/passive. Empty disables this cloud/OS.')
+param azureLinuxGroupPrefix string = 'dfs-azure-{id}-linux-{mode}'
 
 @allowed(['Passive', 'Active'])
 @description('Default Antivirus Group Mode: Controls whether correlated devices are added to their Passive or Active group by default (defaults to Passive). A device already in its Active group is never added to Passive, and a device in Passive is never added to Active.')
@@ -45,7 +45,7 @@ param defaultGroupMode string = 'Passive'
 @description('Entra Administrative Unit ID (Optional): GUID of a Microsoft Entra ID Administrative Unit. When provided (and the worker Managed Identity is granted Groups Administrator on this AU), missing Active and Passive security groups are automatically created inside this AU.')
 param adminUnitId string = ''
 
-@description('Auto-Create Missing Entra Groups: When true (and adminUnitId is set), the worker automatically creates missing Active and Passive Cloud and OS security groups inside the Administrative Unit when running in Enforce mode.')
+@description('Auto-Create Missing Entra Groups: When true (and adminUnitId is set), the worker automatically creates separate active and passive cloud-account security groups for Windows and Linux inside the Administrative Unit when running in Enforce mode.')
 param autoCreateGroups bool = !empty(adminUnitId)
 
 @description('Report App Registration Client ID: The Application (client) ID GUID of the Microsoft Entra App Registration used to sign in users to the read-only web portal (must define the Report.Reader app role).')
@@ -172,6 +172,18 @@ resource queue 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = {
   }
 }
 
+resource inventoryQueue 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = {
+  parent: bus
+  name: 'inventory-sync'
+  properties: {
+    lockDuration: 'PT5M'
+    maxDeliveryCount: 10
+    defaultMessageTimeToLive: 'PT15M'
+    deadLetteringOnMessageExpiration: true
+    enablePartitioning: false
+  }
+}
+
 resource apps 'Microsoft.Web/sites@2023-12-01' = [for (kind, i) in ['worker', 'report']: {
   name: i == 0 ? workerName : reportName
   location: location
@@ -221,6 +233,7 @@ resource apps 'Microsoft.Web/sites@2023-12-01' = [for (kind, i) in ['worker', 'r
         { name: 'ServiceBusConnection__credential', value: 'managedidentity' }
       ] : [
         { name: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', value: reportClientSecret }
+        { name: 'ServiceBusConnection__fullyQualifiedNamespace', value: '${bus.name}.servicebus.windows.net' }
       ])
     }
   }
@@ -274,6 +287,25 @@ resource sendRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 resource receiveRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(queue.id, apps[0].id, busReceiver)
   scope: queue
+  properties: {
+    principalId: apps[0].identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', busReceiver)
+  }
+}
+
+resource inventorySendRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(inventoryQueue.id, apps[1].id, busSender)
+  scope: inventoryQueue
+  properties: {
+    principalId: apps[1].identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', busSender)
+  }
+}
+resource inventoryReceiveRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(inventoryQueue.id, apps[0].id, busReceiver)
+  scope: inventoryQueue
   properties: {
     principalId: apps[0].identity.principalId
     principalType: 'ServicePrincipal'

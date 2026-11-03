@@ -13,7 +13,7 @@
   <header class="app-bar">
     <a class="app-brand" href="/"><span class="brand-mark" aria-hidden="true">AE</span>Cloud Server Correlation</a>
     <span class="app-context">Cloud Servers / Entra ID — Documentation &amp; APIs</span>
-    <div class="actions"><span class="read-only">Read-only report</span><button id="theme-toggle" class="secondary theme-toggle" type="button" aria-label="Switch color theme">Dark mode</button><a href="/.auth/logout">Sign out</a></div>
+    <div class="actions"><span class="read-only">Role-based report</span><button id="theme-toggle" class="secondary theme-toggle" type="button" aria-label="Switch color theme">Dark mode</button><a href="/.auth/logout">Sign out</a></div>
   </header>
   <aside class="sidebar" aria-label="Report navigation">
     <p class="nav-heading">ASSET MANAGEMENT</p>
@@ -47,7 +47,7 @@
     <div class="page-heading">
       <p class="eyebrow">ARCHITECTURE &amp; TECHNICAL REFERENCE</p>
       <h1>Documentation &amp; APIs</h1>
-      <p class="muted">Interactive architecture and evaluation workflow diagrams, KQL &amp; Azure Resource Graph queries, REST APIs, RBAC permissions, and Cloud &times; OS group routing rules.</p>
+      <p class="muted">Interactive architecture and evaluation workflow diagrams, KQL &amp; Azure Resource Graph queries, REST APIs, RBAC permissions, and Cloud account group routing rules.</p>
     </div>
     <section id="documentation" class="panel docs-panel" aria-label="Solution documentation, queries, APIs, and permissions">
       <div class="function-header">
@@ -64,8 +64,8 @@
             <p class="muted">Generated and validated with <a href="https://github.com/tt-a1i/archify" target="_blank" rel="noopener noreferrer">Archify</a> (<code>showcase</code> quality profile · 9/9 layout &amp; route checks passed). Click any component node below to inspect its upstream/downstream connections and role in the synchronization pipeline.</p>
             <div class="archify-canvas-wrap">
               <svg class="archify-svg" viewBox="0 0 1275 450" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="signal-flow" data-quality-profile="showcase" data-node-ui="" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14">
-        <title id="archify-diagram-title">Azure Arc &amp; VM to Cloud × OS Entra Group Synchronization</title>
-        <desc id="archify-diagram-description">Timer + MDE Extension Event Grid discovery · MDE Hunting correlation · Per-account Cloud × OS Entra group sync · Read-only portal</desc>
+        <title id="archify-diagram-title">Azure Arc &amp; VM to Cloud account Entra Group Synchronization</title>
+        <desc id="archify-diagram-description">Timer + MDE Extension Event Grid discovery · MDE Hunting correlation · Per-account Cloud account Entra group sync · Read-only portal</desc>
         <!-- Definitions -->
         <defs>
           <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
@@ -91,7 +91,7 @@
         <!-- Boundaries (behind everything) -->
         <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="Privileged Worker Plane (System-Assigned Managed Identity)" x="220" y="90" width="770" height="112" rx="12" class="c-region" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="security-group" data-composition-frame-id="1" data-composition-frame-label="Read-Only Report Plane (Table Reader only · no Graph or Queue access)" x="20" y="270" width="650" height="112" rx="8" class="c-security-group" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="security-group" data-composition-frame-id="1" data-composition-frame-label="Report Plane (Table Reader · sync-request Sender · no Graph)" x="20" y="270" width="650" height="112" rx="8" class="c-security-group" stroke-width="1"/>
 
         <!-- Connection paths (before components for correct z-order) -->
         <g data-graph-role="automatic-crossover" data-step="0">
@@ -116,7 +116,7 @@
         </g>
         <g data-graph-role="automatic-crossover" data-step="5">
           <path data-graph-role="automatic-crossover-underlay" d="M 860.05 182 L 860.05 198 Q 860.05 206 868.05 206 L 978 206 Q 986 206 986 198 L 986 159 Q 986 151 994 151 L 1010 151" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="machine_worker" data-edge-to="entra_graph" data-edge-label="Cloud × OS group sync" data-edge-key="5" data-edge-id="worker-entra" data-composition-points="860.05,182;860.05,206;986,206;986,151;1010,151" data-composition-crossover="halo" data-composition-independent="true" d="M 860.05 182 L 860.05 198 Q 860.05 206 868.05 206 L 978 206 Q 986 206 986 198 L 986 159 Q 986 151 994 151 L 1010 151" class="a-security" data-animate="edge" data-step="5" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+          <path data-edge-from="machine_worker" data-edge-to="entra_graph" data-edge-label="Cloud account group sync" data-edge-key="5" data-edge-id="worker-entra" data-composition-points="860.05,182;860.05,206;986,206;986,151;1010,151" data-composition-crossover="halo" data-composition-independent="true" d="M 860.05 182 L 860.05 198 Q 860.05 206 868.05 206 L 978 206 Q 986 206 986 198 L 986 159 Q 986 151 994 151 L 1010 151" class="a-security" data-animate="edge" data-step="5" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         </g>
         <g data-graph-role="automatic-crossover" data-step="6">
           <path data-graph-role="automatic-crossover-underlay" d="M 845 182 L 845 300" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -208,8 +208,8 @@
         <text data-detail="fine" x="845" y="64" class="t-security" font-size="7" text-anchor="middle">runHuntingQuery</text>
         </g>
 
-        <g id="node-entra_graph" data-node-id="entra_graph" data-node-label="Microsoft Graph (Entra ID)" tabindex="0" role="button" aria-label="Focus Microsoft Graph (Entra ID), AU Auto-Create + Cloud × OS groups, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="AU Auto-Create + Cloud × OS groups" data-node-tag="Groups Admin (AU) · Win/Lin" data-node-context="Architecture component">
-          <title>Microsoft Graph (Entra ID) · AU Auto-Create + Cloud × OS groups · Architecture component · Groups Admin (AU) · Win/Lin</title>
+        <g id="node-entra_graph" data-node-id="entra_graph" data-node-label="Microsoft Graph (Entra ID)" tabindex="0" role="button" aria-label="Focus Microsoft Graph (Entra ID), AU Auto-Create + Cloud account groups, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="AU Auto-Create + Cloud account groups" data-node-tag="Groups Admin (AU) · Win/Lin" data-node-context="Architecture component">
+          <title>Microsoft Graph (Entra ID) · AU Auto-Create + Cloud account groups · Architecture component · Groups Admin (AU) · Win/Lin</title>
           <rect x="1010" y="120" width="225" height="62" rx="8" class="c-mask"/>
           <rect x="1010" y="120" width="225" height="62" rx="8" class="c-security" data-animate="node" data-step="6" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1016 126) scale(0.6875)">
@@ -217,7 +217,7 @@
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="1122.5" y="149" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Microsoft Graph (Entra ID)</text>
-        <text data-detail="context" x="1122.5" y="165" class="t-muted" font-size="9" text-anchor="middle">AU Auto-Create + Cloud × OS groups</text>
+        <text data-detail="context" x="1122.5" y="165" class="t-muted" font-size="9" text-anchor="middle">AU Auto-Create + Cloud account groups</text>
         <text data-detail="fine" x="1122.5" y="174" class="t-security" font-size="7" text-anchor="middle">Groups Admin (AU) · Win/Lin</text>
         </g>
 
@@ -234,8 +234,8 @@
         <text data-detail="fine" x="875" y="354" class="t-database" font-size="7" text-anchor="middle">atomic batch</text>
         </g>
 
-        <g id="node-report_fn" data-node-id="report_fn" data-node-label="Report Function App" tabindex="0" role="button" aria-label="Focus Report Function App, Easy Auth + Report.Reader check, Read-Only Report Plane (Table Reader only · no Graph or Queue access)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Easy Auth + Report.Reader check" data-node-tag="read-only MI" data-node-context="Read-Only Report Plane (Table Reader only · no Graph or Queue access)">
-          <title>Report Function App · Easy Auth + Report.Reader check · Read-Only Report Plane (Table Reader only · no Graph or Queue access) · read-only MI</title>
+        <g id="node-report_fn" data-node-id="report_fn" data-node-label="Report Function App" tabindex="0" role="button" aria-label="Focus Report Function App, Easy Auth + Report.Reader check, Report Plane (Table Reader · sync-request Sender · no Graph)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Easy Auth + Report.Reader check" data-node-tag="Table Reader + sync Sender" data-node-context="Report Plane (Table Reader · sync-request Sender · no Graph)">
+          <title>Report Function App · Easy Auth + Report.Reader check · Report Plane (Table Reader · sync-request Sender · no Graph) · Table Reader + sync Sender</title>
           <rect x="420" y="300" width="220" height="62" rx="8" class="c-mask"/>
           <rect x="420" y="300" width="220" height="62" rx="8" class="c-backend" data-animate="node" data-step="8" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(426 306) scale(0.6875)">
@@ -243,11 +243,11 @@
           </g>
           <text data-node-label="" data-detail-anchor="" x="530" y="329" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Report Function App</text>
         <text data-detail="context" x="530" y="345" class="t-muted" font-size="9" text-anchor="middle">Easy Auth + Report.Reader check</text>
-        <text data-detail="fine" x="530" y="354" class="t-backend" font-size="7" text-anchor="middle">read-only MI</text>
+        <text data-detail="fine" x="530" y="354" class="t-backend" font-size="7" text-anchor="middle">Table Reader + sync Sender</text>
         </g>
 
-        <g id="node-portal_ui" data-node-id="portal_ui" data-node-label="Device Inventory Portal" tabindex="0" role="button" aria-label="Focus Device Inventory Portal, KPIs · hover cards · drawer · logs, Read-Only Report Plane (Table Reader only · no Graph or Queue access)" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="KPIs · hover cards · drawer · logs" data-node-context="Read-Only Report Plane (Table Reader only · no Graph or Queue access)">
-          <title>Device Inventory Portal · KPIs · hover cards · drawer · logs · Read-Only Report Plane (Table Reader only · no Graph or Queue access)</title>
+        <g id="node-portal_ui" data-node-id="portal_ui" data-node-label="Device Inventory Portal" tabindex="0" role="button" aria-label="Focus Device Inventory Portal, KPIs · hover cards · drawer · logs, Report Plane (Table Reader · sync-request Sender · no Graph)" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="KPIs · hover cards · drawer · logs" data-node-context="Report Plane (Table Reader · sync-request Sender · no Graph)">
+          <title>Device Inventory Portal · KPIs · hover cards · drawer · logs · Report Plane (Table Reader · sync-request Sender · no Graph)</title>
           <rect x="50" y="300" width="230" height="62" rx="8" class="c-mask"/>
           <rect x="50" y="300" width="230" height="62" rx="8" class="c-frontend" data-animate="node" data-step="9" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(56 306) scale(0.6875)">
@@ -272,9 +272,9 @@
           <rect x="792" y="100" width="106" height="14" rx="3" class="c-mask"/>
           <text x="845" y="110" class="t-edge-security" font-size="8" text-anchor="middle">AzureResourceId + AV</text>
         </g>
-        <g data-detail="context" data-edge-from="machine_worker" data-edge-to="entra_graph" data-edge-label="Cloud × OS group sync" data-edge-key="5" data-edge-id="worker-entra">
+        <g data-detail="context" data-edge-from="machine_worker" data-edge-to="entra_graph" data-edge-label="Cloud account group sync" data-edge-key="5" data-edge-id="worker-entra">
           <rect x="867.625" y="186" width="110.8" height="14" rx="3" class="c-mask"/>
-          <text x="923.025" y="196" class="t-edge-security" font-size="8" text-anchor="middle">Cloud × OS group sync</text>
+          <text x="923.025" y="196" class="t-edge-security" font-size="8" text-anchor="middle">Cloud account group sync</text>
         </g>
         <g data-detail="context" data-edge-from="machine_worker" data-edge-to="table_storage" data-edge-label="state + history + logs" data-edge-key="6" data-edge-id="worker-table">
           <rect x="723.4000000000001" y="234" width="115.6" height="14" rx="3" class="c-mask"/>
@@ -295,9 +295,9 @@
           <text data-boundary-label="" x="415.09999999999997" y="113" class="t-cloud" font-size="9" font-weight="600">Privileged Worker Plane (System-Assigned Managed Identity)</text>
         </g>
 
-        <g data-graph-role="structural-frame-label" data-composition-frame-id="1" data-composition-frame-kind="security-group" data-composition-frame-label="Read-Only Report Plane (Table Reader only · no Graph or Queue access)">
+        <g data-graph-role="structural-frame-label" data-composition-frame-id="1" data-composition-frame-kind="security-group" data-composition-frame-label="Report Plane (Table Reader · sync-request Sender · no Graph)">
           <rect data-graph-role="structural-frame-label-mask" x="24" y="280" width="382.59999999999997" height="16" rx="3" class="c-mask"/>
-          <text data-boundary-label="" x="28" y="293" class="t-security" font-size="9" font-weight="600">Read-Only Report Plane (Table Reader only · no Graph or Queue access)</text>
+          <text data-boundary-label="" x="28" y="293" class="t-security" font-size="9" font-weight="600">Report Plane (Table Reader · sync-request Sender · no Graph)</text>
         </g>
 
         <!-- Legend -->
@@ -347,18 +347,20 @@
                 </ul>
               </div>
               <div class="doc-card">
-                <h3>Hunting-Only MDE &amp; Per-Account Cloud &times; OS Group Sync</h3>
+                <h3>Hunting-Only MDE &amp; Per-Account Cloud account Group Sync</h3>
                 <ul class="doc-list">
                   <li>All MDE telemetry (<code>DeviceInfo</code>, <code>DeviceNetworkInfo</code>, <code>scid-2010</code> AV mode, tags, <code>MachineGroup</code>) comes via Graph <code>/security/runHuntingQuery</code>.</li>
-                  <li>Routes each correlated Windows or Linux machine to its per-account Cloud &times; OS Entra security group (AWS by <code>AccountId</code> tag, GCP by <code>ProjectId</code> tag, or Azure by <code>SubscriptionName</code> with AWS &amp; GCP excluded).</li>
+                  <li>Routes each correlated Windows or Linux machine to its per-account Cloud account Entra security group (AWS by <code>AccountId</code> tag, GCP by <code>ProjectId</code> tag, or Azure by <code>SubscriptionName</code> with AWS &amp; GCP excluded).</li>
                   <li><code>Audit</code> mode records <code>WouldAdd</code>; <code>Enforce</code> mode writes mutation intent first, adds directory object ID, and verifies read-back.</li>
                 </ul>
               </div>
               <div class="doc-card">
-                <h3>Isolated Read-Only Reporting</h3>
+                <h3>Isolated Role-Based Reporting</h3>
                 <ul class="doc-list">
                   <li>Atomic Azure Table batch commits current state and <code>h_</code> history snapshots plus <code>system/inventory</code> and <code>log_</code> execution logs.</li>
-                  <li>Separate Report Function App has only <code>Storage Table Data Reader</code> and enforces Entra Easy Auth + <code>Report.Reader</code> role.</li>
+                  <li>Separate Report Function App has <code>Storage Table Data Reader</code> and Sender only on the dedicated <code>inventory-sync</code> queue. Easy Auth + <code>Report.Reader</code> in the configured tenant protects both viewing the report and starting inventory.</li>
+                  <li>The diagram shows discovery and reporting; the separate manual control path sends inventory requests to the worker through <code>inventory-sync</code>. Timer and manual runs share an atomic job claim. Deploy infrastructure and both packages; ZIP upload alone does not provision this control path.</li>
+                  <li>Inventory completion means discovery, group preparation, and machine queueing finished; device processing may continue. Missing completion is marked Interrupted after 15 minutes. Keep the worker function timeout at most 10 minutes for safe claim recovery; check worker logs and the inventory queue's dead-letter messages for stalled requests.</li>
                   <li>Interactive Defender-style portal provides KPI filters, hover popovers, context drawer, Function App telemetry, and docs.</li>
                 </ul>
               </div>
@@ -449,9 +451,9 @@
                 <g>
                   <rect x="995" y="130" width="225" height="66" rx="8" class="c-mask"/>
                   <rect x="995" y="130" width="225" height="66" rx="8" class="c-frontend" stroke-width="1.5"/>
-                  <text x="1107.5" y="153" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">3. Cloud &times; OS Security Group</text>
+                  <text x="1107.5" y="153" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">3. Cloud account Security Group</text>
                   <text x="1107.5" y="169" class="t-muted" font-size="9" text-anchor="middle">Administrative Unit Group Sync</text>
-                  <text x="1107.5" y="183" class="t-frontend" font-size="7.5" font-weight="600" text-anchor="middle">&lt;Prefix&gt;{Passive|Active}-&lt;Id&gt;</text>
+                  <text x="1107.5" y="183" class="t-frontend" font-size="7.5" font-weight="600" text-anchor="middle">dfs-{cloud}-{id}-{os}-{mode}</text>
                 </g>
               </svg>
             </div>
@@ -495,8 +497,8 @@
             <p class="muted">End-to-end machine evaluation and Entra ID group membership decision criteria generated and validated with <a href="https://github.com/tt-a1i/archify" target="_blank" rel="noopener noreferrer">Archify</a> (<code>showcase</code> quality profile · 9/9 layout &amp; route checks passed). Click any gate or stop node to inspect its exact pass/fail criteria.</p>
             <div class="archify-canvas-wrap">
               <svg class="archify-svg archify-workflow-svg" viewBox="0 0 1208 684" data-layout-contract="readable-v2" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="signal-flow" data-quality-profile="showcase" data-node-ui="">
-        <title id="archify-diagram-title">Machine Correlation &amp; Per-Account Cloud × OS Group Evaluation</title>
-        <desc id="archify-diagram-description">Step-by-step decision rules: Scope -&gt; ARM status -&gt; MDE DeviceInfo freshness -&gt; Entra device objectId -&gt; Per-Account Cloud (AWS/GCP/Azure) × OS (Windows/Linux) Group</desc>
+        <title id="archify-diagram-title">Machine Correlation &amp; Per-Account Cloud account Group Evaluation</title>
+        <desc id="archify-diagram-description">Step-by-step decision rules: Scope -&gt; ARM status -&gt; MDE DeviceInfo freshness -&gt; Entra device objectId -&gt; Per-Account Cloud account (AWS/GCP/Azure; Windows/Linux separate) Group</desc>
         <!-- Definitions -->
         <defs>
           <marker id="wf-arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
@@ -531,7 +533,7 @@
         <text x="54" y="334" class="t-security" font-size="10" font-weight="600">EX / Safety Stops (No Group Write)</text>
 
         <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-3" x="40" y="446" width="1140" height="114" rx="10" class="c-lane" stroke-width="1"/>
-        <text x="54" y="468" class="t-muted" font-size="10" font-weight="600">04 / 3. Per-Account Cloud × OS Group Routing</text>
+        <text x="54" y="468" class="t-muted" font-size="10" font-weight="600">04 / 3. Per-Account Cloud account Group Routing</text>
 
         <!-- Phase headers -->
         <path d="M 83 35 H 361.4" class="a-default phase-rule" stroke-width="1" stroke-linecap="round" fill="none"/>
@@ -542,7 +544,7 @@
         <text x="609.8" y="38.5" class="t-backend" font-size="8" font-weight="600" text-anchor="middle" letter-spacing=".04em">Gate 3-4: MDE &amp; Entra Criteria</text>
         <path d="M 800.2 35 H 1132.2" class="a-dashed phase-rule" stroke-width="1" stroke-linecap="round" fill="none"/>
         <rect x="881.8000000000001" y="27" width="168.79999999999998" height="16" rx="8" class="c-mask phase-chip"/>
-        <text x="966.2" y="38.5" class="t-messagebus" font-size="8" font-weight="600" text-anchor="middle" letter-spacing=".04em">Gate 5-6: Cloud × OS Group Sync</text>
+        <text x="966.2" y="38.5" class="t-messagebus" font-size="8" font-weight="600" text-anchor="middle" letter-spacing=".04em">Gate 5-6: Cloud account Group Sync</text>
 
         <!-- Workflow groups -->
         <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-0" x="424.4" y="216" width="370.80000000000007" height="72" rx="9" class="c-lane" stroke-width="1"/>
@@ -550,7 +552,7 @@
         <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-1" x="246.39999999999998" y="350" width="548.8000000000001" height="72" rx="9" class="c-security-group" stroke-width="1"/>
         <text x="256.4" y="348" class="t-security" font-size="7" font-weight="600">Ineligible states recorded without group write</text>
         <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-2" x="761.2" y="484" width="410" height="72" rx="9" class="c-lane" stroke-width="1"/>
-        <text x="771.2" y="482" class="t-messagebus" font-size="7" font-weight="600">Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin)</text>
+        <text x="771.2" y="482" class="t-messagebus" font-size="7" font-weight="600">Per-Account Cloud account Group (AWS · GCP · Azure; Win / Lin separate)</text>
 
         <!-- Edge paths -->
         <path data-edge-from="arm_check" data-edge-to="mde_correlate" data-edge-label="Connected" data-edge-key="0" data-edge-id="arm-mde" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="330.4,154;330.4,253;428.4,253" d="M 330.4 154 L 330.4 245 Q 330.4 253 338.4 253 L 428.4 253" class="a-emphasis" data-animate="edge" data-step="1" stroke-width="1.8" marker-end="url(#wf-arrowhead-emphasis)"/>
@@ -591,8 +593,8 @@
         <text data-detail="fine" x="323.4" y="142" class="t-cloud" font-size="7" text-anchor="middle">Read OS, SubName &amp; Tags</text>
         </g>
 
-        <g id="node-persist" data-node-id="persist" data-node-label="Verify &amp; Commit" tabindex="0" role="button" aria-label="Focus Verify &amp; Commit, Audit=WouldAdd · Enforce=Add, 1. Azure Scope &amp; Resource State › Gate 5-6: Cloud × OS Group Sync" aria-pressed="false" data-node-kind="database" data-node-sublabel="Audit=WouldAdd · Enforce=Add" data-node-tag="Read-back + Table batch" data-node-context="1. Azure Scope &amp; Resource State › Gate 5-6: Cloud × OS Group Sync">
-          <title>Verify &amp; Commit · Audit=WouldAdd · Enforce=Add · 1. Azure Scope &amp; Resource State › Gate 5-6: Cloud × OS Group Sync · Read-back + Table batch</title>
+        <g id="node-persist" data-node-id="persist" data-node-label="Verify &amp; Commit" tabindex="0" role="button" aria-label="Focus Verify &amp; Commit, Audit=WouldAdd · Enforce=Add, 1. Azure Scope &amp; Resource State › Gate 5-6: Cloud account Group Sync" aria-pressed="false" data-node-kind="database" data-node-sublabel="Audit=WouldAdd · Enforce=Add" data-node-tag="Read-back + Table batch" data-node-context="1. Azure Scope &amp; Resource State › Gate 5-6: Cloud account Group Sync">
+          <title>Verify &amp; Commit · Audit=WouldAdd · Enforce=Add · 1. Azure Scope &amp; Resource State › Gate 5-6: Cloud account Group Sync · Read-back + Table batch</title>
           <rect x="1021.2" y="86" width="146" height="68" rx="8" class="c-mask"/>
           <rect x="1021.2" y="86" width="146" height="68" rx="8" class="c-database" data-animate="node" data-step="6" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(1027.2 92) scale(0.6875)">
@@ -669,8 +671,8 @@
         <text data-detail="fine" x="718.2" y="412.9" class="t-security" font-size="7" text-anchor="middle">GroupNotFound · MissingId</text>
         </g>
 
-        <g id="node-os_group" data-node-id="os_group" data-node-label="Gate 5: Cloud Scope" tabindex="0" role="button" aria-label="Focus Gate 5: Cloud Scope, AWS:Acct · GCP:Proj · Az:Sub, 3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync" aria-pressed="false" data-node-kind="backend" data-node-sublabel="AWS:Acct · GCP:Proj · Az:Sub" data-node-tag="Default=Passive (skip if Active)" data-node-context="3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync">
-          <title>Gate 5: Cloud Scope · AWS:Acct · GCP:Proj · Az:Sub · 3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync · Default=Passive (skip if Active)</title>
+        <g id="node-os_group" data-node-id="os_group" data-node-label="Gate 5: Cloud Scope" tabindex="0" role="button" aria-label="Focus Gate 5: Cloud Scope, AWS:Acct · GCP:Proj · Az:Sub, 3. Per-Account Cloud account Group Routing › Per-Account Cloud account Group (AWS · GCP · Azure; Win / Lin separate) › Gate 5-6: Cloud account Group Sync" aria-pressed="false" data-node-kind="backend" data-node-sublabel="AWS:Acct · GCP:Proj · Az:Sub" data-node-tag="Default=Passive (skip if Active)" data-node-context="3. Per-Account Cloud account Group Routing › Per-Account Cloud account Group (AWS · GCP · Azure; Win / Lin separate) › Gate 5-6: Cloud account Group Sync">
+          <title>Gate 5: Cloud Scope · AWS:Acct · GCP:Proj · Az:Sub · 3. Per-Account Cloud account Group Routing › Per-Account Cloud account Group (AWS · GCP · Azure; Win / Lin separate) › Gate 5-6: Cloud account Group Sync · Default=Passive (skip if Active)</title>
           <rect x="765.2" y="487" width="146" height="68" rx="8" class="c-mask"/>
           <rect x="765.2" y="487" width="146" height="68" rx="8" class="c-backend" data-animate="node" data-step="4" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(771.2 493) scale(0.6875)">
@@ -681,15 +683,15 @@
         <text data-detail="fine" x="838.2" y="546.9" class="t-backend" font-size="7" text-anchor="middle">Default=Passive (skip if Active)</text>
         </g>
 
-        <g id="node-cloud_group" data-node-id="cloud_group" data-node-label="Gate 6: Cloud Group" tabindex="0" role="button" aria-label="Focus Gate 6: Cloud Group, &lt;Prefix&gt;{Passive|Active}-&lt;Id&gt;, 3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync" aria-pressed="false" data-node-kind="backend" data-node-sublabel="&lt;Prefix&gt;{Passive|Active}-&lt;Id&gt;" data-node-tag="AU Auto-Create + Flags" data-node-context="3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync">
-          <title>Gate 6: Cloud Group · &lt;Prefix&gt;{Passive|Active}-&lt;Id&gt; · 3. Per-Account Cloud × OS Group Routing › Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin) › Gate 5-6: Cloud × OS Group Sync · AU Auto-Create + Flags</title>
+        <g id="node-cloud_group" data-node-id="cloud_group" data-node-label="Gate 6: Cloud Group" tabindex="0" role="button" aria-label="Focus Gate 6: Cloud Group, dfs-{cloud}-{id}-{os}-{mode}, 3. Per-Account Cloud account Group Routing › Per-Account Cloud account Group (AWS · GCP · Azure; Win / Lin separate) › Gate 5-6: Cloud account Group Sync" aria-pressed="false" data-node-kind="backend" data-node-sublabel="dfs-{cloud}-{id}-{os}-{mode}" data-node-tag="AU Auto-Create + Flags" data-node-context="3. Per-Account Cloud account Group Routing › Per-Account Cloud account Group (AWS · GCP · Azure; Win / Lin separate) › Gate 5-6: Cloud account Group Sync">
+          <title>Gate 6: Cloud Group · dfs-{cloud}-{id}-{os}-{mode} · 3. Per-Account Cloud account Group Routing › Per-Account Cloud account Group (AWS · GCP · Azure; Win / Lin separate) › Gate 5-6: Cloud account Group Sync · AU Auto-Create + Flags</title>
           <rect x="1021.2" y="487" width="146" height="68" rx="8" class="c-mask"/>
           <rect x="1021.2" y="487" width="146" height="68" rx="8" class="c-backend" data-animate="node" data-step="5" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1027.2 493) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="1094.2" y="519.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Gate 6: Cloud Group</text>
-          <text data-detail="context" x="1094.2" y="534" class="t-muted" font-size="7.9" text-anchor="middle">&lt;Prefix&gt;{Passive|Active}-&lt;Id&gt;</text>
+          <text data-detail="context" x="1094.2" y="534" class="t-muted" font-size="7.9" text-anchor="middle">dfs-{cloud}-{id}-{os}-{mode}</text>
         <text data-detail="fine" x="1094.2" y="546.8" class="t-backend" font-size="7" text-anchor="middle">AU Auto-Create + Flags</text>
         </g>
 
@@ -773,15 +775,16 @@
                   <li><strong>Tier 1 — MDE <code>AadDeviceId</code> (<code>MdeAadDeviceId</code>):</strong> Queries <code>GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'</code> when MDE reports a valid GUID.</li>
                   <li><strong>Tier 2 — Azure Machine Configuration <code>intuneDeviceId</code> (<code>GuestConfigurationIntuneDeviceId</code>):</strong> Joins <code>GuestConfigurationResources</code> (<code>entraiddeviceid</code> on Windows reading <code>HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload</code>; <code>entraiddeviceidlinux</code> on Linux reading <code>/var/opt/microsoft/mdatp/wdavstate</code>) to extract <code>intuneDeviceId=&lt;guid&gt;</code> and queries <code>GET /v1.0/devices?$filter=deviceId eq '{intuneDeviceId}'</code>.</li>
                   <li><strong>Tier 3 — <code>MicrosoftSense</code> Hostname + OS Fallback (<code>MicrosoftSenseHostnameAndOS</code>):</strong> Queries <code>GET /v1.0/devices?$filter=displayName eq '{hostname}'</code> across candidate hostnames and matches <code>operatingSystem</code> + <code>managementType == "MicrosoftSense"</code>.</li>
-                  <li><strong>Event Grid Trigger (<code>ArcEvent</code>):</strong> Triggers on <code>Microsoft.Resources.ResourceWriteSuccess</code> when an <code>entraiddeviceid*</code> <code>guestConfigurationAssignment</code> or <code>MDE.Windows</code> / <code>MDE.Linux</code> extension completes.</li>
+                  <li><strong>Event Grid Trigger (<code>ArcEvent</code>):</strong> Handles <code>Microsoft.Resources.ResourceWriteSuccess</code> events. For an <code>entraiddeviceid*</code> <code>guestConfigurationAssignment</code>, the worker reads the current resource and queues synchronization only if <code>properties.complianceStatus</code> is <code>Compliant</code>; other or missing statuses are logged and skipped. <code>MDE.Windows</code> / <code>MDE.Linux</code> extension events still require successful provisioning. Scheduled and manual inventory are unchanged. A compliance transition alone does not guarantee a resource-write event.</li>
                 </ul>
               </div>
               <div class="doc-card">
-                <h3>Gates 5–6: Per-Account Active / Passive Cloud &times; OS Group &amp; Flags</h3>
+                <h3>Gates 5–6: Per-Account Active / Passive Cloud account Group &amp; Flags</h3>
                 <ul class="doc-list">
                   <li><strong>Global default mode (<code>SYNC_DEFAULT_GROUP_MODE</code>):</strong> Defaults to <code>Passive</code> (can be set to <code>Active</code>). Devices are added to their corresponding <code>Passive</code> (or <code>Active</code>) group by default: <code>&lt;Prefix&gt;{Passive|Active}-&lt;AccountId|ProjectId|SubscriptionName&gt;</code>.</li>
                   <li><strong>Counterpart group protection:</strong> Queries <code>GET /devices/{objectId}/memberOf</code>. If <code>SYNC_DEFAULT_GROUP_MODE == "Passive"</code> and the device is already in an <strong>Active</strong> group, it is <strong>not</strong> added to the Passive group (and vice versa when default is <code>Active</code>).</li>
-                  <li><strong>Administrative Unit auto-creation (<code>SYNC_ADMIN_UNIT_ID</code>):</strong> When configured with <code>Groups Administrator</code> scoped to an Administrative Unit, <code>Enforce</code> mode automatically creates missing <code>Passive</code> and <code>Active</code> Cloud &times; OS groups inside the AU via <code>POST /directory/administrativeUnits/{auId}/members</code> (<code>#microsoft.graph.group</code>).</li>
+                  <li><strong>Inventory-first group provisioning (<code>SYNC_ADMIN_UNIT_ID</code>):</strong> Scheduled inventory deduplicates discovered cloud-account/OS combinations and prepares missing active/passive pairs before queuing machine correlation. In <code>Enforce</code> mode with auto-creation enabled, groups are created inside the AU through atomic creation reservations. A completed reservation at least 30 minutes old can be conditionally renewed if its recorded group returns HTTP 404; the AU is checked again before recreation. Recent, undated, pending, or uncertain creations remain blocked. <code>Audit</code> mode only reports missing groups. Groups can therefore exist before any device successfully correlates.</li>
+                  <li><strong>Shared group IDs:</strong> A paginated, generation-checked AU group catalog in the sync table expires after 30 minutes. Workers reuse it instead of independently listing the AU. Expired or incomplete catalogs fall back to Graph; publication errors stop inventory before machine work is queued. Live group eligibility, names, and AU membership are checked before a shared lookup authorizes a membership update. Event-driven machines in new accounts retain guarded on-demand provisioning.</li>
                   <li><strong>Table compliance flags:</strong> Flags devices when (1) in an <strong>Active</strong> group with MDE mode <code>Passive</code> (<em>Should be Active</em>), (2) in a <strong>Passive</strong> group with MDE mode <code>Active</code> (<em>Should be Active</em>), (3) in <strong>multiple</strong> groups (all groups shown in <code>Entra ID Group</code>), or (4) in a <strong>wrong group</strong> where AWS Account ID, GCP Project, or Azure Subscription does not match.</li>
                 </ul>
               </div>
@@ -940,7 +943,7 @@
                   <tr>
                     <td>Microsoft Graph (Entra Groups &amp; Administrative Units)</td>
                     <td><code>GET /v1.0/directory/administrativeUnits/{adminUnitId}/members/microsoft.graph.group?$select=id,displayName,securityEnabled,groupTypes,onPremisesSyncEnabled,isAssignableToRole&amp;$top=100</code><br><code>POST /v1.0/directory/administrativeUnits/{adminUnitId}/members</code> (<code>@odata.type: "#microsoft.graph.group"</code>)</td>
-                    <td>List and inspect Cloud &times; OS security groups exclusively inside the configured Administrative Unit (<code>SYNC_ADMIN_UNIT_ID</code>), verify existing Active/Passive memberships, and auto-create missing Active &amp; Passive groups in <code>Enforce</code> mode.</td>
+                    <td>List and inspect Cloud account security groups exclusively inside the configured Administrative Unit (<code>SYNC_ADMIN_UNIT_ID</code>), verify existing Active/Passive memberships, and auto-create missing Active &amp; Passive groups in <code>Enforce</code> mode.</td>
                   </tr>
                   <tr>
                     <td>Microsoft Graph (Group Membership)</td>
@@ -949,8 +952,13 @@
                   </tr>
                   <tr>
                     <td>Azure Table Storage &amp; Service Bus</td>
-                    <td><code>https://{account}.table.core.windows.net/machines</code><br><code>https://{namespace}.servicebus.windows.net/machines/messages</code></td>
-                    <td>Queue per-machine work items and commit atomic state + history snapshots and Function execution logs.</td>
+                    <td><code>https://{account}.table.core.windows.net/machines</code><br><code>https://{namespace}.servicebus.windows.net/machines/messages</code><br><code>https://{namespace}.servicebus.windows.net/inventory-sync/messages</code></td>
+                    <td>Queue machine work, commit state/history/logs, and send authenticated report users' inventory requests on a separate queue.</td>
+                  </tr>
+                  <tr>
+                    <td>Report inventory controls</td>
+                    <td><code>GET /sync-status</code><br><code>POST /sync</code> with <code>X-Sync-Action: start</code></td>
+                    <td>Uncached live status, polled every 15 seconds while visible. Start sync requires <code>Report.Reader</code> in the configured tenant and the default Function App HTTPS origin. Returns 202 when queued, 409 if running, or 403 if unauthorized. Does not change configured scope or Audit/Enforce mode.</td>
                   </tr>
                 </tbody>
               </table>
@@ -973,11 +981,11 @@
                   <tr>
                     <td>Worker Managed Identity</td>
                     <td><strong>Microsoft Graph &amp; Entra (Administrative Unit Scoped — Recommended):</strong><br><code>ThreatHunting.Read.All</code>, <code>Device.Read.All</code> + <strong>Groups Administrator</strong> role scoped to Administrative Unit (<code>/administrativeUnits/{auId}</code>)</td>
-                    <td>Granted via <code>Grant-GraphPermissions.ps1 -AdminUnitId &lt;au-guid&gt;</code>. The worker only checks, creates, and manages Cloud &times; OS groups inside the Administrative Unit (<code>/directory/administrativeUnits/{auId}/members/microsoft.graph.group</code>) — <strong>no tenant-wide <code>GroupMember.Read.All</code> permission is needed</strong>.</td>
+                    <td>Granted via <code>Grant-GraphPermissions.ps1 -AdminUnitId &lt;au-guid&gt;</code>. The worker only checks, creates, and manages Cloud account groups inside the Administrative Unit (<code>/directory/administrativeUnits/{auId}/members/microsoft.graph.group</code>) — <strong>no tenant-wide <code>GroupMember.Read.All</code> permission is needed</strong>.</td>
                   </tr>
                   <tr>
                     <td>Worker Managed Identity</td>
-                    <td><strong>Alternative (Without Administrative Unit — Pre-Created Groups):</strong><br><code>ThreatHunting.Read.All</code>, <code>Device.Read.All</code>, <code>GroupMember.Read.All</code> + <strong>Group Owner</strong> on target Cloud &times; OS groups</td>
+                    <td><strong>Alternative (Without Administrative Unit — Pre-Created Groups):</strong><br><code>ThreatHunting.Read.All</code>, <code>Device.Read.All</code>, <code>GroupMember.Read.All</code> + <strong>Group Owner</strong> on target Cloud account groups</td>
                     <td>Used only when <code>SYNC_ADMIN_UNIT_ID</code> is not set (<code>Grant-GraphPermissions.ps1 -AssignGroupOwner -GroupNamePrefixes @(&lt;prefixes&gt;)</code>).</td>
                   </tr>
                   <tr>
@@ -987,18 +995,18 @@
                   </tr>
                   <tr>
                     <td>Report Managed Identity</td>
-                    <td><strong>Azure RBAC:</strong> <code>Storage Table Data Reader</code></td>
-                    <td>Read-only access to the sync storage table. Has no Microsoft Graph permissions and no Service Bus access.</td>
+                    <td><strong>Azure RBAC:</strong> <code>Storage Table Data Reader</code> + <code>Azure Service Bus Data Sender</code></td>
+                    <td>Table read-only; Sender only on <code>inventory-sync</code>. No Graph permissions or access to the <code>machines</code> queue. The worker receives from the dedicated inventory queue.</td>
                   </tr>
                   <tr>
                     <td>Report Users (Human Sign-In)</td>
                     <td><strong>Entra App Role:</strong> <code>Report.Reader</code></td>
-                    <td>Enforced by App Service Authentication (Easy Auth) and verified on every HTML, JS, CSS, and JSON request.</td>
+                    <td>Enforced by Easy Auth and checked on every request. The same role permits viewing the report and using Start sync; no additional role is required.</td>
                   </tr>
                   <tr>
                     <td>Worker App Settings</td>
                     <td><code>SYNC_SUBSCRIPTION_IDS</code>, <code>SYNC_MANAGEMENT_GROUP_IDS</code>, <code>SYNC_RESOURCE_GROUP_NAMES</code>, <code>SYNC_DEFAULT_GROUP_MODE</code>, <code>SYNC_ADMIN_UNIT_ID</code>, <code>SYNC_AUTO_CREATE_GROUPS</code>, <code>SYNC_AWS_WINDOWS_GROUP_PREFIX</code>, <code>SYNC_AWS_LINUX_GROUP_PREFIX</code>, <code>SYNC_GCP_WINDOWS_GROUP_PREFIX</code>, <code>SYNC_GCP_LINUX_GROUP_PREFIX</code>, <code>SYNC_AZURE_WINDOWS_GROUP_PREFIX</code>, <code>SYNC_AZURE_LINUX_GROUP_PREFIX</code>, <code>SYNC_MODE</code>, <code>SYNC_FRESHNESS_HOURS</code>, <code>SYNC_SCHEDULE</code></td>
-                    <td>Controls target scope (Subscriptions, Management Groups, Resource Groups), global default group mode (<code>Passive</code> by default, or <code>Active</code>), optional Administrative Unit GUID (<code>SYNC_ADMIN_UNIT_ID</code>) for automatic group creation (<code>SYNC_AUTO_CREATE_GROUPS</code>), the six Cloud &times; OS group naming prefixes (AWS Windows/Linux ending in <code>AccountId</code> tag, GCP Windows/Linux ending in <code>ProjectId</code> tag, and Azure Windows/Linux ending in <code>SubscriptionName</code> with AWS &amp; GCP machines excluded), <code>Audit</code> vs. <code>Enforce</code> mode, MDE freshness window (1–168h), and timer schedule.</td>
+                    <td>Controls target scope (Subscriptions, Management Groups, Resource Groups), global default group mode (<code>Passive</code> by default, or <code>Active</code>), optional Administrative Unit GUID (<code>SYNC_ADMIN_UNIT_ID</code>) for automatic group creation (<code>SYNC_AUTO_CREATE_GROUPS</code>), the six Cloud account group naming prefixes (AWS Windows/Linux ending in <code>AccountId</code> tag, GCP Windows/Linux ending in <code>ProjectId</code> tag, and Azure Windows/Linux ending in <code>SubscriptionName</code> with AWS &amp; GCP machines excluded), <code>Audit</code> vs. <code>Enforce</code> mode, MDE freshness window (1–168h), and timer schedule.</td>
                   </tr>
                 </tbody>
               </table>
@@ -1006,7 +1014,7 @@
           </div>
         </details>
         <details id="doc-scopes" class="doc-section" open>
-          <summary>Scope combination &amp; per-account Cloud &times; OS group routing rules</summary>
+          <summary>Scope combination &amp; per-account Cloud account group routing rules</summary>
           <div class="doc-body">
             <p>When multiple scope settings are configured simultaneously, the worker evaluates scope using <strong>OR (union)</strong> between Management Groups and Subscriptions, and <strong>AND (intersection filter)</strong> for Resource Groups:</p>
             <pre><code>InScope = (Subscription in SYNC_SUBSCRIPTION_IDS OR Subscription in SYNC_MANAGEMENT_GROUP_IDS)
@@ -1049,8 +1057,8 @@
                 </tbody>
               </table>
             </div>
-            <h3>Per-Account Active / Passive Cloud &times; OS Entra ID Group Routing (AWS, GCP &amp; Azure)</h3>
-            <p>Each correlated machine is routed to a dedicated Active or Passive Cloud &times; OS Entra ID security group for its AWS Account, GCP Project, or Azure Subscription and operating system (Windows or Linux). Global setting <code>SYNC_DEFAULT_GROUP_MODE</code> defaults to <code>Passive</code> (can be set to <code>Active</code>). If <code>SYNC_DEFAULT_GROUP_MODE</code> is <code>Passive</code> and a device is already a member of its <code>Active</code> group, it is not added to the <code>Passive</code> group (and vice versa). Because AWS and GCP Arc-enabled servers also reside inside an Azure subscription, AWS and GCP machines are strictly excluded from Azure Subscription groups:</p>
+            <h3>Per-Account Active / Passive Entra ID Group Routing (AWS, GCP &amp; Azure)</h3>
+            <p>Default group names follow <code>dfs-&lt;cloud provider&gt;-&lt;cloud account&gt;-&lt;os&gt;-&lt;mde mode&gt;</code>, entirely lowercase. Windows and Linux have separate groups for each AWS Account, GCP Project, or Azure Subscription, with a hyphen between OS and mode: <code>windows-passive</code>, <code>windows-active</code>, <code>linux-passive</code>, or <code>linux-active</code>. Global setting <code>SYNC_DEFAULT_GROUP_MODE</code> defaults to <code>Passive</code> (can be set to <code>Active</code>). If a device is already a member of its counterpart group, it is not added to the default group. AWS and GCP machines are strictly excluded from Azure Subscription groups. Existing custom literal prefixes retain their legacy formatting. Changing the configured templates does not rename old groups or migrate/remove existing memberships:</p>
             <div class="table-wrap">
               <table>
                 <thead>
@@ -1070,7 +1078,7 @@
                     <td>Arc tag <code>AccountId</code> present or AWS provider + Windows OS</td>
                     <td><code>SYNC_AWS_WINDOWS_GROUP_PREFIX</code></td>
                     <td>Arc resource tag <code>AccountId</code></td>
-                    <td><code>&lt;SYNC_AWS_WINDOWS_GROUP_PREFIX&gt;{Passive|Active}-&lt;AccountId&gt;</code></td>
+                    <td><code>dfs-aws-&lt;accountid&gt;-windows-&lt;active|passive&gt;</code></td>
                   </tr>
                   <tr>
                     <td><strong>AWS</strong></td>
@@ -1078,7 +1086,7 @@
                     <td>Arc tag <code>AccountId</code> present or AWS provider + Linux OS</td>
                     <td><code>SYNC_AWS_LINUX_GROUP_PREFIX</code></td>
                     <td>Arc resource tag <code>AccountId</code></td>
-                    <td><code>&lt;SYNC_AWS_LINUX_GROUP_PREFIX&gt;{Passive|Active}-&lt;AccountId&gt;</code></td>
+                    <td><code>dfs-aws-&lt;accountid&gt;-linux-&lt;active|passive&gt;</code></td>
                   </tr>
                   <tr>
                     <td><strong>GCP</strong></td>
@@ -1086,7 +1094,7 @@
                     <td>Arc tag <code>ProjectId</code> present or GCP provider + Windows OS</td>
                     <td><code>SYNC_GCP_WINDOWS_GROUP_PREFIX</code></td>
                     <td>Arc resource tag <code>ProjectId</code></td>
-                    <td><code>&lt;SYNC_GCP_WINDOWS_GROUP_PREFIX&gt;{Passive|Active}-&lt;ProjectId&gt;</code></td>
+                    <td><code>dfs-gcp-&lt;projectid&gt;-windows-&lt;active|passive&gt;</code></td>
                   </tr>
                   <tr>
                     <td><strong>GCP</strong></td>
@@ -1094,7 +1102,7 @@
                     <td>Arc tag <code>ProjectId</code> present or GCP provider + Linux OS</td>
                     <td><code>SYNC_GCP_LINUX_GROUP_PREFIX</code></td>
                     <td>Arc resource tag <code>ProjectId</code></td>
-                    <td><code>&lt;SYNC_GCP_LINUX_GROUP_PREFIX&gt;{Passive|Active}-&lt;ProjectId&gt;</code></td>
+                    <td><code>dfs-gcp-&lt;projectid&gt;-linux-&lt;active|passive&gt;</code></td>
                   </tr>
                   <tr>
                     <td><strong>Azure / Other Arc</strong></td>
@@ -1102,7 +1110,7 @@
                     <td>Neither AWS nor GCP + Windows OS</td>
                     <td><code>SYNC_AZURE_WINDOWS_GROUP_PREFIX</code></td>
                     <td>ARM Subscription <code>displayName</code></td>
-                    <td><code>&lt;SYNC_AZURE_WINDOWS_GROUP_PREFIX&gt;{Passive|Active}-&lt;SubscriptionName&gt;</code></td>
+                    <td><code>dfs-azure-&lt;subscriptionname&gt;-windows-&lt;active|passive&gt;</code></td>
                   </tr>
                   <tr>
                     <td><strong>Azure / Other Arc</strong></td>
@@ -1110,7 +1118,7 @@
                     <td>Neither AWS nor GCP + Linux OS</td>
                     <td><code>SYNC_AZURE_LINUX_GROUP_PREFIX</code></td>
                     <td>ARM Subscription <code>displayName</code></td>
-                    <td><code>&lt;SYNC_AZURE_LINUX_GROUP_PREFIX&gt;{Passive|Active}-&lt;SubscriptionName&gt;</code></td>
+                    <td><code>dfs-azure-&lt;subscriptionname&gt;-linux-&lt;active|passive&gt;</code></td>
                   </tr>
                 </tbody>
               </table>
@@ -1233,13 +1241,23 @@
                   </tr>
                   <tr>
                     <td><strong>Flag (<code>i</code> icon): Multiple or Wrong Groups</strong></td>
-                    <td>Device is a member of more than one Cloud &times; OS group (<code>MemberGroups.length &gt; 1</code>) or belongs to a group whose AWS Account, GCP Project, or Azure Subscription does not match the machine.</td>
-                    <td>Hover over the <code>i</code> indicator in the <code>Entra ID Group</code> column to inspect all current Cloud &times; OS groups and remove stale group memberships in Microsoft Entra ID.</td>
+                    <td>Device is a member of more than one Cloud account group (<code>MemberGroups.length &gt; 1</code>) or belongs to a group whose AWS Account, GCP Project, or Azure Subscription does not match the machine.</td>
+                    <td>Hover over the <code>i</code> indicator in the <code>Entra ID Group</code> column to inspect all current Cloud account groups and remove stale group memberships in Microsoft Entra ID.</td>
                   </tr>
                   <tr>
                     <td><strong>Graph <code>403 Forbidden</code> in Worker Logs</strong></td>
                     <td>Missing Microsoft Graph application permissions, AU role assignment, or group ownership.</td>
                     <td>Re-run <code>.\Grant-GraphPermissions.ps1</code> for your chosen mode (<code>Audit</code>, <code>Enforce -AdminUnitId &lt;guid&gt;</code>, or <code>Enforce -AssignGroupOwner</code>).</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Start sync <code>403</code> / non-JSON response</strong></td>
+                    <td>Easy Auth may reject browser POSTs before they reach the function when a no-referrer policy suppresses the referrer header.</td>
+                    <td>Deploy the current report package and hard-refresh the browser. The report and sync request use same-origin referrer policy; CSRF checks remain enabled.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Start sync disabled / not configured (<code>503</code>)</strong></td>
+                    <td>The report Service Bus namespace setting is missing.</td>
+                    <td>Deploy updated infrastructure to configure <code>ServiceBusConnection__fullyQualifiedNamespace</code>, the <code>inventory-sync</code> queue, and queue-scoped report Sender / worker Receiver permissions. ZIP upload alone is insufficient.</td>
                   </tr>
                   <tr>
                     <td><strong>Portal <code>401</code> / <code>403</code> or Stale Data</strong></td>

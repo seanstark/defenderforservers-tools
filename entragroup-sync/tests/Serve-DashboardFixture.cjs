@@ -96,10 +96,21 @@ const legacy = {
   GroupId: "", GroupName: "MDfS-Azure-Windows-Passive-Demo production", CloudGroupType: "Azure", CloudGroupOS: "Windows", CloudIdentifier: "Demo production",
   Status: "ArcNotConnected", Membership: "Unknown", Mode: "Audit", LastChecked: now
 };
+let fixtureJob = { Status: "Succeeded", IsRunning: false, CanStartSync: true, StartedAt: now, CompletedAt: now };
 const server = http.createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
   const normalizedPath = url.pathname.replace(/^\/api\/report(\/|$)/i, "/");
   const json = value => { response.setHeader("Content-Type", "application/json"); response.end(JSON.stringify(value)); };
+  if (normalizedPath === "/sync-status") {
+    response.setHeader("Cache-Control", "no-store");
+    return json(fixtureJob);
+  }
+  if (normalizedPath === "/sync" && request.method === "POST") {
+    const requestedAt = new Date().toISOString();
+    fixtureJob = { Status: "Running", IsRunning: true, CanStartSync: true, StartedAt: requestedAt, TriggerReason: "Manual sync (Device inventory)" };
+    response.statusCode = 202;
+    return json({ RequestId: "fixture-request", RequestedAt: requestedAt });
+  }
   if (normalizedPath === "/data") return json(url.searchParams.has("cursor") ? { Items: [passiveMismatch, multiWrongGroup, linux, legacy], Cursor: "" } : { Items: [machine, activeMismatch], Cursor: "page-two" });
   if (normalizedPath === "/health") return json({
     FunctionAppName: "arcgroupsync-worker-demo",
@@ -180,7 +191,7 @@ const server = http.createServer((request, response) => {
       { Id: "entra-group-write", Category: "Microsoft Entra ID", Principal: "Worker Managed Identity (77777777-8888-9999-aaaa-bbbbbbbbbbbb)", Permission: "Group Member Write (AU Admin / Group Owner)", Scope: "Administrative Unit (44444444-aaaa-bbbb-cccc-555555555555)", RequiredFor: "Enforce Mode (Current: Audit)", Status: "Granted", Details: "Ready for group membership additions via AU-scoped Groups Administrator on SYNC_ADMIN_UNIT_ID (Current SYNC_MODE=Audit).", Remediation: "" },
       { Id: "worker-infra-rbac", Category: "Azure RBAC", Principal: "Worker Managed Identity (77777777-8888-9999-aaaa-bbbbbbbbbbbb)", Permission: "Storage Table Data Contributor & Azure Service Bus Data Sender/Receiver", Scope: "Storage: syncdemostorage | Service Bus: arcgroupsync-bus-demo.servicebus.windows.net", RequiredFor: "All Modes (Queueing & State Persistence)", Status: "Granted", Details: "Verified Worker Managed Identity access to sync storage table 'syncdemostorage/machines' and Service Bus namespace 'arcgroupsync-bus-demo.servicebus.windows.net'.", Remediation: "" },
       { Id: "report-storage-reader", Category: "Report App & User", Principal: "Report Managed Identity (cccccccc-dddd-eeee-ffff-000000000000)", Permission: "Storage Table Data Reader", Scope: "Sync Storage Account (syncdemostorage/machines)", RequiredFor: "Web Portal (Read-Only Inventory & Logs)", Status: "Granted", Details: "Verified live: Report Managed Identity authenticated via Entra ID and read the 'syncdemostorage/machines' table.", Remediation: "" },
-      { Id: "report-least-privilege", Category: "Report App & User", Principal: "Report Managed Identity (cccccccc-dddd-eeee-ffff-000000000000)", Permission: "Least-Privilege Isolation (No Graph or Queue Write)", Scope: "Report Function App (arcgroupsync-report-demo)", RequiredFor: "Security Architecture", Status: "Granted", Details: "Verified live: Report Function App has no Service Bus queue access and no Microsoft Graph write credentials.", Remediation: "" },
+      { Id: "report-least-privilege", Category: "Report App & User", Principal: "Report Managed Identity (cccccccc-dddd-eeee-ffff-000000000000)", Permission: "Least-Privilege Isolation (Table Reader + Sync-Request Sender)", Scope: "Report Function App (arcgroupsync-report-demo)", RequiredFor: "Security Architecture", Status: "Pending", Details: "Expected Table Reader and inventory-sync Sender only; review effective RBAC separately.", Remediation: "Confirm no Graph permissions or machines-queue access." },
       { Id: "portal-user-role", Category: "Report App & User", Principal: "Signed-In Portal User", Permission: "Report.Reader (Entra App Role)", Scope: "Tenant (33333333-3333-3333-3333-333333333333)", RequiredFor: "Web Portal Access", Status: "Granted", Details: "Verified live on current HTTP request (X-MS-CLIENT-PRINCIPAL contains aad claim with role Report.Reader in configured tenant).", Remediation: "" }
     ]
   });
@@ -217,6 +228,7 @@ const server = http.createServer((request, response) => {
   const types = { "index.html": "text/html", "coverage.html": "text/html", "permissions.html": "text/html", "docs.html": "text/html", "style.css": "text/css", "theme.js": "text/javascript", "app.js": "text/javascript", "coverage.js": "text/javascript", "permissions.js": "text/javascript", "docs.js": "text/javascript" };
   if (!Object.hasOwn(types, name)) { response.writeHead(404); response.end(); return; }
   response.setHeader("Content-Type", types[name]);
+  response.setHeader("Referrer-Policy", "same-origin");
   response.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
   let content = fs.readFileSync(path.join(root, name), "utf8");
   if (name === "index.html" || name === "coverage.html" || name === "permissions.html" || name === "docs.html") content = content.replace("<h1>", "<p class=\"eyebrow\">LOCAL DEMO - SYNTHETIC DATA ONLY</p><h1>");

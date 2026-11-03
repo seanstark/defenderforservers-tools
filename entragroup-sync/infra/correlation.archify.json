@@ -57,7 +57,7 @@
     {
       "id": "au_group",
       "type": "frontend",
-      "label": "3. Cloud × OS Security Group",
+      "label": "3. Cloud account Security Group",
       "sublabel": "Administrative Unit Group Sync",
       "pos": [995, 130],
       "size": [225, 66],

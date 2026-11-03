@@ -2,8 +2,8 @@
   "schema_version": 2,
   "diagram_type": "workflow",
   "meta": {
-    "title": "Machine Correlation & Per-Account Cloud × OS Group Evaluation",
-    "subtitle": "Step-by-step decision rules: Scope -> ARM status -> MDE DeviceInfo freshness -> Entra device objectId -> Per-Account Cloud (AWS/GCP/Azure) × OS (Windows/Linux) Group",
+    "title": "Machine Correlation & Per-Account Cloud account Group Evaluation",
+    "subtitle": "Step-by-step decision rules: Scope -> ARM status -> MDE DeviceInfo freshness -> Entra device objectId -> Per-Account Cloud account (AWS/GCP/Azure; Windows/Linux separate) Group",
     "animation": "trace",
     "visual_preset": "signal-flow",
     "quality_profile": "showcase",
@@ -13,17 +13,17 @@
     { "id": "azure", "label": "1. Azure Scope & Resource State" },
     { "id": "mde", "label": "2. MDE & Entra Identity Criteria" },
     { "id": "blocked", "label": "Safety Stops (No Group Write)", "variant": "exception" },
-    { "id": "groups", "label": "3. Per-Account Cloud × OS Group Routing" }
+    { "id": "groups", "label": "3. Per-Account Cloud account Group Routing" }
   ],
   "phases": [
     { "id": "discover", "label": "Gate 1-2: Scope & ARM State", "fromCol": 0, "toCol": 1 },
     { "id": "correlate", "label": "Gate 3-4: MDE & Entra Criteria", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
-    { "id": "sync", "label": "Gate 5-6: Cloud × OS Group Sync", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+    { "id": "sync", "label": "Gate 5-6: Cloud account Group Sync", "fromCol": 4, "toCol": 5, "variant": "dashed" }
   ],
   "groups": [
     { "id": "identity_gate", "label": "Exact ID correlation (no hostname/IP guessing)", "lane": "mde", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
     { "id": "safety_stops", "label": "Ineligible states recorded without group write", "lane": "blocked", "fromCol": 1, "toCol": 3, "variant": "security" },
-    { "id": "group_sync", "label": "Per-Account Cloud × OS Group (AWS · GCP · Azure × Win / Lin)", "lane": "groups", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+    { "id": "group_sync", "label": "Per-Account Cloud account Group (AWS · GCP · Azure; Win / Lin separate)", "lane": "groups", "fromCol": 4, "toCol": 5, "variant": "dashed" }
   ],
   "mainPath": ["work_item", "arm_check", "mde_correlate", "entra_resolve", "os_group", "cloud_group", "persist"],
   "nodes": [
@@ -113,7 +113,7 @@
       "col": 5,
       "type": "backend",
       "label": "Gate 6: Cloud Group",
-      "sublabel": "<Prefix>{Passive|Active}-<Id>",
+      "sublabel": "dfs-{cloud}-{id}-{os}-{mode}",
       "tag": "AU Auto-Create + Flags",
       "width": 146
     },
@@ -160,11 +160,11 @@
     },
     {
       "dot": "violet",
-      "title": "Gate 5: Per-Account Cloud × OS Entra ID Group Criteria",
+      "title": "Gate 5: Per-Account Cloud account Entra ID Group Criteria",
       "items": [
         "Group eligibility: securityEnabled == true, groupTypes empty (not Dynamic/Unified M365), onPremisesSyncEnabled != true, isAssignableToRole != true",
-        "AWS & GCP: <SYNC_AWS_WINDOWS_GROUP_PREFIX><AccountId>, <SYNC_AWS_LINUX_GROUP_PREFIX><AccountId>, <SYNC_GCP_WINDOWS_GROUP_PREFIX><ProjectId>, <SYNC_GCP_LINUX_GROUP_PREFIX><ProjectId>",
-        "Azure: <SYNC_AZURE_WINDOWS_GROUP_PREFIX><SubscriptionName>, <SYNC_AZURE_LINUX_GROUP_PREFIX><SubscriptionName> (AWS & GCP machines strictly excluded)"
+        "AWS & GCP defaults: dfs-aws-<accountid>-<os>-<mode>, dfs-gcp-<projectid>-<os>-<mode>; Windows and Linux have separate account groups",
+        "Azure default: dfs-azure-<subscriptionname>-<os>-<mode>; all lowercase, mode active/passive (AWS & GCP machines strictly excluded)"
       ]
     }
   ]

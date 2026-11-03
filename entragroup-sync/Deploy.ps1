@@ -5,12 +5,12 @@ param(
     [guid[]]$SubscriptionIds = @(),
     [ValidatePattern('^[A-Za-z0-9._()-]{1,90}$')][string[]]$ManagementGroupIds = @(),
     [ValidatePattern('^[A-Za-z0-9._()-]{1,90}$')][string[]]$ResourceGroupNames = @(),
-    [string]$AwsWindowsGroupPrefix = '',
-    [string]$AwsLinuxGroupPrefix = '',
-    [string]$GcpWindowsGroupPrefix = '',
-    [string]$GcpLinuxGroupPrefix = '',
-    [string]$AzureWindowsGroupPrefix = '',
-    [string]$AzureLinuxGroupPrefix = '',
+    [string]$AwsWindowsGroupPrefix = 'dfs-aws-{id}-windows-{mode}',
+    [string]$AwsLinuxGroupPrefix = 'dfs-aws-{id}-linux-{mode}',
+    [string]$GcpWindowsGroupPrefix = 'dfs-gcp-{id}-windows-{mode}',
+    [string]$GcpLinuxGroupPrefix = 'dfs-gcp-{id}-linux-{mode}',
+    [string]$AzureWindowsGroupPrefix = 'dfs-azure-{id}-windows-{mode}',
+    [string]$AzureLinuxGroupPrefix = 'dfs-azure-{id}-linux-{mode}',
     [ValidateSet('Passive', 'Active')][string]$DefaultGroupMode = 'Passive',
     [guid]$AdminUnitId = [guid]::Empty,
     [bool]$AutoCreateGroups = $false,
@@ -128,7 +128,7 @@ finally {
 
 Write-Host "Report: $($outputs.reportUrl.value)"
 Write-Host "Set the report registration's Web redirect URI to: $($outputs.reportRedirectUri.value)"
-Write-Host 'Next grant the worker Graph permissions and assign Report.Reader to authorized report users.'
+Write-Host 'Next grant the worker Graph permissions and assign Report.Reader to users authorized to view the report and start sync.'
 [pscustomobject]@{
     WorkerAppName = $outputs.workerAppName.value
     WorkerPrincipalId = $outputs.workerPrincipalId.value

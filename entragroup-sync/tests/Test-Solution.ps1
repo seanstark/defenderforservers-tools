@@ -14,7 +14,7 @@ Get-ChildItem -LiteralPath $root -Recurse -Filter '*.json' | ForEach-Object {
     $null = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
 }
 
-$names = @('SYNC_SUBSCRIPTION_IDS', 'SYNC_MANAGEMENT_GROUP_IDS', 'SYNC_RESOURCE_GROUP_NAMES', 'SYNC_DEFAULT_GROUP_MODE', 'SYNC_ADMIN_UNIT_ID', 'SYNC_AUTO_CREATE_GROUPS', 'SYNC_AWS_WINDOWS_GROUP_PREFIX', 'SYNC_AWS_LINUX_GROUP_PREFIX', 'SYNC_GCP_WINDOWS_GROUP_PREFIX', 'SYNC_GCP_LINUX_GROUP_PREFIX', 'SYNC_AZURE_WINDOWS_GROUP_PREFIX', 'SYNC_AZURE_LINUX_GROUP_PREFIX', 'SYNC_MODE', 'SYNC_TENANT_ID', 'SYNC_FRESHNESS_HOURS')
+$names = @('SYNC_SUBSCRIPTION_IDS', 'SYNC_MANAGEMENT_GROUP_IDS', 'SYNC_RESOURCE_GROUP_NAMES', 'SYNC_DEFAULT_GROUP_MODE', 'SYNC_ADMIN_UNIT_ID', 'SYNC_AUTO_CREATE_GROUPS', 'SYNC_AWS_WINDOWS_GROUP_PREFIX', 'SYNC_AWS_LINUX_GROUP_PREFIX', 'SYNC_GCP_WINDOWS_GROUP_PREFIX', 'SYNC_GCP_LINUX_GROUP_PREFIX', 'SYNC_AZURE_WINDOWS_GROUP_PREFIX', 'SYNC_AZURE_LINUX_GROUP_PREFIX', 'SYNC_MODE', 'SYNC_TENANT_ID', 'SYNC_FRESHNESS_HOURS', 'WEBSITE_HOSTNAME', 'ServiceBusConnection__fullyQualifiedNamespace', 'AzureFunctionsJobHost__functionTimeout')
 $saved = @{}
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 $env:SYNC_SUBSCRIPTION_IDS = '11111111-1111-1111-1111-111111111111'
@@ -41,7 +41,9 @@ try {
         foreach ($name in @('Invoke-CloudRequest', 'Invoke-Graph', 'Invoke-Table', 'Get-MachineState', 'Save-MachineState',
             'Get-MdeCandidates', 'Test-Group', 'Resolve-GroupByDisplayName', 'Get-DeviceCloudGroups', 'Test-DirectMembership', 'Write-MutationIntent', 'Get-TableBase', 'Get-TablePage',
             'Send-MachineWork', 'Get-AccessToken', 'Invoke-WebRequest', 'Start-Sleep',
-            'Get-SubscriptionName', 'Get-ArcExtensions', 'Get-MdeNetworkAddresses', 'Get-MdeAntivirus', 'Get-ManagementGroupSubscriptions', 'Write-FunctionLog')) {
+            'Get-SubscriptionName', 'Get-ArcExtensions', 'Get-MdeNetworkAddresses', 'Get-MdeAntivirus', 'Get-ManagementGroupSubscriptions', 'Write-FunctionLog',
+            'Get-SharedAdminUnitGroups', 'Save-SharedAdminUnitGroups', 'New-AdminUnitSecurityGroup', 'Initialize-InventoryGroups',
+            'Start-InventoryJob', 'Complete-InventoryJob', 'Invoke-InventoryRun', 'Get-InventoryJobStatus', 'New-ReportSyncRequest')) {
             $command = Get-Command $name -ErrorAction SilentlyContinue
             $originals[$name] = if ($command -and $command.CommandType -eq 'Function') { $command.ScriptBlock } else { $null }
         }
@@ -56,6 +58,12 @@ try {
         }
         function Test-Case([string]$Name, [scriptblock]$Action) {
             try {
+                function script:Get-SharedAdminUnitGroups { return $null }
+                function script:Start-InventoryJob { @{ RunId = [guid]::NewGuid().ToString() } }
+                function script:Complete-InventoryJob {
+                    param($RunId, $Status, $Message)
+                    $script:LastJobCompletion = @{ RunId = $RunId; Status = $Status; Message = $Message }
+                }
                 & $Action
                 $script:Passed++
                 Write-Host "PASS $Name"
@@ -69,6 +77,9 @@ try {
                 $env:SYNC_MANAGEMENT_GROUP_IDS = ''
                 $env:SYNC_RESOURCE_GROUP_NAMES = ''
                 $env:SYNC_DEFAULT_GROUP_MODE = 'Passive'
+                $env:WEBSITE_HOSTNAME = ''
+                $env:ServiceBusConnection__fullyQualifiedNamespace = ''
+                $env:AzureFunctionsJobHost__functionTimeout = ''
                 $env:SYNC_AWS_WINDOWS_GROUP_PREFIX = 'MDfS-AWS-Windows-'
                 $env:SYNC_AWS_LINUX_GROUP_PREFIX = 'MDfS-AWS-Linux-'
                 $env:SYNC_GCP_WINDOWS_GROUP_PREFIX = 'MDfS-GCP-Windows-'
@@ -78,6 +89,9 @@ try {
                 $script:ManagementGroupSubscriptions = @{}
                 $script:ManagementGroupCacheExpires = [datetimeoffset]::MinValue
                 $script:GroupByNameCache = @{}
+                $script:AdminUnitGroupsCache = @{}
+                $script:AdminUnitGroupsExpires = @{}
+                $script:SharedAdminUnitGroups = @{}
                 foreach ($entry in $originals.GetEnumerator()) {
                     if ($entry.Value) { Set-Item -Path "Function:script:$($entry.Key)" -Value $entry.Value }
                     else { Remove-Item -Path "Function:script:$($entry.Key)" -ErrorAction SilentlyContinue }
@@ -144,6 +158,13 @@ try {
             Assert-Throws { ConvertTo-ArcId $id }
             $script:GraphBodies = @()
             $script:Queued = @()
+            $script:InventorySteps = @()
+            function script:Initialize-InventoryGroups {
+                param($Config, $WorkItems, $MdeMap)
+                Assert-Equal $WorkItems.Count 2
+                $script:InventorySteps += 'GroupsReady'
+                @{ Existing = 0; Created = 0; WouldCreate = 0; Missing = 0 }
+            }
             function script:Invoke-CloudRequest {
                 param($Uri, $Resource, $Method, $Body)
                 if ($Body -and $Body['query']) {
@@ -160,7 +181,12 @@ try {
                 param($Entry)
                 $script:LastFunctionLog = $Entry
             }
-            function script:Send-MachineWork { param($ResourceId) $script:Queued += $ResourceId }
+            function script:Send-MachineWork {
+                param($ResourceId)
+                Assert-Equal $script:InventorySteps[0] 'GroupsReady'
+                $script:InventorySteps += 'MachineQueued'
+                $script:Queued += $ResourceId
+            }
             Invoke-InventorySync -TriggerReason 'Scheduled timer (NCRONTAB schedule)'
             Assert-Equal $script:GraphBodies.Count 2
             Assert-Equal ($script:GraphBodies[0].managementGroups -join ',') 'mg-servers'
@@ -175,6 +201,11 @@ try {
             Assert-Equal $script:LastFunctionLog.TriggerReason 'Scheduled timer (NCRONTAB schedule)'
             Assert-Equal $script:LastFunctionLog.Status 'Succeeded'
             Assert-Equal $script:LastFunctionLog.Health 'Healthy'
+            $script:Queued = @()
+            function script:Initialize-InventoryGroups { throw 'Group catalog could not be published.' }
+            Assert-Throws { Invoke-InventorySync }
+            Assert-Equal $script:Queued.Count 0
+            Assert-Equal $script:LastFunctionLog.Status 'Failed'
             $env:SYNC_MANAGEMENT_GROUP_IDS = ''
             Assert-Throws { Get-SyncConfig }
         }
@@ -300,7 +331,7 @@ try {
             Assert-Equal $script:Saved.Status 'ArcMissing'
             Assert-Equal $script:Saved.Membership 'Unknown'
             Assert-Equal $script:LoggedRun.FunctionName 'Machine'
-            Assert-Equal $script:LoggedRun.TriggerReason 'Event Grid (MDE.Windows / MDE.Linux extension Succeeded)'
+            Assert-Equal $script:LoggedRun.TriggerReason 'Event Grid (Compliant Machine Configuration assignment or succeeded MDE extension)'
             Assert-Equal $script:LoggedRun.Status 'ArcMissing'
         }
         Test-Case 'Event Grid MDE extension trigger queues parent machine only when provisioningState is Succeeded' {
@@ -331,6 +362,65 @@ try {
             Assert-Equal (Invoke-MdeExtensionEvent -Subject $gcSubj) 1
             Assert-Equal $script:QueuedParent.Count 2
             Assert-Throws { Invoke-MdeExtensionEvent -Subject "$id/extensions/AzureMonitorWindowsAgent" }
+        }
+        Test-Case 'Guest Configuration events queue only explicitly Compliant assignments' {
+            $script:QueuedParent = @()
+            $script:GuestAssignment = @{ properties = @{ provisioningState = 'Succeeded' } }
+            function script:Send-MachineWork { param($ResourceId, $Source) $script:QueuedParent += "$Source`:$ResourceId" }
+            function script:Invoke-CloudRequest {
+                param($Uri)
+                Assert-True ($Uri.Contains('/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/'))
+                @{ Status = 200; Content = ($script:GuestAssignment | ConvertTo-Json -Depth 5 -Compress) }
+            }
+            $parents = @(
+                $id
+                '/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/Servers/providers/Microsoft.Compute/virtualMachines/vm01'
+                '/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/Servers/providers/Microsoft.Compute/virtualMachineScaleSets/set01/virtualMachines/0'
+            )
+            foreach ($status in @('NonCompliant', 'Pending', 'Unknown', '', $null)) {
+                $script:GuestAssignment.properties = @{ provisioningState = 'Succeeded' }
+                if ($null -ne $status) { $script:GuestAssignment.properties.complianceStatus = $status }
+                foreach ($parent in $parents) {
+                    Assert-Equal (Invoke-MdeExtensionEvent "$parent/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/entraiddeviceidlinux") 0
+                }
+            }
+            Assert-Equal $script:QueuedParent.Count 0
+            foreach ($status in @('Compliant', 'compliant')) {
+                $script:GuestAssignment.properties.complianceStatus = $status
+                foreach ($parent in $parents) {
+                    Assert-Equal (Invoke-MdeExtensionEvent "$parent/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/entraiddeviceid") 1
+                }
+            }
+            Assert-Equal $script:QueuedParent.Count 6
+            $script:GuestAssignment.properties.provisioningState = 'Creating'
+            Assert-Equal (Invoke-MdeExtensionEvent "$id/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/entraiddeviceid") 0
+            Assert-Equal $script:QueuedParent.Count 6
+        }
+        Test-Case 'Guest Configuration compliance gates VMSS fan-out before Resource Graph discovery' {
+            $vmss = '/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/Servers/providers/Microsoft.Compute/virtualMachineScaleSets/set01'
+            $subject = "$vmss/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/entraiddeviceidlinux"
+            $script:QueuedParent = @()
+            $script:VmssCompliance = 'NonCompliant'
+            $script:VmssDiscoveryCalls = 0
+            function script:Send-MachineWork { param($ResourceId, $Source) $script:QueuedParent += "$Source`:$ResourceId" }
+            function script:Invoke-CloudRequest {
+                param($Uri, $Method, $Body)
+                if ($Uri.Contains('/guestConfigurationAssignments/')) {
+                    return @{ Status = 200; Content = (@{ properties = @{ provisioningState = 'Succeeded'; complianceStatus = $script:VmssCompliance } } | ConvertTo-Json -Compress) }
+                }
+                Assert-True ($Uri.Contains('/providers/Microsoft.ResourceGraph/resources'))
+                Assert-Equal $Method 'POST'
+                $script:VmssDiscoveryCalls++
+                @{ Status = 200; Content = (@{ data = @(@{ id = "$vmss/virtualMachines/0" }, @{ id = "$vmss/virtualMachines/1" }) } | ConvertTo-Json -Compress) }
+            }
+            Assert-Equal (Invoke-MdeExtensionEvent $subject) 0
+            Assert-Equal $script:VmssDiscoveryCalls 0
+            Assert-Equal $script:QueuedParent.Count 0
+            $script:VmssCompliance = 'Compliant'
+            Assert-Equal (Invoke-MdeExtensionEvent $subject) 2
+            Assert-Equal $script:VmssDiscoveryCalls 1
+            Assert-Equal $script:QueuedParent.Count 2
+            Assert-Equal $script:QueuedParent[0] "EventGrid:$vmss/virtualMachines/0"
         }
         Test-Case 'Full machine workflow resolves deviceId to object ID in Audit' {
             $script:Candidates = @($candidate)
@@ -485,6 +575,407 @@ try {
             Assert-Equal $script:Saved.EntraDeviceId '8d6e3dd1-4cc4-6d14-e0a3-4856e6059032'
             Assert-Equal $script:Saved.EntraObjectId '99999999-8888-7777-6666-555555555555'
             Assert-Equal $script:Saved.EntraCorrelationPath 'GuestConfigurationIntuneDeviceId'
+        }
+        Test-Case 'Inventory provisions each account-OS pair once before any device correlation' {
+            $cfg = Get-SyncConfig
+            $cfg.AdminUnitId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $cfg.AutoCreateGroups = $true
+            $cfg.Mode = 'Enforce'
+            $work = @()
+            foreach ($cloud in @('Aws', 'Gcp', 'Azure')) {
+                foreach ($os in @('Windows', 'Linux')) {
+                    $cfg["${cloud}${os}GroupPrefix"] = "dfs-$($cloud.ToLowerInvariant())-{id}-$($os.ToLowerInvariant())-{mode}"
+                    foreach ($number in 1..3) {
+                        $work += @{
+                            ResourceId = $id
+                            Row = @{
+                                properties = @{ status = 'Connected'; osType = $os; cloudMetadata = @{ provider = $cloud } }
+                                tags = switch ($cloud) { 'Aws' { @{ AccountId = '123456789012' } }; 'Gcp' { @{ ProjectId = 'Project-A' } }; default { @{} } }
+                                subscriptionName = 'Production'
+                            }
+                        }
+                    }
+                }
+            }
+            $script:AuReads = 0
+            $script:CreatedNames = @()
+            function script:Invoke-Graph {
+                $script:AuReads++
+                @{ Content = '{"value":[{"id":"11111111-2222-3333-4444-555555555555","displayName":"dfs-aws-123456789012-windows-active","securityEnabled":true,"groupTypes":[],"onPremisesSyncEnabled":false,"isAssignableToRole":false}]}' }
+            }
+            function script:New-AdminUnitSecurityGroup {
+                param($AdminUnitId, $DisplayName)
+                $script:CreatedNames += $DisplayName
+                @{ Id = [guid]::NewGuid().ToString(); DisplayName = $DisplayName; Created = $true }
+            }
+            function script:Save-SharedAdminUnitGroups { param($AdminUnitId, $Groups) $script:PublishedGroups = $Groups }
+            $summary = Initialize-InventoryGroups $cfg $work
+            Assert-Equal $summary.Expected 12
+            Assert-Equal $summary.Existing 1
+            Assert-Equal $summary.Created 11
+            Assert-Equal $script:AuReads 1
+            Assert-Equal @($script:CreatedNames | Sort-Object -Unique).Count 11
+            Assert-Equal $script:PublishedGroups.Count 12
+        }
+        Test-Case 'Inventory Audit and disabled auto-create never create groups or creation claims' {
+            $cfg = Get-SyncConfig
+            $cfg.AdminUnitId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $cfg.AutoCreateGroups = $true
+            $work = @(@{
+                ResourceId = $id
+                Row = @{ properties = @{ osType = 'Windows'; cloudMetadata = @{ provider = 'AWS' } }; tags = @{ AccountId = '123456789012' }; subscriptionName = 'Production' }
+            })
+            function script:Invoke-Graph { @{ Content = '{"value":[]}' } }
+            function script:New-AdminUnitSecurityGroup { throw 'No groups may be created.' }
+            function script:Invoke-Table { throw 'No creation claims may be written.' }
+            function script:Save-SharedAdminUnitGroups { param($AdminUnitId, $Groups) Assert-Equal $Groups.Count 0 }
+            $audit = Initialize-InventoryGroups $cfg $work
+            Assert-Equal $audit.WouldCreate 2
+            Assert-Equal $audit.Created 0
+            $cfg.Mode = 'Enforce'
+            $cfg.AutoCreateGroups = $false
+            $disabled = Initialize-InventoryGroups $cfg $work
+            Assert-Equal $disabled.Missing 2
+            Assert-Equal $disabled.Created 0
+            $work[0].Row.tags = @{}
+            Assert-Equal (Initialize-InventoryGroups $cfg $work).Expected 0
+            $work[0].Row.properties.osType = ''
+            Assert-Equal (Initialize-InventoryGroups $cfg $work).Expected 0
+            $work[0].Row.properties.osType = 'Windows'
+            $work[0].Row.properties.cloudMetadata.provider = ''
+            $telemetry = @{ $id.ToLowerInvariant() = @{ Candidates = @(@{ CloudPlatforms = 'AWS' }) } }
+            Assert-Equal (Initialize-InventoryGroups $cfg $work $telemetry).Expected 0
+            $work[0].Row.tags = @{ AccountId = '123456789012' }
+            $cfg.AwsWindowsGroupPrefix = ''
+            Assert-Equal (Initialize-InventoryGroups $cfg $work).Expected 0
+            $work[0].Row = $null
+            Assert-Equal (Initialize-InventoryGroups $cfg $work).Expected 0
+        }
+        Test-Case 'Shared AU catalogs publish atomically and reuse paged group IDs across workers' {
+            $au = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $groups = @(
+                @{ id = '11111111-2222-3333-4444-555555555555'; displayName = 'dfs-aws-123456789012-windows-active'; securityEnabled = $true; groupTypes = @(); onPremisesSyncEnabled = $false; isAssignableToRole = $false }
+                @{ id = '66666666-7777-8888-9999-000000000000'; displayName = 'dfs-aws-123456789012-linux-passive'; securityEnabled = $true; groupTypes = @(); onPremisesSyncEnabled = $false; isAssignableToRole = $false }
+            )
+            $script:CatalogWrites = @()
+            function script:Invoke-Table {
+                param($Path, $Method = 'GET', $Body, $Headers)
+                if ($Method -eq 'PUT') {
+                    Assert-True (-not $Headers -or -not $Headers.ContainsKey('If-Match'))
+                    $script:CatalogWrites += $Body
+                    return @{ Status = 204 }
+                }
+                @{ Status = 200; Content = ($script:CatalogWrites[-1] | ConvertTo-Json -Compress) }
+            }
+            Save-SharedAdminUnitGroups $au $groups
+            Assert-Equal $script:CatalogWrites.Count 3
+            Assert-Equal $script:CatalogWrites[-1].PartitionKey 'group-catalogs'
+            Assert-Equal $script:CatalogWrites[-1].GroupCount 2
+            $script:CatalogPages = 0
+            function script:Get-TablePage {
+                param($Filter, $Cursor)
+                Assert-True ($Filter.Contains("Generation eq '$($script:CatalogWrites[-1].Generation)'"))
+                $script:CatalogPages++
+                $index = if ($Cursor) { 1 } else { 0 }
+                @{
+                    Items = @($script:CatalogWrites[$index].Data | ConvertFrom-Json -AsHashtable)
+                    Cursor = if ($Cursor) { '' } else { 'next-page' }
+                }
+            }
+            Set-Item Function:script:Get-SharedAdminUnitGroups $originals['Get-SharedAdminUnitGroups']
+            function script:Invoke-Graph { throw 'A fresh shared catalog must avoid AU Graph listing.' }
+            $script:AdminUnitGroupsCache.Clear()
+            $script:AdminUnitGroupsExpires.Clear()
+            Assert-Equal @(Get-AdminUnitGroups $au).Count 2
+            Assert-Equal $script:CatalogPages 2
+            Assert-Equal (Resolve-GroupByDisplayName $groups[0].displayName $au).Id $groups[0].id
+            $script:AdminUnitGroupsCache.Clear()
+            $script:AdminUnitGroupsExpires.Clear()
+            $script:GroupByNameCache.Clear()
+            Assert-Equal (Resolve-GroupByDisplayName $groups[1].displayName $au).Id $groups[1].id
+            Assert-Equal $script:CatalogPages 4
+        }
+        Test-Case 'Expired or partially overwritten shared catalogs fall back to fresh Graph lookup' {
+            $au = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $script:ManifestExpiry = [datetimeoffset]::UtcNow.AddMinutes(10).ToString('o')
+            function script:Invoke-Table {
+                @{
+                    Status = 200
+                    Content = (@{ ExpiresAt = $script:ManifestExpiry; Generation = '11111111-2222-3333-4444-555555555555'; GroupCount = 1 } | ConvertTo-Json -Compress)
+                }
+            }
+            $script:CatalogPages = 0
+            function script:Get-TablePage { $script:CatalogPages++; @{ Items = @(); Cursor = '' } }
+            $script:AuReads = 0
+            function script:Invoke-Graph { $script:AuReads++; @{ Content = '{"value":[]}' } }
+            Set-Item Function:script:Get-SharedAdminUnitGroups $originals['Get-SharedAdminUnitGroups']
+            Assert-Equal @(Get-AdminUnitGroups $au).Count 0
+            Assert-Equal $script:AuReads 1
+            Assert-Equal $script:CatalogPages 1
+            $script:AdminUnitGroupsCache.Clear()
+            $script:ManifestExpiry = [datetimeoffset]::UtcNow.AddMinutes(-1).ToString('o')
+            Assert-Equal @(Get-AdminUnitGroups $au).Count 0
+            Assert-Equal $script:AuReads 2
+            Assert-Equal $script:CatalogPages 1
+        }
+        Test-Case 'Failed shared catalog writes never publish a complete manifest' {
+            $script:ManifestWrites = 0
+            function script:Invoke-Table {
+                param($Path, $Method, $Body)
+                if ($Body.PartitionKey -eq 'group-catalogs') { $script:ManifestWrites++; return @{ Status = 204 } }
+                throw 'Storage write failed.'
+            }
+            Assert-Throws { Save-SharedAdminUnitGroups 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' @(@{ id = '11111111-2222-3333-4444-555555555555' }) }
+            Assert-Equal $script:ManifestWrites 0
+        }
+        Test-Case 'Inventory blocks duplicate required group names instead of publishing an arbitrary ID' {
+            $cfg = Get-SyncConfig
+            $cfg.AdminUnitId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            function script:Invoke-Graph {
+                @{ Content = '{"value":[{"id":"11111111-2222-3333-4444-555555555555","displayName":"MDfS-AWS-Windows-Passive-123456789012"},{"id":"66666666-7777-8888-9999-000000000000","displayName":"MDfS-AWS-Windows-Passive-123456789012"}]}' }
+            }
+            function script:Save-SharedAdminUnitGroups { throw 'Duplicate names must not be published.' }
+            Assert-Throws {
+                Initialize-InventoryGroups $cfg @(@{
+                    ResourceId = $id
+                    Row = @{ properties = @{ osType = 'Windows' }; tags = @{ AccountId = '123456789012' }; subscriptionName = 'Production' }
+                })
+            }
+        }
+        Test-Case 'Shared group metadata is revalidated before a membership update' {
+            $cfg = Get-SyncConfig
+            $cfg.AdminUnitId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $script:SharedAdminUnitGroups[$cfg.AdminUnitId] = $true
+            function script:Get-DeviceCloudGroups { @() }
+            function script:Resolve-GroupByDisplayName { @{ Id = '11111111-2222-3333-4444-555555555555'; DisplayName = 'Expected name' } }
+            function script:Test-Group { @{ displayName = 'Renamed group' } }
+            function script:Test-DirectMembership { throw 'Renamed groups must not reach membership processing.' }
+            $state = @{ EntraObjectId = '22222222-3333-4444-5555-666666666666'; GroupName = 'Expected name'; Mode = 'Enforce' }
+            Assert-Throws { Set-VerifiedMembership -State $state -Config $cfg }
+        }
+        Test-Case 'Shared IDs cannot authorize writes to groups removed from the configured AU' {
+            $cfg = Get-SyncConfig
+            $cfg.AdminUnitId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $script:SharedAdminUnitGroups[$cfg.AdminUnitId] = $true
+            function script:Get-DeviceCloudGroups { @() }
+            function script:Resolve-GroupByDisplayName { @{ Id = '11111111-2222-3333-4444-555555555555'; DisplayName = 'Expected name' } }
+            function script:Test-Group { @{ displayName = 'Expected name' } }
+            function script:Test-DirectMembership { $false }
+            $script:AuMembershipReads = 0
+            function script:Invoke-Graph {
+                param($Path, $Method = 'GET', $Headers)
+                Assert-Equal $Method 'GET'
+                Assert-True ($Path.StartsWith('/directory/administrativeUnits/'))
+                Assert-Equal $Headers.ConsistencyLevel 'eventual'
+                $script:AuMembershipReads++
+                @{ Status = 404 }
+            }
+            function script:Write-MutationIntent { throw 'Groups outside the AU must never reach mutation.' }
+            $state = @{
+                EntraObjectId = '22222222-3333-4444-5555-666666666666'; GroupName = 'Expected name'; Mode = 'Enforce'
+                CloudGroupOS = 'Windows'; CloudIdentifier = 'account'; CloudGroupType = 'AWS'
+            }
+            Assert-Throws { Set-VerifiedMembership -State $state -Config $cfg }
+            Assert-Equal $script:AuMembershipReads 1
+        }
+        Test-Case 'Shared IDs still in the AU can add and verify membership using a filtered lookup' {
+            $cfg = Get-SyncConfig
+            $cfg.AdminUnitId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $script:SharedAdminUnitGroups[$cfg.AdminUnitId] = $true
+            function script:Get-DeviceCloudGroups { @() }
+            function script:Resolve-GroupByDisplayName { @{ Id = '11111111-2222-3333-4444-555555555555'; DisplayName = 'Expected name' } }
+            function script:Test-Group { @{ displayName = 'Expected name' } }
+            $script:MembershipReads = 0
+            $script:SharedMembershipPosts = 0
+            function script:Test-DirectMembership { $script:MembershipReads++; $script:MembershipReads -gt 1 }
+            function script:Invoke-Graph {
+                param($Path, $Method = 'GET', $Headers)
+                if ($Method -eq 'GET') {
+                    Assert-Equal $Headers.ConsistencyLevel 'eventual'
+                    Assert-True ([uri]::UnescapeDataString($Path).Contains("id eq '11111111-2222-3333-4444-555555555555'"))
+                    return @{ Status = 200; Content = '{"value":[{"id":"11111111-2222-3333-4444-555555555555"}]}' }
+                }
+                $script:SharedMembershipPosts++
+                @{ Status = 204 }
+            }
+            function script:Write-MutationIntent {}
+            $state = @{
+                EntraObjectId = '22222222-3333-4444-5555-666666666666'; GroupName = 'Expected name'; Mode = 'Enforce'
+                CloudGroupOS = 'Windows'; CloudIdentifier = 'account'; CloudGroupType = 'AWS'; Key = 'key'
+            }
+            Set-VerifiedMembership -State $state -Config $cfg
+            Assert-Equal $state.Status 'Verified'
+            Assert-Equal $script:SharedMembershipPosts 1
+        }
+        Test-Case 'Event workers provision a newly discovered account missing from the shared catalog' {
+            $cfg = Get-SyncConfig
+            $cfg.AdminUnitId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $cfg.AutoCreateGroups = $true
+            $cfg.Mode = 'Enforce'
+            $cfg.AwsWindowsGroupPrefix = 'dfs-aws-{id}-windows-{mode}'
+            $cfg.AwsLinuxGroupPrefix = 'dfs-aws-{id}-linux-{mode}'
+            $target = Resolve-CloudGroupTarget $cfg @{ OS = 'Windows'; AzureTags = @{ AccountId = '123456789012' } }
+            $script:EventGroups = @()
+            $script:EventClaims = 0
+            $script:EventMembershipReads = 0
+            function script:Get-SharedAdminUnitGroups { @{ Groups = @(); ExpiresAt = [datetimeoffset]::UtcNow.AddMinutes(10) } }
+            function script:Invoke-Table {
+                param($Path, $Method, $Body)
+                if ($Method -eq 'POST' -and $Body.PartitionKey -eq 'group-creations') { $script:EventClaims++ }
+                @{ Status = if ($Method -eq 'POST') { 201 } else { 204 } }
+            }
+            function script:Invoke-Graph {
+                param($Path, $Method = 'GET', $Body)
+                if ($Path.StartsWith('/groups/')) { return @{ Status = 204 } }
+                Assert-True ($Path.StartsWith('/directory/administrativeUnits/'))
+                if ($Method -eq 'POST') {
+                    $group = @{
+                        id = [guid]::NewGuid().ToString(); displayName = $Body.displayName; securityEnabled = $true
+                        groupTypes = @(); onPremisesSyncEnabled = $false; isAssignableToRole = $false
+                    }
+                    $script:EventGroups += $group
+                    return @{ Status = 201; Content = ($group | ConvertTo-Json -Compress) }
+                }
+                @{ Status = 200; Content = (@{ value = @($script:EventGroups) } | ConvertTo-Json -Depth 10 -Compress) }
+            }
+            function script:Test-DirectMembership { $script:EventMembershipReads++; $script:EventMembershipReads -gt 1 }
+            function script:Write-MutationIntent {}
+            $state = @{
+                EntraObjectId = '11111111-2222-3333-4444-555555555555'; GroupName = $target.GroupName; Mode = 'Enforce'
+                Key = 'key'; RunId = [guid]::NewGuid().ToString(); ArcResourceId = $id; CloudGroupType = 'AWS'
+                CloudGroupOS = 'Windows'; CloudIdentifier = '123456789012'; GroupAvMode = 'Passive'; MdeAntivirusMode = 'Passive'
+            }
+            Set-VerifiedMembership -State $state -CloudTarget $target -Config $cfg
+            Assert-Equal $script:EventClaims 2
+            Assert-Equal $script:EventGroups.Count 2
+            Assert-Equal $state.Status 'Verified'
+            Assert-Equal $state.GroupName 'dfs-aws-123456789012-windows-passive'
+            Assert-True ('dfs-aws-123456789012-windows-active' -in $script:EventGroups.displayName)
+        }
+        Test-Case 'Default templates produce distinct lowercase cloud-account-OS-mode names for Windows and Linux' {
+            foreach ($cloud in @('AWS', 'GCP', 'AZURE')) {
+                foreach ($os in @('WINDOWS', 'LINUX')) {
+                    [Environment]::SetEnvironmentVariable("SYNC_${cloud}_${os}_GROUP_PREFIX", "dfs-$($cloud.ToLowerInvariant())-{id}-$($os.ToLowerInvariant())-{mode}")
+                }
+            }
+            $cfg = Get-SyncConfig
+            foreach ($cloud in @('AWS', 'GCP', 'Azure')) {
+                foreach ($os in @('Windows', 'Linux')) {
+                    foreach ($mode in @('Active', 'Passive')) {
+                        $cfg.DefaultGroupMode = $mode
+                        $identifier = switch ($cloud) { 'AWS' { '123456789012' }; 'GCP' { 'My-Project-active' }; default { 'Trydex-Main' } }
+                        $tags = switch ($cloud) { 'AWS' { @{ AccountId = $identifier } }; 'GCP' { @{ ProjectId = $identifier } }; default { @{} } }
+                        $target = Resolve-CloudGroupTarget -Config $cfg -State @{
+                            OS = $os; CloudProvider = $cloud; AzureTags = $tags; SubscriptionName = $identifier
+                        }
+                        $expected = "dfs-$cloud-$identifier-$os-$mode".ToLowerInvariant()
+                        Assert-Equal $target.GroupName $expected
+                        $otherMode = if ($mode -eq 'Active') { 'Passive' } else { 'Active' }
+                        Assert-Equal $target.CounterpartGroupName "dfs-$cloud-$identifier-$os-$otherMode".ToLowerInvariant()
+                        $parsed = ConvertFrom-CloudGroupDisplayName -Config $cfg -DisplayName $expected
+                        Assert-True $parsed.Matched
+                        Assert-Equal $parsed.CloudType $cloud
+                        Assert-Equal $parsed.CloudIdentifier $identifier.ToLowerInvariant()
+                        Assert-Equal $parsed.GroupMode $mode
+                        Assert-Equal $parsed.OSCategory $os
+                        $state = @{
+                            MemberGroups = @($parsed); CloudGroupType = $cloud; CloudGroupOS = $os
+                            CloudIdentifier = $identifier; MdeAntivirusMode = $mode
+                        }
+                        Update-GroupComplianceFlags $state
+                        Assert-Equal $state.GroupComplianceStatus 'Compliant'
+                        $state.CloudGroupOS = if ($os -eq 'Windows') { 'Linux' } else { 'Windows' }
+                        Update-GroupComplianceFlags $state
+                        Assert-True ('WrongGroup' -in $state.GroupFlagCodes)
+                    }
+                }
+            }
+            Assert-Equal (ConvertFrom-CloudGroupDisplayName $cfg 'dfs-aws-123456789012-windows-unknown').Matched $false
+            Assert-Equal (ConvertFrom-CloudGroupDisplayName $cfg 'dfs-aws--windows-passive').Matched $false
+            Assert-Equal (ConvertFrom-CloudGroupDisplayName $cfg 'dfs-aws-123456789012-passive').Matched $false
+            $summary = Get-FunctionParametersSummary
+            Assert-True ($summary.SYNC_AZURE_WINDOWS_GROUP_PREFIX.Contains('dfs-azure-<subscriptionname>-windows-passive'))
+            Assert-True ($summary.SYNC_AZURE_LINUX_GROUP_PREFIX.Contains('dfs-azure-<subscriptionname>-linux-passive'))
+        }
+        Test-Case 'Template group discovery searches cloud prefixes and distinguishes Windows and Linux groups' {
+            $cfg = Get-SyncConfig
+            $cfg.Subscriptions = @()
+            $cfg.ManagementGroups = @()
+            foreach ($cloud in @('Aws', 'Gcp', 'Azure')) {
+                $cfg["${cloud}WindowsGroupPrefix"] = "dfs-$($cloud.ToLowerInvariant())-{id}-windows-{mode}"
+                $cfg["${cloud}LinuxGroupPrefix"] = "dfs-$($cloud.ToLowerInvariant())-{id}-linux-{mode}"
+            }
+            $script:CoverageQueries = @()
+            function script:Invoke-Graph {
+                param($Path)
+                $script:CoverageQueries += [uri]::UnescapeDataString($Path)
+                @{ Content = '{"value":[{"id":"11111111-2222-3333-4444-555555555555","displayName":"dfs-aws-123456789012-windows-active"},{"id":"66666666-7777-8888-9999-000000000000","displayName":"dfs-aws-123456789012-linux-passive"}]}' }
+            }
+            $catalog = Get-CoverageCatalog $cfg
+            Assert-Equal $script:CoverageQueries.Count 3
+            foreach ($cloud in @('aws', 'gcp', 'azure')) {
+                Assert-Equal @($script:CoverageQueries | Where-Object { $_.Contains("startsWith(displayName,'dfs-$cloud-')") }).Count 1
+            }
+            Assert-Equal $catalog.ManagedGroups.Count 2
+            Assert-Equal $catalog.ManagedGroups[0].OSCategory 'Windows'
+            Assert-Equal $catalog.ManagedGroups[0].GroupMode 'Active'
+            Assert-Equal $catalog.ManagedGroups[1].OSCategory 'Linux'
+            Assert-Equal $catalog.ManagedGroups[1].GroupMode 'Passive'
+        }
+        Test-Case 'Template memberships retain existing Active assignment under a Passive default' {
+            $cfg = Get-SyncConfig
+            $cfg.AwsWindowsGroupPrefix = 'dfs-aws-{id}-windows-{mode}'
+            $cfg.AwsLinuxGroupPrefix = 'dfs-aws-{id}-linux-{mode}'
+            function script:Invoke-Graph {
+                @{ Content = '{"value":[{"id":"11111111-2222-3333-4444-555555555555","displayName":"dfs-aws-123456789012-linux-active"}]}' }
+            }
+            $memberships = @(Get-DeviceCloudGroups $cfg '22222222-3333-4444-5555-666666666666')
+            Assert-Equal $memberships.Count 1
+            Assert-Equal $memberships[0].GroupMode 'Active'
+            Assert-Equal $memberships[0].OSCategory 'Linux'
+            Assert-Equal $memberships[0].CloudIdentifier '123456789012'
+            $state = @{
+                EntraObjectId = '22222222-3333-4444-5555-666666666666'; GroupName = 'dfs-aws-123456789012-linux-passive'
+                CloudGroupType = 'AWS'; CloudGroupOS = 'Linux'; CloudIdentifier = '123456789012'; MdeAntivirusMode = 'Active'
+            }
+            Set-VerifiedMembership -State $state -Config $cfg
+            Assert-Equal $state.Status 'Verified'
+            Assert-Equal $state.GroupName 'dfs-aws-123456789012-linux-active'
+            Assert-Equal $state.GroupAvMode 'Active'
+            Assert-Equal $state.GroupComplianceStatus 'Compliant'
+        }
+        Test-Case 'New and existing direct memberships report the correct separate OS category immediately' {
+            $cfg = Get-SyncConfig
+            $cfg.AwsWindowsGroupPrefix = 'dfs-aws-{id}-windows-{mode}'
+            $cfg.AwsLinuxGroupPrefix = 'dfs-aws-{id}-linux-{mode}'
+            function script:Test-Group { @{ displayName = "dfs-aws-123456789012-$($script:MembershipOS.ToLowerInvariant())-passive" } }
+            function script:Test-DirectMembership { $script:MembershipReads++; $script:MembershipReads -ge 2 }
+            function script:Write-MutationIntent {}
+            function script:Invoke-Graph { @{ Status = 204 } }
+            foreach ($os in @('Windows', 'Linux')) {
+                $script:MembershipOS = $os
+                foreach ($alreadyPresent in @($true, $false)) {
+                    $script:MembershipReads = if ($alreadyPresent) { 1 } else { 0 }
+                    $state = @{
+                        Key = 'key'; Mode = 'Enforce'; GroupId = '11111111-2222-3333-4444-555555555555'
+                        EntraObjectId = '22222222-3333-4444-5555-666666666666'; CloudGroupType = 'AWS'
+                        CloudGroupOS = $os; CloudIdentifier = '123456789012'; MdeAntivirusMode = 'Passive'
+                    }
+                    Set-VerifiedMembership -State $state -Config $cfg
+                    Assert-Equal $state.Status 'Verified'
+                    Assert-Equal $state.MemberGroups[0].OSCategory $os
+                    Assert-Equal $state.GroupComplianceStatus 'Compliant'
+                }
+            }
+            Test-Case 'Explicit custom shared templates remain supported without changing the new defaults' {
+                $cfg = Get-SyncConfig
+                $cfg.AwsWindowsGroupPrefix = 'dfs-aws-{id}-{mode}'
+                $cfg.AwsLinuxGroupPrefix = 'dfs-aws-{id}-{mode}'
+                $parsed = ConvertFrom-CloudGroupDisplayName $cfg 'dfs-aws-123456789012-active'
+                Assert-True $parsed.Matched
+                Assert-Equal $parsed.OSCategory 'All'
+                Assert-Equal $parsed.GroupMode 'Active'
+            }
         }
         Test-Case 'Per-account Cloud x OS Entra groups route Windows and Linux servers per AWS Account, GCP Project, and Azure Subscription' {
             $cfg = Get-SyncConfig
@@ -733,6 +1224,225 @@ try {
             $env:SYNC_AUTO_CREATE_GROUPS = ''
             $env:SYNC_MODE = 'Audit'
         }
+        Test-Case 'Group creation rechecks stale AU caches and rejects existing duplicates' {
+            $au = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $name = 'MDfS-Azure-Windows-Passive-Production'
+            $script:FreshGroups = @(@{
+                id = '12121212-1212-1212-1212-121212121212'; displayName = $name
+                securityEnabled = $true; groupTypes = @(); onPremisesSyncEnabled = $false; isAssignableToRole = $false
+            })
+            $script:AdminUnitGroupsCache[$au] = @()
+            function script:Get-SharedAdminUnitGroups { throw 'Creation must bypass stale shared catalog data.' }
+            function script:Invoke-Graph {
+                param($Path, $Method = 'GET')
+                Assert-Equal $Method 'GET'
+                @{ Content = (@{ value = $script:FreshGroups } | ConvertTo-Json -Depth 10 -Compress) }
+            }
+            function script:Invoke-Table { throw 'Existing or ambiguous groups must not reserve creation.' }
+            $resolved = New-AdminUnitSecurityGroup -AdminUnitId $au -DisplayName $name
+            Assert-Equal $resolved.Id '12121212-1212-1212-1212-121212121212'
+            $second = $script:FreshGroups[0].Clone()
+            $second.id = '34343434-3434-3434-3434-343434343434'
+            $script:FreshGroups += $second
+            Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $au -DisplayName $name }
+        }
+        Test-Case 'Group creation reservation blocks interleaved workers and survives stale directory reads' {
+            $script:CreationAu = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $script:CreationName = 'MDfS-Azure-Windows-Passive-Production'
+            $script:CreationClaims = @{}
+            $script:GroupPosts = 0
+            $script:Interleave = $true
+            $script:ReservationResponseConflict = $true
+            $script:ThrowAfterCreate = $false
+            $script:FailClaimSave = $false
+            function script:Invoke-Table {
+                param($Path, $Method = 'GET', $Body, $Headers, $AllowStatus)
+                if ($Method -eq 'POST') {
+                    if ($script:CreationClaims.ContainsKey($Body.RowKey)) { return @{ Status = 409 } }
+                    $script:CreationClaims[$Body.RowKey] = $Body.Clone()
+                    if ($script:ReservationResponseConflict) {
+                        $script:ReservationResponseConflict = $false
+                        return @{ Status = 409 }
+                    }
+                    return @{ Status = 201 }
+                }
+                $key = [regex]::Match($Path, "RowKey='([^']+)'").Groups[1].Value
+                if ($Method -eq 'PUT') {
+                    if ($script:FailClaimSave) { throw 'Table write failed after Graph create.' }
+                    Assert-Equal $Headers['If-Match'] '*'
+                    $script:CreationClaims[$key] = $Body.Clone()
+                    return @{ Status = 204 }
+                }
+                @{ Status = 200; Content = ($script:CreationClaims[$key] | ConvertTo-Json -Compress) }
+            }
+            function script:Invoke-Graph {
+                param($Path, $Method = 'GET', $Body, $AllowStatus, [switch]$DisableRetry)
+                if ($Method -eq 'GET') { return @{ Status = 200; Content = '{"value":[]}' } }
+                Assert-True $DisableRetry
+                if ($script:Interleave) {
+                    $script:Interleave = $false
+                    # Interleave another worker after the claim but before the directory write.
+                    $script:GroupByNameCache = @{}
+                    $script:AdminUnitGroupsCache = @{}
+                    Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:CreationAu -DisplayName $script:CreationName.ToUpperInvariant() }
+                }
+                $script:GroupPosts++
+                if ($script:ThrowAfterCreate) { throw 'Connection lost after the group may have been created.' }
+                @{ Status = 201; Content = (@{
+                    id = '12121212-1212-1212-1212-121212121212'; displayName = $Body.displayName
+                } | ConvertTo-Json -Compress) }
+            }
+            function script:Test-Group {
+                param($GroupId)
+                @{ id = $GroupId; displayName = $script:CreationName }
+            }
+            $first = New-AdminUnitSecurityGroup -AdminUnitId $script:CreationAu -DisplayName $script:CreationName
+            Assert-Equal $script:GroupPosts 1
+            $script:GroupByNameCache = @{}
+            $script:AdminUnitGroupsCache = @{}
+            $second = New-AdminUnitSecurityGroup -AdminUnitId $script:CreationAu -DisplayName $script:CreationName
+            Assert-Equal $second.Id $first.Id
+            Assert-Equal $script:GroupPosts 1
+            function script:Test-Group { throw 'Recorded group is deleted or no longer a valid security group.' }
+            Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:CreationAu -DisplayName $script:CreationName }
+            Assert-Equal $script:GroupPosts 1
+
+            # A lost Graph response must leave a durable pending claim, not authorize another POST.
+            $script:CreationName = 'MDfS-Azure-Linux-Passive-Production'
+            $script:ThrowAfterCreate = $true
+            Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:CreationAu -DisplayName $script:CreationName }
+            Assert-Equal $script:GroupPosts 2
+            $script:GroupByNameCache = @{}
+            $script:AdminUnitGroupsCache = @{}
+            Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:CreationAu -DisplayName $script:CreationName }
+            Assert-Equal $script:GroupPosts 2
+
+            # The same safeguard applies if Graph succeeds but the completed claim cannot be saved.
+            $script:CreationName = 'MDfS-Azure-Linux-Active-Production'
+            $script:ThrowAfterCreate = $false
+            $script:FailClaimSave = $true
+            Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:CreationAu -DisplayName $script:CreationName }
+            Assert-Equal $script:GroupPosts 3
+            Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:CreationAu -DisplayName $script:CreationName }
+            Assert-Equal $script:GroupPosts 3
+        }
+        Test-Case 'Group lookup permits a missing group only when explicitly requested' {
+            $script:LookupStatus = 404
+            function script:Invoke-Graph {
+                param($Path, $AllowStatus)
+                if ($script:LookupStatus -notin $AllowStatus) { throw "HTTP $script:LookupStatus" }
+                @{ Status = $script:LookupStatus }
+            }
+            Assert-True ($null -eq (Test-Group -GroupId '12121212-1212-1212-1212-121212121212' -AllowMissing))
+            Assert-Throws { Test-Group -GroupId '12121212-1212-1212-1212-121212121212' }
+            $script:LookupStatus = 403
+            Assert-Throws { Test-Group -GroupId '12121212-1212-1212-1212-121212121212' -AllowMissing }
+        }
+        Test-Case 'Deleted completed groups recover exclusively while uncertain claims remain protected' {
+            $script:RecoveryAu = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $script:RecoveryName = 'dfs-azure-production-windows-passive'
+            $script:DeletedGroup = '12121212-1212-1212-1212-121212121212'
+            $script:ReplacementGroup = '34343434-3434-3434-3434-343434343434'
+            $script:RecoveryClaim = @{ OperationId = 'original'; GroupId = $script:DeletedGroup; CreatedAt = [datetimeoffset]::UtcNow.AddMinutes(-31).ToString('o') }
+            $script:RecoveryEtag = 'W/"1"'
+            $script:RecoveryConflict = $false
+            $script:RecoveryPermissionError = $false
+            $script:RecoveryPosts = 0
+            $script:RecoveryReads = 0
+            $script:RecoveredExisting = $false
+            function script:Resolve-GroupByDisplayName {
+                param($DisplayName, $AdminUnitId, [switch]$ForceRefresh)
+                Assert-True $ForceRefresh
+                $script:RecoveryReads++
+                if ($script:RecoveredExisting -and -not $script:RecoveryClaim.GroupId) {
+                    return @{ Id = $script:ReplacementGroup; DisplayName = $DisplayName }
+                }
+                return $null
+            }
+            function script:Test-Group {
+                param($GroupId, [switch]$AllowMissing)
+                Assert-True $AllowMissing
+                if ($script:RecoveryPermissionError) { throw 'HTTP 403' }
+                if ($GroupId -eq $script:DeletedGroup) { return $null }
+                @{ id = $GroupId; displayName = $script:RecoveryName }
+            }
+            function script:Invoke-Table {
+                param($Path, $Method = 'GET', $Body, $Headers, $AllowStatus)
+                if ($Method -eq 'POST') { return @{ Status = 409 } }
+                if ($Method -eq 'GET') {
+                    return @{ Status = 200; Headers = @{ ETag = $script:RecoveryEtag }; Content = ($script:RecoveryClaim | ConvertTo-Json -Compress) }
+                }
+                if (-not $Body.GroupId) {
+                    Assert-Equal $Headers['If-Match'] 'W/"1"'
+                    Assert-True (412 -in $AllowStatus)
+                    if ($script:RecoveryConflict) { return @{ Status = 412 } }
+                    Assert-Equal $Body.PreviousGroupId $script:DeletedGroup
+                    Assert-True ($Body.OperationId -ne 'original')
+                }
+                $script:RecoveryClaim = $Body.Clone()
+                @{ Status = 204 }
+            }
+            function script:Invoke-Graph {
+                param($Path, $Method, $Body, [switch]$DisableRetry)
+                Assert-Equal $Method 'POST'
+                Assert-True $DisableRetry
+                # Another worker must see a pending claim after recovery wins, before Graph finishes.
+                Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:RecoveryAu -DisplayName $script:RecoveryName }
+                $script:RecoveryPosts++
+                @{ Status = 201; Content = (@{ id = $script:ReplacementGroup; displayName = $Body.displayName } | ConvertTo-Json -Compress) }
+            }
+            $result = New-AdminUnitSecurityGroup -AdminUnitId $script:RecoveryAu -DisplayName $script:RecoveryName
+            Assert-Equal $result.Id $script:ReplacementGroup
+            Assert-Equal $script:RecoveryPosts 1
+            Assert-Equal $script:RecoveryClaim.PreviousGroupId $script:DeletedGroup
+            Assert-True ($script:RecoveryReads -ge 2)
+            $null = New-AdminUnitSecurityGroup -AdminUnitId $script:RecoveryAu -DisplayName $script:RecoveryName
+            Assert-Equal $script:RecoveryPosts 1
+
+            $script:RecoveryClaim = @{ OperationId = 'original'; GroupId = $script:DeletedGroup; CreatedAt = [datetimeoffset]::UtcNow.AddHours(-1).ToString('o') }
+            $script:RecoveryConflict = $true
+            Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:RecoveryAu -DisplayName $script:RecoveryName }
+            Assert-Equal $script:RecoveryClaim.GroupId $script:DeletedGroup
+            $script:RecoveryConflict = $false
+            $script:RecoveryEtag = ''
+            Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:RecoveryAu -DisplayName $script:RecoveryName }
+            $script:RecoveryEtag = 'W/"1"'
+            $script:RecoveryPermissionError = $true
+            Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:RecoveryAu -DisplayName $script:RecoveryName }
+            Assert-Equal $script:RecoveryPosts 1
+            Assert-Equal $script:RecoveryClaim.GroupId $script:DeletedGroup
+
+            $script:RecoveryPermissionError = $false
+            $script:RecoveryClaim.CreatedAt = [datetimeoffset]::UtcNow.AddMinutes(-29).ToString('o')
+            Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:RecoveryAu -DisplayName $script:RecoveryName }
+            $script:RecoveryClaim.CreatedAt = 'invalid'
+            Assert-Throws { New-AdminUnitSecurityGroup -AdminUnitId $script:RecoveryAu -DisplayName $script:RecoveryName }
+            Assert-Equal $script:RecoveryPosts 1
+            $script:RecoveryClaim.CreatedAt = [datetimeoffset]::UtcNow.AddHours(-1).ToString('o')
+            $script:RecoveredExisting = $true
+            $result = New-AdminUnitSecurityGroup -AdminUnitId $script:RecoveryAu -DisplayName $script:RecoveryName
+            Assert-Equal $result.Id $script:ReplacementGroup
+            Assert-Equal $script:RecoveryClaim.GroupId $script:ReplacementGroup
+            Assert-Equal $script:RecoveryPosts 1
+        }
+        Test-Case 'Group name caches are isolated by Administrative Unit' {
+            $script:LookupCalls = 0
+            function script:Invoke-Graph {
+                param($Path)
+                $script:LookupCalls++
+                $groupId = if ($Path.Contains('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')) {
+                    '12121212-1212-1212-1212-121212121212'
+                } else { '34343434-3434-3434-3434-343434343434' }
+                @{ Content = (@{ value = @(@{
+                    id = $groupId; displayName = 'Same name'; securityEnabled = $true
+                    groupTypes = @(); onPremisesSyncEnabled = $false; isAssignableToRole = $false
+                }) } | ConvertTo-Json -Depth 10 -Compress) }
+            }
+            $a = Resolve-GroupByDisplayName -AdminUnitId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' -DisplayName 'Same name'
+            $b = Resolve-GroupByDisplayName -AdminUnitId 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee' -DisplayName 'Same name'
+            Assert-True ($a.Id -ne $b.Id)
+            Assert-Equal $script:LookupCalls 2
+        }
         Test-Case 'Unique offboarded and stale devices remain visible but cannot authorize membership' {
             $script:ReportingCandidate = $candidate.Clone()
             function script:Get-MachineState { $null }
@@ -910,6 +1620,22 @@ try {
             }
             Save-MachineState @{ Key = 'key'; LastChecked = 'now'; Status = 'PendingMde' } $null
         }
+        Test-Case 'State and history commit decodes binary multipart responses and surfaces inner errors' {
+            function script:Get-TableBase { 'https://example.table.core.windows.net' }
+            function script:Invoke-CloudRequest { @{ Content = $script:BatchResponse } }
+            $script:BatchResponse = [Text.Encoding]::UTF8.GetBytes("--changeset`r`nContent-Type: application/http`r`n`r`nHTTP/1.1 201 Created`r`n`r`n{`"Data`":`"Log mentions HTTP/1.1 403`"}`r`n--changeset`r`nContent-Type: application/http`r`n`r`nHTTP/1.1 204 No Content`r`n`r`n--changeset--`r`n")
+            Save-MachineState @{ Key = 'key'; LastChecked = 'now'; Status = 'Verified' } $null
+            $script:BatchResponse = [Text.Encoding]::UTF8.GetBytes("HTTP/1.1 400 Bad Request`r`n`r`n{`"odata.error`":{`"code`":`"PropertyValueTooLarge`"}}")
+            $failure = $null
+            try { Save-MachineState @{ Key = 'key'; LastChecked = 'now'; Status = 'Verified' } $null }
+            catch { $failure = $_ }
+            Assert-True ($null -ne $failure)
+            Assert-True ($failure.Exception.Message.Contains('400; PropertyValueTooLarge'))
+            $script:BatchResponse = [Text.Encoding]::UTF8.GetBytes('not a multipart response')
+            Assert-Throws { Save-MachineState @{ Key = 'key'; LastChecked = 'now'; Status = 'Verified' } $null }
+            $script:BatchResponse = "HTTP/1.1 100 Continue`r`nHTTP/1.1 201 Created`r`n"
+            Assert-Throws { Save-MachineState @{ Key = 'key'; LastChecked = 'now'; Status = 'Verified' } $null }
+        }
         Test-Case 'Re-addition outcomes are recorded even when final membership is unchanged' {
             $script:Committed = $false
             function script:Get-TableBase { 'https://example.table.core.windows.net' }
@@ -937,6 +1663,25 @@ try {
                 Save-MachineState $state @{ ETag = 'etag'; Data = $previous }
             }
         }
+        Test-Case 'Graph calls and token inspection use the same canonical resource URI' {
+            function script:Invoke-CloudRequest {
+                param($Uri, $Resource)
+                Assert-Equal $Resource 'https://graph.microsoft.com'
+                Assert-Equal $Uri 'https://graph.microsoft.com/v1.0/devices'
+                @{ Status = 200 }
+            }
+            Assert-Equal (Invoke-Graph -Path '/devices').Status 200
+            Assert-Equal (Invoke-Graph -Path 'https://graph.microsoft.com/v1.0/devices').Status 200
+            $script:TokenResource = ''
+            function script:Get-AccessToken {
+                param($Resource)
+                $script:TokenResource = $Resource
+                $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"roles":["AdministrativeUnit.Read.All"]}')).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+                "header.$payload.signature"
+            }
+            Assert-Equal ((Get-TokenClaims).roles[0]) 'AdministrativeUnit.Read.All'
+            Assert-Equal $script:TokenResource 'https://graph.microsoft.com'
+        }
         Test-Case 'Cloud request respects Retry-After before retrying a 429' {
             $script:HttpCalls = 0; $script:Slept = 0
             function script:Get-AccessToken { 'synthetic-token' }
@@ -950,6 +1695,20 @@ try {
             Assert-Equal $response.Status 200
             Assert-Equal $script:HttpCalls 2
             Assert-Equal $script:Slept 7
+        }
+        Test-Case 'Non-idempotent Graph creates are never automatically retried' {
+            function script:Get-AccessToken { 'synthetic-token' }
+            function script:Start-Sleep { throw 'Non-idempotent creates must not sleep and retry.' }
+            function script:Invoke-WebRequest {
+                $script:HttpCalls++
+                @{ StatusCode = $script:HttpStatus; Headers = @{}; Content = '{"error":{"code":"Transient","message":"Unknown create outcome"}}' }
+            }
+            foreach ($status in @(408, 429, 500, 502, 503, 504)) {
+                $script:HttpCalls = 0
+                $script:HttpStatus = $status
+                Assert-Throws { Invoke-Graph -Path '/directory/administrativeUnits/au/members' -Method POST -Body @{} -DisableRetry }
+                Assert-Equal $script:HttpCalls 1
+            }
         }
         Test-Case 'Table pagination preserves continuation keys' {
             function script:Invoke-Table {
@@ -981,9 +1740,223 @@ try {
             $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((@{ auth_typ = 'aad'; claims = $claims } | ConvertTo-Json -Depth 10 -Compress)))
             Assert-Equal (Test-ReportReader @{ Headers = @{ 'X-MS-CLIENT-PRINCIPAL' = $encoded } }) $false
         }
+        Test-Case 'Sync uses the existing reader role, configured tenant, and same-origin action header' {
+            $env:WEBSITE_HOSTNAME = 'report.example.test'
+            $claims = @(@{ typ = 'roles'; val = 'Report.Reader' }, @{ typ = 'tid'; val = $env:SYNC_TENANT_ID })
+            function New-TestRequest {
+                @{ Method = 'POST'; Headers = @{
+                    'X-MS-CLIENT-PRINCIPAL' = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((@{ auth_typ = 'aad'; claims = $claims } | ConvertTo-Json -Depth 10 -Compress)))
+                    'X-Sync-Action' = 'start'; Origin = 'https://report.example.test'
+                } }
+            }
+            Assert-True (Test-ReportReader (New-TestRequest))
+            Assert-True (Test-ReportSyncRequest (New-TestRequest))
+            $claims[1].val = 'wrong-tenant'
+            Assert-Equal (Test-ReportReader (New-TestRequest)) $false
+            $claims[1].val = $env:SYNC_TENANT_ID
+            $claims[0].val = 'Unrelated.Role'
+            Assert-Equal (Test-ReportReader (New-TestRequest)) $false
+            foreach ($origin in @('', 'http://report.example.test', 'https://report.example.test.evil', 'https://evil.example.test')) {
+                $request = New-TestRequest
+                $request.Headers.Origin = $origin
+                Assert-Equal (Test-ReportSyncRequest $request) $false
+            }
+            $request = New-TestRequest
+            $request.Headers.Remove('X-Sync-Action')
+            Assert-Equal (Test-ReportSyncRequest $request) $false
+            $request = New-TestRequest
+            $request.Method = 'GET'
+            Assert-Equal (Test-ReportSyncRequest $request) $false
+        }
+        Test-Case 'Atomic inventory claims serialize runs, persist completion, and coalesce queued requests' {
+            $env:AzureFunctionsJobHost__functionTimeout = '00:10:00'
+            $script:JobRow = $null
+            $script:JobVersion = 0
+            function script:Invoke-Table {
+                param($Path, $Method = 'GET', $Body, $Headers, $AllowStatus)
+                if ($Method -eq 'GET') {
+                    if (-not $script:JobRow) { return @{ Status = 404 } }
+                    return @{ Status = 200; Headers = @{ ETag = "v$script:JobVersion" }; Content = (ConvertTo-Json -InputObject $script:JobRow -Compress) }
+                }
+                if ($Method -eq 'POST' -and $script:JobRow) { return @{ Status = 409 } }
+                if ($Method -eq 'PUT') { Assert-Equal $Headers['If-Match'] "v$script:JobVersion" }
+                $script:JobRow = $Body.Clone()
+                $script:JobVersion++
+                return @{ Status = 204 }
+            }
+            Assert-Equal (Get-InventoryJobStatus).Status 'Unknown'
+            $job = & $originals['Start-InventoryJob'] -TriggerReason 'Scheduled timer'
+            Assert-True $job.RunId
+            Assert-True (Get-InventoryJobStatus).IsRunning
+            Assert-Equal (& $originals['Start-InventoryJob'] -TriggerReason 'Manual') $null
+            Assert-Throws { & $originals['Complete-InventoryJob'] -RunId 'not-owner' -Status Succeeded -Message 'Must not overwrite.' }
+            & $originals['Complete-InventoryJob'] -RunId $job.RunId -Status Succeeded -Message 'Completed.'
+            Assert-Equal (Get-InventoryJobStatus).Status 'Succeeded'
+            Assert-Equal (Get-InventoryJobStatus).IsRunning $false
+            Assert-Equal (& $originals['Start-InventoryJob'] -TriggerReason 'Manual' -RequestedAt ([datetimeoffset]$job.StartedAt).AddSeconds(-1).ToString('o')) $null
+            $job = & $originals['Start-InventoryJob'] -TriggerReason 'Manual'
+            & $originals['Complete-InventoryJob'] -RunId $job.RunId -Status Failed -Message 'Inventory failure.'
+            Assert-Equal (Get-InventoryJobStatus).Status 'Failed'
+            Assert-Equal (Get-InventoryJobStatus).Message 'Inventory failure.'
+        }
+        Test-Case 'Competing insert and ETag claims do not execute another inventory' {
+            $env:AzureFunctionsJobHost__functionTimeout = '00:10:00'
+            $script:ClaimExists = $false
+            function script:Invoke-Table {
+                param($Path, $Method = 'GET', $Headers)
+                if ($Method -eq 'POST') { return @{ Status = 409 } }
+                if ($Method -eq 'PUT') {
+                    Assert-Equal $Headers['If-Match'] 'old-etag'
+                    return @{ Status = 412 }
+                }
+                if (-not $script:ClaimExists) { return @{ Status = 404 } }
+                return @{ Status = 200; Headers = @{ ETag = 'old-etag' }; Content = '{"Status":"Succeeded","StartedAt":"2020-01-01T00:00:00Z"}' }
+            }
+            Assert-Equal (& $originals['Start-InventoryJob'] -TriggerReason 'Timer') $null
+            $script:ClaimExists = $true
+            Assert-Equal (& $originals['Start-InventoryJob'] -TriggerReason 'Manual') $null
+        }
+        Test-Case 'Interrupted jobs recover only with an enforced bounded function timeout' {
+            $env:AzureFunctionsJobHost__functionTimeout = '00:10:00'
+            $script:Recovered = $false
+            function script:Invoke-Table {
+                param($Path, $Method = 'GET', $Headers, $Body)
+                if ($Method -eq 'PUT') {
+                    Assert-Equal $Headers['If-Match'] 'stale-etag'
+                    Assert-Equal $Body.Status 'Running'
+                    $script:Recovered = $true
+                    return @{ Status = 204 }
+                }
+                return @{ Status = 200; Headers = @{ ETag = 'stale-etag' }; Content = '{"RunId":"old","Status":"Running","StartedAt":"2020-01-01T00:00:00Z","ExpiresAt":"2020-01-01T00:15:00Z"}' }
+            }
+            Assert-Equal (Get-InventoryJobStatus).Status 'Interrupted'
+            Assert-Equal (Get-InventoryJobStatus).IsRunning $false
+            Assert-True (& $originals['Start-InventoryJob'] -TriggerReason 'Recovery').RunId
+            Assert-True $script:Recovered
+            foreach ($timeout in @('-00:00:01', '00:00:00', '00:10:01')) {
+                $env:AzureFunctionsJobHost__functionTimeout = $timeout
+                Assert-Throws { & $originals['Start-InventoryJob'] -TriggerReason 'Unsafe timeout' }
+            }
+        }
+        Test-Case 'Inventory wrapper records success and failure and skips an occupied job' {
+            function script:Invoke-InventoryRun { param($RunId); $script:CoreRunId = $RunId }
+            Invoke-InventorySync -TriggerReason 'Manual'
+            Assert-Equal $script:LastJobCompletion.Status 'Succeeded'
+            Assert-Equal $script:LastJobCompletion.RunId $script:CoreRunId
+            function script:Invoke-InventoryRun { throw 'Deliberate inventory failure' }
+            Assert-Throws { Invoke-InventorySync }
+            Assert-Equal $script:LastJobCompletion.Status 'Failed'
+            Assert-Equal $script:LastJobCompletion.Message 'Deliberate inventory failure'
+            function script:Start-InventoryJob { return $null }
+            Invoke-InventorySync
+        }
+        Test-Case 'Manual requests send only to the dedicated queue with no automatic POST retries' {
+            $env:ServiceBusConnection__fullyQualifiedNamespace = 'sync-test.servicebus.windows.net'
+            function script:Invoke-CloudRequest {
+                param($Uri, $Resource, $Method, $Body, [switch]$DisableRetry)
+                Assert-Equal $Uri 'https://sync-test.servicebus.windows.net/inventory-sync/messages'
+                Assert-Equal $Resource 'https://servicebus.azure.net'
+                Assert-Equal $Method 'POST'
+                Assert-True $DisableRetry
+                Assert-True ([guid]::Parse($Body.RequestId))
+                Assert-True ([datetimeoffset]::Parse($Body.RequestedAt))
+                @{ Status = 201 }
+            }
+            Assert-True (New-ReportSyncRequest).RequestId
+            function script:Invoke-CloudRequest { throw 'Queue unavailable' }
+            Assert-Throws { New-ReportSyncRequest }
+        }
+        Test-Case 'Live routes bypass caches and restrict manual sync by role, origin, method, and running state' {
+            $env:WEBSITE_HOSTNAME = 'report.example.test'
+            $global:TestInventoryJob = @{ Status = 'Unknown'; IsRunning = $false }
+            $global:TestQueuedRequests = 0
+            function script:Get-InventoryJobStatus { return $global:TestInventoryJob.Clone() }
+            function script:New-ReportSyncRequest {
+                $global:TestQueuedRequests++
+                @{ RequestId = 'test-request'; RequestedAt = [datetimeoffset]::UtcNow.ToString('o') }
+            }
+            $global:ReportStaticCache = @{}
+            $global:ReportApiCache = @{ 'sync-status' = @{ Expires = [datetimeoffset]::UtcNow.AddHours(1); Body = '{"Status":"cached"}' } }
+            $global:OutResponses = @()
+            function global:Push-OutputBinding { param($Name, $Value); $global:OutResponses += $Value }
+            function Invoke-TestDashboard([string]$Path, [string]$Method = 'GET', [string]$Origin = 'https://report.example.test', [string]$Action = 'start', [string]$Role = 'Report.Reader', [string]$Tenant = $env:SYNC_TENANT_ID, [switch]$Anonymous) {
+                $claims = @(@{ typ = 'roles'; val = $Role }, @{ typ = 'tid'; val = $Tenant })
+                $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((@{ auth_typ = 'aad'; claims = $claims } | ConvertTo-Json -Depth 10 -Compress)))
+                $requestHeaders = @{ 'X-Sync-Action' = $Action; Origin = $Origin }
+                if (-not $Anonymous) { $requestHeaders['X-MS-CLIENT-PRINCIPAL'] = $encoded }
+                & "$PSScriptRoot\..\report\Dashboard\run.ps1" -Request @{
+                    Method = $Method
+                    Headers = $requestHeaders
+                    Params = @{ path = $Path }; Query = @{}
+                } -TriggerMetadata @{}
+                return $global:OutResponses[-1]
+            }
+            try {
+                $response = Invoke-TestDashboard 'sync-status'
+                Assert-Equal $response.StatusCode 200
+                Assert-Equal $response.Headers['Cache-Control'] 'no-store'
+                Assert-Equal $response.Headers['Referrer-Policy'] 'same-origin'
+                Assert-Equal (ConvertFrom-Json $response.Body).Status 'Unknown'
+                Assert-Equal (ConvertFrom-Json $response.Body).CanStartSync $false
+                Assert-True ((ConvertFrom-Json $response.Body).StartSyncUnavailableReason.Contains('updated infrastructure'))
+                Assert-Equal (Invoke-TestDashboard 'sync' 'POST').StatusCode 503
+                Assert-Equal $global:TestQueuedRequests 0
+                $env:ServiceBusConnection__fullyQualifiedNamespace = 'sync-test.servicebus.windows.net'
+                $response = Invoke-TestDashboard 'sync-status'
+                Assert-Equal (ConvertFrom-Json $response.Body).CanStartSync $true
+                Assert-Equal (Invoke-TestDashboard 'sync' 'POST' -Role '').StatusCode 403
+                Assert-Equal (Invoke-TestDashboard 'sync' 'POST' -Tenant 'wrong-tenant').StatusCode 403
+                Assert-Equal (Invoke-TestDashboard 'sync' 'POST' -Anonymous).StatusCode 403
+                Assert-Equal (Invoke-TestDashboard 'sync-status' -Anonymous).StatusCode 403
+                Assert-Equal (Invoke-TestDashboard 'sync' 'POST' -Origin 'https://evil.example.test').StatusCode 403
+                Assert-Equal (Invoke-TestDashboard 'sync' 'POST' -Action '').StatusCode 403
+                Assert-Equal $global:TestQueuedRequests 0
+                $response = Invoke-TestDashboard 'sync' 'POST'
+                Assert-Equal $response.StatusCode 202
+                Assert-Equal $response.Headers['Cache-Control'] 'no-store'
+                Assert-Equal $global:TestQueuedRequests 1
+                $global:TestInventoryJob = @{ Status = 'Running'; IsRunning = $true }
+                Assert-Equal (Invoke-TestDashboard 'sync' 'POST').StatusCode 409
+                Assert-Equal (Invoke-TestDashboard 'data' 'POST').StatusCode 405
+                Assert-Equal (Invoke-TestDashboard 'sync' 'GET').StatusCode 405
+                Assert-Equal $global:TestQueuedRequests 1
+                $response = Invoke-TestDashboard 'sync-status'
+                Assert-True (ConvertFrom-Json $response.Body).IsRunning
+                Assert-True (ConvertFrom-Json $response.Body).CanStartSync
+            } finally {
+                Remove-Item Function:\global:Push-OutputBinding -ErrorAction SilentlyContinue
+                Remove-Variable -Name OutResponses -Scope Global -ErrorAction SilentlyContinue
+                Remove-Variable -Name TestInventoryJob, TestQueuedRequests -Scope Global -ErrorAction SilentlyContinue
+                $global:ReportApiCache = @{}
+            }
+        }
+        Test-Case 'Manual trigger validates messages and invokes the common inventory workflow' {
+            $global:TestManualCalls = @()
+            function Invoke-InventorySync {
+                param($TriggerReason, $RequestedAt)
+                $global:TestManualCalls += @{ TriggerReason = $TriggerReason; RequestedAt = $RequestedAt }
+            }
+            $trigger = "$PSScriptRoot\..\worker\ManualInventory\run.ps1"
+            try {
+                $request = @{ RequestId = [guid]::NewGuid().ToString(); RequestedAt = [datetimeoffset]::UtcNow.ToString('o') }
+                & $trigger -SyncRequest (ConvertTo-Json -InputObject $request -Compress)
+                Assert-Equal $global:TestManualCalls.Count 1
+                Assert-Equal $global:TestManualCalls[0].TriggerReason 'Manual sync (Device inventory)'
+                $request.RequestedAt = [datetimeoffset]::UtcNow.AddMinutes(-16).ToString('o')
+                & $trigger -SyncRequest $request
+                Assert-Equal $global:TestManualCalls.Count 1
+                $request.RequestedAt = [datetimeoffset]::UtcNow.AddMinutes(2).ToString('o')
+                Assert-Throws { & $trigger -SyncRequest $request }
+                $request.RequestId = 'invalid'
+                Assert-Throws { & $trigger -SyncRequest $request }
+            } finally {
+                Remove-Variable -Name TestManualCalls -Scope Global -ErrorAction SilentlyContinue
+            }
+        }
         Test-Case 'Permissions validation report evaluates Azure RBAC, Graph, and Entra readiness' {
             function script:Get-TokenClaims {
                 param($Resource)
+                Assert-True ($Resource -in @('https://graph.microsoft.com', 'https://management.azure.com/'))
                 @{
                     oid = '77777777-8888-9999-aaaa-bbbbbbbbbbbb'
                     roles = @('ThreatHunting.Read.All', 'Device.Read.All')
@@ -1051,11 +2024,13 @@ try {
             $global:ReportStaticCache = @{}
             $global:ReportApiCache = @{}
             & "$PSScriptRoot\..\report\Dashboard\run.ps1" -Request @{
+                Method = 'GET'
                 Headers = @{ 'X-MS-CLIENT-PRINCIPAL' = $encoded }
                 Params = @{ path = 'health' }
                 Query = @{ cursor = ''; refresh = '1'; key = '' }
             } -TriggerMetadata @{}
             & "$PSScriptRoot\..\report\Dashboard\run.ps1" -Request @{
+                Method = 'GET'
                 Headers = @{ 'X-MS-CLIENT-PRINCIPAL' = $encoded }
                 Params = @{ path = 'permissions' }
                 Query = @{ cursor = ''; refresh = '1'; key = '' }

@@ -6,7 +6,7 @@ param workerPrincipalId string
 @description('Worker ArcEvent Function Resource ID: The full Azure Resource ID of the Worker Function App ArcEvent function (/subscriptions/.../providers/Microsoft.Web/sites/worker/functions/ArcEvent) that receives Event Grid events.')
 param workerFunctionId string
 
-@description('Event Grid Subscription Name: Name for the subscription-scoped Event Grid subscription that triggers when entraiddeviceid / entraiddeviceidlinux Guest Configuration assignments or MDE extensions complete.')
+@description('Event Grid Subscription Name: Name for the subscription-scoped Event Grid subscription for entraiddeviceid* assignment and MDE extension writes. The worker queues assignment events only when current complianceStatus is Compliant, and extension events only after successful provisioning.')
 param eventSubscriptionName string
 
 @description('Scoped Resource Group Names (Optional): Optional list of Resource Group names to filter Event Grid events. Leave empty to monitor all resource groups in this subscription.')

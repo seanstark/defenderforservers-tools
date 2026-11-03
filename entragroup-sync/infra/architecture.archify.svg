@@ -4921,8 +4921,8 @@
 /* ]]> */
 </style>
 
-        <title id="archify-diagram-title">Azure Arc &amp; VM to Cloud × OS Entra Group Synchronization</title>
-        <desc id="archify-diagram-description">Timer + MDE Extension Event Grid discovery · MDE Hunting correlation · Per-account Cloud × OS Entra group sync · Read-only portal</desc>
+        <title id="archify-diagram-title">Azure Arc &amp; VM to Cloud account Entra Group Synchronization</title>
+        <desc id="archify-diagram-description">Timer + MDE Extension Event Grid discovery · MDE Hunting correlation · Per-account Cloud account Entra group sync · Read-only portal</desc>
         <!-- Definitions -->
         <defs>
           <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
@@ -4950,7 +4950,7 @@
         <!-- Boundaries (behind everything) -->
         <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="Privileged Worker Plane (System-Assigned Managed Identity)" x="220" y="90" width="770" height="112" rx="12" class="c-region" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="security-group" data-composition-frame-id="1" data-composition-frame-label="Read-Only Report Plane (Table Reader only · no Graph or Queue access)" x="20" y="270" width="650" height="112" rx="8" class="c-security-group" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="security-group" data-composition-frame-id="1" data-composition-frame-label="Report Plane (Table Reader · sync-request Sender · no Graph)" x="20" y="270" width="650" height="112" rx="8" class="c-security-group" stroke-width="1"/>
 
         <!-- Connection paths (before components for correct z-order) -->
         <g data-graph-role="automatic-crossover" style="--step:0">
@@ -4975,7 +4975,7 @@
         </g>
         <g data-graph-role="automatic-crossover" style="--step:5">
           <path data-graph-role="automatic-crossover-underlay" d="M 860.05 182 L 860.05 198 Q 860.05 206 868.05 206 L 978 206 Q 986 206 986 198 L 986 159 Q 986 151 994 151 L 1010 151" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="machine_worker" data-edge-to="entra_graph" data-edge-label="Cloud × OS group sync" data-edge-key="5" data-edge-id="worker-entra" data-composition-points="860.05,182;860.05,206;986,206;986,151;1010,151" data-composition-crossover="halo" data-composition-independent="true" d="M 860.05 182 L 860.05 198 Q 860.05 206 868.05 206 L 978 206 Q 986 206 986 198 L 986 159 Q 986 151 994 151 L 1010 151" class="a-security" data-animate="edge" style="--step:5" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+          <path data-edge-from="machine_worker" data-edge-to="entra_graph" data-edge-label="Cloud account group sync" data-edge-key="5" data-edge-id="worker-entra" data-composition-points="860.05,182;860.05,206;986,206;986,151;1010,151" data-composition-crossover="halo" data-composition-independent="true" d="M 860.05 182 L 860.05 198 Q 860.05 206 868.05 206 L 978 206 Q 986 206 986 198 L 986 159 Q 986 151 994 151 L 1010 151" class="a-security" data-animate="edge" style="--step:5" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:6">
           <path data-graph-role="automatic-crossover-underlay" d="M 845 182 L 845 300" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5067,8 +5067,8 @@
         <text data-detail="fine" x="845" y="64" class="t-security" font-size="7" text-anchor="middle">runHuntingQuery</text>
         </g>
 
-        <g id="node-entra_graph" data-node-id="entra_graph" data-node-label="Microsoft Graph (Entra ID)" tabindex="0" role="button" aria-label="Focus Microsoft Graph (Entra ID), AU Auto-Create + Cloud × OS groups, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="AU Auto-Create + Cloud × OS groups" data-node-tag="Groups Admin (AU) · Win/Lin" data-node-context="Architecture component">
-          <title>Microsoft Graph (Entra ID) · AU Auto-Create + Cloud × OS groups · Architecture component · Groups Admin (AU) · Win/Lin</title>
+        <g id="node-entra_graph" data-node-id="entra_graph" data-node-label="Microsoft Graph (Entra ID)" tabindex="0" role="button" aria-label="Focus Microsoft Graph (Entra ID), AU Auto-Create + Cloud account groups, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="AU Auto-Create + Cloud account groups" data-node-tag="Groups Admin (AU) · Win/Lin" data-node-context="Architecture component">
+          <title>Microsoft Graph (Entra ID) · AU Auto-Create + Cloud account groups · Architecture component · Groups Admin (AU) · Win/Lin</title>
           <rect x="1010" y="120" width="225" height="62" rx="8" class="c-mask"/>
           <rect x="1010" y="120" width="225" height="62" rx="8" class="c-security" data-animate="node" style="--step:6" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1016 126) scale(0.6875)">
@@ -5076,7 +5076,7 @@
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="1122.5" y="149" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Microsoft Graph (Entra ID)</text>
-        <text data-detail="context" x="1122.5" y="165" class="t-muted" font-size="9" text-anchor="middle">AU Auto-Create + Cloud × OS groups</text>
+        <text data-detail="context" x="1122.5" y="165" class="t-muted" font-size="9" text-anchor="middle">AU Auto-Create + Cloud account groups</text>
         <text data-detail="fine" x="1122.5" y="174" class="t-security" font-size="7" text-anchor="middle">Groups Admin (AU) · Win/Lin</text>
         </g>
 
@@ -5093,8 +5093,8 @@
         <text data-detail="fine" x="875" y="354" class="t-database" font-size="7" text-anchor="middle">atomic batch</text>
         </g>
 
-        <g id="node-report_fn" data-node-id="report_fn" data-node-label="Report Function App" tabindex="0" role="button" aria-label="Focus Report Function App, Easy Auth + Report.Reader check, Read-Only Report Plane (Table Reader only · no Graph or Queue access)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Easy Auth + Report.Reader check" data-node-tag="read-only MI" data-node-context="Read-Only Report Plane (Table Reader only · no Graph or Queue access)">
-          <title>Report Function App · Easy Auth + Report.Reader check · Read-Only Report Plane (Table Reader only · no Graph or Queue access) · read-only MI</title>
+        <g id="node-report_fn" data-node-id="report_fn" data-node-label="Report Function App" tabindex="0" role="button" aria-label="Focus Report Function App, Easy Auth + Report.Reader check, Report Plane (Table Reader · sync-request Sender · no Graph)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Easy Auth + Report.Reader check" data-node-tag="Table Reader + sync Sender" data-node-context="Report Plane (Table Reader · sync-request Sender · no Graph)">
+          <title>Report Function App · Easy Auth + Report.Reader check · Report Plane (Table Reader · sync-request Sender · no Graph) · Table Reader + sync Sender</title>
           <rect x="420" y="300" width="220" height="62" rx="8" class="c-mask"/>
           <rect x="420" y="300" width="220" height="62" rx="8" class="c-backend" data-animate="node" style="--step:8" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(426 306) scale(0.6875)">
@@ -5102,11 +5102,11 @@
           </g>
           <text data-node-label="" data-detail-anchor="" x="530" y="329" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Report Function App</text>
         <text data-detail="context" x="530" y="345" class="t-muted" font-size="9" text-anchor="middle">Easy Auth + Report.Reader check</text>
-        <text data-detail="fine" x="530" y="354" class="t-backend" font-size="7" text-anchor="middle">read-only MI</text>
+        <text data-detail="fine" x="530" y="354" class="t-backend" font-size="7" text-anchor="middle">Table Reader + sync Sender</text>
         </g>
 
-        <g id="node-portal_ui" data-node-id="portal_ui" data-node-label="Device Inventory Portal" tabindex="0" role="button" aria-label="Focus Device Inventory Portal, KPIs · hover cards · drawer · logs, Read-Only Report Plane (Table Reader only · no Graph or Queue access)" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="KPIs · hover cards · drawer · logs" data-node-context="Read-Only Report Plane (Table Reader only · no Graph or Queue access)">
-          <title>Device Inventory Portal · KPIs · hover cards · drawer · logs · Read-Only Report Plane (Table Reader only · no Graph or Queue access)</title>
+        <g id="node-portal_ui" data-node-id="portal_ui" data-node-label="Device Inventory Portal" tabindex="0" role="button" aria-label="Focus Device Inventory Portal, KPIs · hover cards · drawer · logs, Report Plane (Table Reader · sync-request Sender · no Graph)" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="KPIs · hover cards · drawer · logs" data-node-context="Report Plane (Table Reader · sync-request Sender · no Graph)">
+          <title>Device Inventory Portal · KPIs · hover cards · drawer · logs · Report Plane (Table Reader · sync-request Sender · no Graph)</title>
           <rect x="50" y="300" width="230" height="62" rx="8" class="c-mask"/>
           <rect x="50" y="300" width="230" height="62" rx="8" class="c-frontend" data-animate="node" style="--step:9" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(56 306) scale(0.6875)">
@@ -5131,9 +5131,9 @@
           <rect x="792" y="100" width="106" height="14" rx="3" class="c-mask"/>
           <text x="845" y="110" class="t-edge-security" font-size="8" text-anchor="middle">AzureResourceId + AV</text>
         </g>
-        <g data-detail="context" data-edge-from="machine_worker" data-edge-to="entra_graph" data-edge-label="Cloud × OS group sync" data-edge-key="5" data-edge-id="worker-entra">
+        <g data-detail="context" data-edge-from="machine_worker" data-edge-to="entra_graph" data-edge-label="Cloud account group sync" data-edge-key="5" data-edge-id="worker-entra">
           <rect x="867.625" y="186" width="110.8" height="14" rx="3" class="c-mask"/>
-          <text x="923.025" y="196" class="t-edge-security" font-size="8" text-anchor="middle">Cloud × OS group sync</text>
+          <text x="923.025" y="196" class="t-edge-security" font-size="8" text-anchor="middle">Cloud account group sync</text>
         </g>
         <g data-detail="context" data-edge-from="machine_worker" data-edge-to="table_storage" data-edge-label="state + history + logs" data-edge-key="6" data-edge-id="worker-table">
           <rect x="723.4000000000001" y="234" width="115.6" height="14" rx="3" class="c-mask"/>
@@ -5154,9 +5154,9 @@
           <text data-boundary-label="" x="415.09999999999997" y="113" class="t-cloud" font-size="9" font-weight="600">Privileged Worker Plane (System-Assigned Managed Identity)</text>
         </g>
 
-        <g data-graph-role="structural-frame-label" data-composition-frame-id="1" data-composition-frame-kind="security-group" data-composition-frame-label="Read-Only Report Plane (Table Reader only · no Graph or Queue access)">
+        <g data-graph-role="structural-frame-label" data-composition-frame-id="1" data-composition-frame-kind="security-group" data-composition-frame-label="Report Plane (Table Reader · sync-request Sender · no Graph)">
           <rect data-graph-role="structural-frame-label-mask" x="24" y="280" width="382.59999999999997" height="16" rx="3" class="c-mask"/>
-          <text data-boundary-label="" x="28" y="293" class="t-security" font-size="9" font-weight="600">Read-Only Report Plane (Table Reader only · no Graph or Queue access)</text>
+          <text data-boundary-label="" x="28" y="293" class="t-security" font-size="9" font-weight="600">Report Plane (Table Reader · sync-request Sender · no Graph)</text>
         </g>
 
         <!-- Legend -->

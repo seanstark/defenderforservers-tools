@@ -17,7 +17,7 @@
       <span id="header-sync-mode" class="badge mode-pill" hidden></span>
       <span id="header-group-mode" class="badge mode-pill" hidden></span>
     </div>
-    <div class="actions"><span class="read-only">Read-only report</span><button id="theme-toggle" class="secondary theme-toggle" type="button" aria-label="Switch color theme">Dark mode</button><a href="/.auth/logout">Sign out</a></div>
+    <div class="actions"><span class="read-only">Role-based report</span><button id="theme-toggle" class="secondary theme-toggle" type="button" aria-label="Switch color theme">Dark mode</button><a href="/.auth/logout">Sign out</a></div>
   </header>
   <aside class="sidebar" aria-label="Report navigation">
     <p class="nav-heading">ASSET MANAGEMENT</p>
@@ -52,11 +52,20 @@
       <p class="muted">Explore server identities, Defender inventory, and observed Entra group membership.</p>
     </div>
     <p id="error" role="alert" hidden></p>
+    <section class="panel sync-control" aria-label="Inventory synchronization">
+      <div>
+        <strong id="sync-status" role="status" aria-live="polite">Checking inventory job...</strong>
+        <p id="sync-details" class="muted">Live job status is checked every 15 seconds while this page is visible.</p>
+        <p id="sync-access" class="muted">Start sync uses the worker's configured scope and Audit/Enforce mode. Refresh inventory only reloads this report.</p>
+        <p id="sync-error" role="alert" hidden></p>
+      </div>
+      <button id="start-sync" type="button" disabled aria-describedby="sync-access">Start sync</button>
+    </section>
     <nav class="inventory-tabs" aria-label="Inventory views">
       <button type="button" data-card-target="all" aria-pressed="true">All devices</button>
       <button type="button" data-card-target="OS:windows" aria-pressed="false">Windows</button>
       <button type="button" data-card-target="OS:linux" aria-pressed="false">Linux</button>
-      <button type="button" data-card-target="not-in-group" aria-pressed="false">Not in group</button>
+      <button type="button" data-card-target="not-in-group" aria-pressed="false" title="Devices without confirmed managed-group membership, including unknown membership.">Not in group</button>
     </nav>
     <section id="summary" class="cards summary-metrics" aria-label="Inventory summary"></section>
     <details id="device-status" class="status-expander">
@@ -93,7 +102,7 @@
         <thead id="machine-head"></thead>
         <tbody id="machines"></tbody>
       </table></div>
-      <p class="table-footnote muted">Entra ID Group shows confirmed membership in the configured target group, not every Entra group. Membership is observed at its verification time, not a live directory assertion. MDE device groups are separate Defender RBAC groups.</p>
+      <p class="table-footnote muted">Entra ID Group shows observed membership in managed security groups, not every Entra group. Not in group includes devices with unknown or unverified membership; it does not mean Graph confirmed absence. Membership is observed at its verification time, not a live directory assertion. MDE device groups are separate Defender RBAC groups.</p>
     </section>
     <section id="processing-health" class="panel function-panel" aria-label="Azure Function App status and logs">
       <div class="function-header">
