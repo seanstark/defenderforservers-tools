@@ -20,7 +20,7 @@ if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt
 }
 
 $configurationName = 'entraiddeviceidlinux'
-$policyVersion = '1.0.0'
+$policyVersion = '1.0.1'
 $guestConfigurationRoleDefinitionId = '/providers/Microsoft.Authorization/roleDefinitions/088ab73d-1256-47ae-bea9-9de8e7131f31'
 $configurationPath = Join-Path $PSScriptRoot 'entraid-deviceid-linux.ps1'
 $modulePath = Join-Path $PSScriptRoot 'Modules'
@@ -121,14 +121,14 @@ $commonPolicyParameters = @{
 New-GuestConfigurationPolicy @commonPolicyParameters `
     -PolicyId 'c83a51b2-9e47-4c18-a6d3-52f890e14b76' `
     -DisplayName 'Audit MDE Entra ID Device ID on Linux machines' `
-    -Description 'Audits and reports the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate (mEnrollmentPayload) by using Azure Machine Configuration.' `
+    -Description 'Audits the MDE Entra ID Device ID (intuneDeviceId) from wdavstate, falling back to the newest enrollment result in microsoft_defender_enterprise_sensecm.log.' `
     -Path (Join-Path $policyPath 'audit') `
     -Mode Audit | Out-Host
 
 New-GuestConfigurationPolicy @commonPolicyParameters `
     -PolicyId '19d74e6c-5f32-4a89-8b15-73e620c9a4d8' `
     -DisplayName 'Audit MDE Entra ID Device ID on Linux machines' `
-    -Description 'Deploys the Azure Machine Configuration assignment that audits and reports the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate (mEnrollmentPayload) on Linux machines.' `
+    -Description 'Deploys a Linux Audit assignment that reports intuneDeviceId from wdavstate, falling back to the newest enrollment result in microsoft_defender_enterprise_sensecm.log.' `
     -Path (Join-Path $policyPath 'configure') `
     -Mode ApplyAndAutoCorrect | Out-Host
 
@@ -314,7 +314,7 @@ $portalPolicy | ConvertTo-Json -Depth 100 | Set-Content -Path $ConfigurePolicyOu
 $vmOnlyPolicy = Get-Content -Raw $configurePolicyPath | ConvertFrom-Json -Depth 100
 $vmOnlyPolicy.name = 'c34a0b56-8d39-4e94-af72-5b13a6c4d9e8'
 $vmOnlyPolicy.properties.displayName = 'Audit MDE Entra ID Device ID on Linux machines'
-$vmOnlyPolicy.properties.description = 'Checks that the MDE.Linux extension is installed and provisioned on native Azure Linux virtual machines, then deploys the entraiddeviceidlinux Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate.'
+$vmOnlyPolicy.properties.description = 'Checks MDE.Linux provisioning on native Azure Linux virtual machines, then deploys an Audit assignment that reads intuneDeviceId from wdavstate with a newest-enrollment SenseCM log fallback.'
 $vmOnlyPolicy.properties.parameters.PSObject.Properties.Remove('IncludeArcMachines')
 $vmOnlyPolicy.properties.policyRule.if = [ordered] @{
     allOf = @(
@@ -368,7 +368,7 @@ $vmOnlyPolicy | ConvertTo-Json -Depth 100 | Set-Content -Path $vmOnlyPath -Encod
 $arcOnlyPolicy = Get-Content -Raw $configurePolicyPath | ConvertFrom-Json -Depth 100
 $arcOnlyPolicy.name = 'd45b1c67-9e40-4f05-b083-6c24b7d5e0f9'
 $arcOnlyPolicy.properties.displayName = 'Audit MDE Entra ID Device ID on Linux Arc machines'
-$arcOnlyPolicy.properties.description = 'Checks that the MDE.Linux extension is installed and provisioned on Linux Azure Arc-enabled servers, then deploys the entraiddeviceidlinux Azure Machine Configuration assignment to audit and report the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate.'
+$arcOnlyPolicy.properties.description = 'Checks MDE.Linux provisioning on Linux Azure Arc-enabled servers, then deploys an Audit assignment that reads intuneDeviceId from wdavstate with a newest-enrollment SenseCM log fallback.'
 $arcOnlyPolicy.properties.parameters.PSObject.Properties.Remove('IncludeArcMachines')
 $arcOnlyPolicy.properties.policyRule.if = [ordered] @{
     allOf = @(

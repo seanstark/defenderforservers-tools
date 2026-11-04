@@ -2023,8 +2023,149 @@ function Write-FunctionLog {
     $null = Invoke-Table -Path "machines(PartitionKey='system',RowKey='inventory')" -Method PUT -Body $summaryEntity
 }
 
+function Get-GuestConfigurationRefreshBody {
+    param([hashtable]$Assignment, [string]$SubscriptionId)
+    $current = Get-InventoryValue $Assignment @('properties', 'guestConfiguration')
+    if (-not $current -or $current['assignmentType'] -ne 'Audit' -or
+        $current['name'] -notin @('entraiddeviceid', 'entraiddeviceidlinux')) {
+        throw 'Only the Entra device ID Audit configurations may be refreshed.'
+    }
+    if (@($current['configurationProtectedParameter'] | Where-Object { $null -ne $_ }).Count) {
+        throw 'Protected configuration parameters cannot be safely reconstructed for refresh.'
+    }
+    $configuration = @{}
+    foreach ($field in @('name', 'version', 'assignmentType', 'contentType', 'contentHash', 'contentUri',
+        'configurationParameter', 'configurationSetting', 'contentManagedIdentity', 'assignmentSource', 'kind')) {
+        if ($null -ne $current[$field]) { $configuration[$field] = $current[$field] }
+    }
+    if ($configuration['contentType'] -ne 'Custom' -or [string]$configuration['contentHash'] -notmatch '^[a-fA-F0-9]{64}$') {
+        throw 'Refreshing an Entra device ID assignment requires its existing Custom package hash.'
+    }
+    if (-not $configuration['contentUri']) {
+        # Assignment GET hides custom package URIs; recover only a hash-matched URI from deployed policy definitions.
+        $hash = [string]$configuration['contentHash']
+        $uris = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        $skip = ''
+        do {
+            $options = @{ resultFormat = 'objectArray' }
+            if ($skip) { $options['$skipToken'] = $skip }
+            $result = Read-JsonResponse (Invoke-CloudRequest -Uri 'https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01' -Resource 'https://management.azure.com/' -Method POST -Body @{
+                subscriptions = @($SubscriptionId)
+                query = "PolicyResources | where type =~ 'microsoft.authorization/policydefinitions' | where tostring(properties.policyRule) contains '$hash' | project id, policyRule=properties.policyRule"
+                options = $options
+            })
+            foreach ($policy in $result.data) {
+                $resources = Get-InventoryValue $policy @('policyRule', 'then', 'details', 'deployment', 'properties', 'template', 'resources')
+                foreach ($resource in @($resources)) {
+                    $candidate = Get-InventoryValue $resource @('properties', 'guestConfiguration')
+                    if ($candidate -and $candidate['name'] -eq $configuration.name -and
+                        $candidate['assignmentType'] -eq 'Audit' -and $candidate['contentHash'] -eq $hash -and $candidate['contentUri']) {
+                        $null = $uris.Add([string]$candidate['contentUri'])
+                    }
+                }
+            }
+            $skip = [string]$result['$skipToken']
+        } while ($skip)
+        if ($uris.Count -ne 1) { throw 'Could not resolve one hash-matched custom package URI from the deployed policy definitions.' }
+        $configuration.contentUri = @($uris)[0]
+    }
+    $packageUri = $null
+    if (-not [uri]::TryCreate([string]$configuration.contentUri, [UriKind]::Absolute, [ref]$packageUri) -or $packageUri.Scheme -ne 'https') {
+        throw 'Guest Configuration package URI must be an absolute HTTPS URI.'
+    }
+    if (-not $Assignment['location']) { throw 'Guest Configuration assignment has no location.' }
+    $properties = @{ guestConfiguration = $configuration }
+    $context = Get-InventoryValue $Assignment @('properties', 'context')
+    if ($null -ne $context) { $properties.context = $context }
+    return @{ location = $Assignment.location; properties = $properties }
+}
+
+function Request-GuestConfigurationRefresh {
+    param([string]$ResourceId, [ValidateSet('MDE.Windows', 'MDE.Linux')][string]$ExtensionName, [string]$EventId, [hashtable]$Config)
+    if ($Config.Mode -ne 'Enforce') {
+        Write-Information "Audit mode: would request Entra ID Guest Configuration refresh after $ExtensionName on $ResourceId." -InformationAction Continue
+        return 0
+    }
+    if ([string]::IsNullOrWhiteSpace($EventId)) { throw 'An Event Grid event ID is required to deduplicate Guest Configuration refresh requests.' }
+    $packageName = if ($ExtensionName -eq 'MDE.Linux') { 'entraiddeviceidlinux' } else { 'entraiddeviceid' }
+    $collection = "https://management.azure.com$ResourceId/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments"
+    $next = "${collection}?api-version=2024-04-05"
+    $requested = 0
+    $matched = 0
+    do {
+        $response = Invoke-CloudRequest -Uri $next -Resource 'https://management.azure.com/' -AllowStatus @(404)
+        if ($response.Status -eq 404) {
+            Write-Warning "Guest Configuration assignments are not available on $ResourceId; the policy must deploy the Audit assignment before it can be refreshed."
+            return $requested
+        }
+        $page = Read-JsonResponse $response
+        if (-not $page.ContainsKey('value')) { throw 'Guest Configuration assignment listing has no value collection.' }
+        foreach ($item in $page.value) {
+            if ((Get-InventoryValue $item @('properties', 'guestConfiguration', 'name')) -ne $packageName) { continue }
+            $assignmentId = [string](Get-InventoryValue $item @('id'))
+            if (-not $assignmentId.StartsWith("$ResourceId/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/", [StringComparison]::OrdinalIgnoreCase) -or
+                $assignmentId -notmatch '/[^/?#%\\]+$') {
+                throw 'Guest Configuration listing returned an assignment outside the requested machine.'
+            }
+            $matched++
+            $key = Get-MachineKey "$EventId`n$($assignmentId.ToLowerInvariant())"
+            $claimPath = "machines(PartitionKey='guest-refreshes',RowKey='$key')"
+            $previous = Invoke-Table -Path $claimPath -AllowStatus @(404)
+            if ($previous.Status -ne 404) {
+                $stored = Read-JsonResponse $previous
+                if ($stored['Status'] -ne 'Requested') {
+                    throw "Guest Configuration refresh has a pending or uncertain outcome; inspect $claimPath before retrying."
+                }
+                Write-Information "Guest Configuration refresh was already requested for event $EventId on $assignmentId." -InformationAction Continue
+                continue
+            }
+            $uri = "https://management.azure.com${assignmentId}?api-version=2024-04-05"
+            $assignmentResponse = Invoke-CloudRequest -Uri $uri -Resource 'https://management.azure.com/'
+            $assignment = Read-JsonResponse $assignmentResponse
+            $body = Get-GuestConfigurationRefreshBody -Assignment $assignment -SubscriptionId $ResourceId.Split('/')[2]
+            $previousCheckedAt = Get-InventoryValue $assignment @('properties', 'lastComplianceStatusChecked')
+            $claim = @{
+                PartitionKey = 'guest-refreshes'; RowKey = $key; Status = 'Requesting'
+                EventId = $EventId; AssignmentId = $assignmentId
+                RequestedAt = [datetimeoffset]::UtcNow.ToString('o')
+                PreviousReportId = [string](Get-InventoryValue $assignment @('properties', 'latestReportId'))
+                PreviousCheckedAt = if ($previousCheckedAt) { ([datetimeoffset]$previousCheckedAt).ToUniversalTime().ToString('o') } else { '' }
+            }
+            $reservation = Invoke-Table -Path 'machines' -Method POST -Body $claim -AllowStatus @(409)
+            if ($reservation.Status -eq 409) { throw 'Another worker reserved this Guest Configuration refresh; retry after its result is recorded.' }
+            $headers = @{}
+            if ($assignmentResponse['Headers'] -and $assignmentResponse.Headers['ETag']) {
+                $headers['If-Match'] = [string]($assignmentResponse.Headers['ETag'] | Select-Object -First 1)
+            }
+            $updated = Read-JsonResponse (Invoke-CloudRequest -Uri $uri -Resource 'https://management.azure.com/' -Method PUT -Body $body -Headers $headers -DisableRetry)
+            if ((Get-InventoryValue $updated @('properties', 'guestConfiguration', 'assignmentType')) -ne 'Audit' -or
+                (Get-InventoryValue $updated @('properties', 'guestConfiguration', 'contentHash')) -ne $body.properties.guestConfiguration.contentHash) {
+                throw 'Guest Configuration refresh did not confirm the original Audit mode and package hash.'
+            }
+            $claim.Status = 'Requested'
+            $claim.RecordedAt = [datetimeoffset]::UtcNow.ToString('o')
+            $null = Invoke-Table -Path $claimPath -Method PUT -Body $claim -Headers @{ 'If-Match' = '*' }
+            $requested++
+            Write-SyncTrace 'GuestRefresh' "Requested an Audit assignment refresh for $assignmentId after $ExtensionName; in-guest evaluation is asynchronous."
+        }
+        $next = [string]$page['nextLink']
+        if (-not $next) { $next = [string]$page['@odata.nextLink'] }
+        if ($next) {
+            $nextUri = [uri]$next
+            if ($nextUri.Scheme -ne 'https' -or $nextUri.Host -ne 'management.azure.com' -or
+                -not [string]::Equals($nextUri.AbsolutePath, ([uri]$collection).AbsolutePath, [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'Unexpected Guest Configuration pagination destination.'
+            }
+        }
+    } while ($next)
+    if (-not $matched) {
+        Write-Warning "No $packageName Audit assignment exists on $ResourceId yet; Azure Policy deployment and the normal agent cycle remain responsible for its first evaluation."
+    }
+    return $requested
+}
+
 function Invoke-MdeExtensionEvent {
-    param([string]$Subject)
+    param([string]$Subject, [string]$EventId = '')
     if ($Subject -match '^(/subscriptions/([0-9a-f-]{36})/resourceGroups/([^/?#%\\]+)/providers/(?:Microsoft\.HybridCompute/machines/[^/?#%\\]+|Microsoft\.Compute/virtualMachines/[^/?#%\\]+|Microsoft\.Compute/virtualMachineScaleSets/[^/?#%\\]+/virtualMachines/[^/?#%\\]+|Microsoft\.Compute/virtualMachineScaleSets/[^/?#%\\]+))/providers/Microsoft\.GuestConfiguration/guestConfigurationAssignments/(entraiddeviceid[^/?#%\\]*)$') {
         $parentId = $Matches[1].ToLowerInvariant()
         $subscriptionId = $Matches[2]
@@ -2122,12 +2263,14 @@ ComputeResources
         $count = 0
         foreach ($row in $result.data) {
             if ($row.id) {
+                $null = Request-GuestConfigurationRefresh -ResourceId ([string]$row.id) -ExtensionName $extensionName -EventId $EventId -Config $config
                 Send-MachineWork ([string]$row.id) 'EventGrid'
                 $count++
             }
         }
         return $count
     }
+    $null = Request-GuestConfigurationRefresh -ResourceId $parentId -ExtensionName $extensionName -EventId $EventId -Config $config
     Send-MachineWork $parentId 'EventGrid'
     return 1
 }

@@ -93,7 +93,7 @@ An atomic Table Storage claim prevents overlapping timer/manual inventory runs a
 
 ### Step 2: Deploy the Azure Machine Configuration Policies (MDE Entra ID Device ID)
 
-For servers managed via MDE Security Settings Management (`MicrosoftSense` / MDE Attach) that are not domain/Entra-joined, these Azure Machine Configuration policies read the local MDE `intuneDeviceId` (`HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload` on Windows and `/var/opt/microsoft/mdatp/wdavstate` on Linux) and report it to Azure Resource Graph (`GuestConfigurationResources`).
+For servers managed via MDE Security Settings Management (`MicrosoftSense` / MDE Attach) that are not domain/Entra-joined, these Azure Machine Configuration policies read the local MDE `intuneDeviceId` (`HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload` on Windows; wdavstate with a newest-enrollment SenseCM log fallback on Linux) and report it to Azure Resource Graph (`GuestConfigurationResources`). The log fallback requires Linux package version 1.0.1 or later; publish the rebuilt package and update its policy/assignment hash and version before refreshing live machines.
 
 1. **Deploy Both Windows & Linux Policy Definitions Together (Recommended):**
 
@@ -116,7 +116,7 @@ For servers managed via MDE Security Settings Management (`MicrosoftSense` / MDE
 Choose **Option A** (automated PowerShell deployment) or **Option B** (Azure Portal button + zip upload):
 
 #### Option A: One-Command PowerShell Deployment (`Deploy.ps1` — Recommended)
-Deploys the Azure infrastructure, builds and uploads `worker.zip` and `report.zip`, assigns `Reader` RBAC, and creates the Event Grid subscription.
+Deploys the Azure infrastructure, builds and uploads `worker.zip` and `report.zip`, assigns `Reader` and the narrow Guest Configuration refresh role, and creates the Event Grid subscription. The deployment identity must be allowed to create custom role definitions and role assignments.
 
 > **Important Prerequisites for `Deploy.ps1`:**
 > - **Active Azure CLI Subscription Context:** `Deploy.ps1` deploys the infrastructure into the Azure subscription that your Azure CLI context (`az account show`) is currently set to. Run `az account set --subscription '<target-hosting-subscription-id>'` first.
@@ -234,7 +234,7 @@ az role assignment create --assignee-object-id $workerPrincipalId --assignee-pri
 | Priority | Correlation Method (`Correlation method` column) | How It Works | When It Is Used |
 | --- | --- | --- | --- |
 | **Tier 1** | **`MDE AadDeviceId`** (`MdeAadDeviceId`) | Reads `AadDeviceId` from MDE Advanced Hunting (`DeviceInfo`) and queries `GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'`. | Primary method for Microsoft Entra joined or hybrid joined servers where MDE directly reports `AadDeviceId`. |
-| **Tier 2** | **`Machine Configuration (intuneDeviceId)`** (`GuestConfigurationIntuneDeviceId`) | Reads `intuneDeviceId=<guid>` from `GuestConfigurationResources` (`entraiddeviceid` on Windows reading `HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload`; `entraiddeviceidlinux` on Linux reading `/var/opt/microsoft/mdatp/wdavstate`) and queries `GET /v1.0/devices?$filter=deviceId eq '{intuneDeviceId}'`. | Used when `AadDeviceId` is empty in MDE (workgroup / AWS / GCP / Linux servers enrolled via MDE Security Settings Management) and the Azure Machine Configuration assignment has reported back. |
+| **Tier 2** | **`Machine Configuration (intuneDeviceId)`** (`GuestConfigurationIntuneDeviceId`) | Reads `intuneDeviceId=<guid>` from `GuestConfigurationResources` (`entraiddeviceid` on Windows reading `HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload`; `entraiddeviceidlinux` on Linux reading wdavstate with a newest-enrollment SenseCM log fallback) and queries `GET /v1.0/devices?$filter=deviceId eq '{intuneDeviceId}'`. | Used when `AadDeviceId` is empty in MDE (workgroup / AWS / GCP / Linux servers enrolled via MDE Security Settings Management) and the Azure Machine Configuration assignment has reported back. |
 | **Tier 3** | **`MicrosoftSense (Hostname & OS)`** (`MicrosoftSenseHostnameAndOS`) | Queries `GET /v1.0/devices?$filter=displayName eq '{hostname}'` across candidate hostnames (`ComputerName`, `MdeDeviceName`, `Fqdn`, `MachineName`) and requires a unique match on `operatingSystem` (`Windows` / `Linux`) and `managementType == 'MicrosoftSense'`. | Automatic fallback when `AadDeviceId` is empty and the Machine Configuration assignment has not yet reported. |
 
 ### Group Membership Evaluation Flow
@@ -294,6 +294,7 @@ Before using a group resolved from shared metadata for a membership update, the 
 | Principal / Component | Permission / Role | Type | Scope | Assigned By | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | **Worker Managed Identity** | `Reader` | Azure RBAC | Target Subscription(s) (`SYNC_SUBSCRIPTION_IDS`) or Management Group(s) (`SYNC_MANAGEMENT_GROUP_IDS`) | `Deploy.ps1` (`subscription.bicep`) or manual `az role assignment create` | **Required** to query Azure Resource Graph (`Microsoft.ResourceGraph/resources`), resolve subscription display names, and read Azure Arc, Native VM, VMSS, and `MDE.Windows` / `MDE.Linux` extension resources. *(Without `Reader`, Resource Graph returns 0 rows.)* |
+| **Worker Managed Identity** | `MDE Guest Configuration Refresh (<subscription-id>)` custom role | Azure RBAC | Each target subscription monitored by Event Grid | `Deploy.ps1` (`subscription.bicep`) | Only `Microsoft.GuestConfiguration/guestConfigurationAssignments/read` and `/write`. Lets `Enforce` mode request an existing Audit assignment refresh after MDE installation/update. No delete, policy-write, or remote-command permissions. |
 | **Worker Managed Identity** | `ThreatHunting.Read.All` | Microsoft Graph (Application) | Tenant | `Grant-GraphPermissions.ps1` | Run KQL Advanced Hunting queries (`POST /v1.0/security/runHuntingQuery`) against `DeviceInfo`, `DeviceNetworkInfo`, and `DeviceTvmSecureConfigurationAssessment` (`scid-2010`). |
 | **Worker Managed Identity** | `Device.Read.All` | Microsoft Graph (Application) | Tenant | `Grant-GraphPermissions.ps1` | Resolve MDE `AadDeviceId` to the Entra device object `id` and inspect `accountEnabled`. |
 | **Worker Managed Identity** *(Recommended: Administrative Unit Scoped)* | `Groups Administrator` (`fdd7a751-b60b-444a-984c-02652fe8fa1c`) | Microsoft Entra Directory Role | Administrative Unit (`/administrativeUnits/{SYNC_ADMIN_UNIT_ID}`) | `Grant-GraphPermissions.ps1 -AdminUnitId <guid>` | Manage groups inside the Administrative Unit, automatically create missing active/passive cloud-account security groups (`Enforce` mode), and verify/add device members. AU listing additionally requires Graph `AdministrativeUnit.Read.All` (see Step 5). |
@@ -302,6 +303,16 @@ Before using a group resolved from shared metadata for a membership update, the 
 | **Worker & Report Managed Identities** | `Storage Blob Data Owner`<br>`Storage Queue Data Contributor`<br>`Storage Table Data Contributor` | Azure RBAC | Respective Host Storage Accounts (`worker<suffix>`, `report<suffix>`) | Automatic (`infra/main.bicep` / `azuredeploy.json`) | Identity-based `AzureWebJobsStorage` for the Azure Functions runtime (no storage shared keys used). |
 | **Report Managed Identity** | `Storage Table Data Reader`<br>`Azure Service Bus Data Sender` | Azure RBAC | Sync Storage Account (`sync<suffix>`); Sender only on `inventory-sync` queue | Automatic (`infra/main.bicep` / `azuredeploy.json`) | Read-only table access; sends authenticated users' inventory requests. No Microsoft Graph permissions or access to the `machines` queue. |
 | **Report Users (Human Sign-In)** | `Report.Reader` | Microsoft Entra App Role | Report App Registration / Enterprise Application | Entra Admin (`Enterprise applications` &rarr; `Users and groups`) | Allows viewing the report and starting sync. Easy Auth and the configured tenant/app role are checked on every request. |
+
+## MDE-Triggered Guest Configuration Refresh
+
+After an in-scope `MDE.Windows` or `MDE.Linux` extension reaches `Succeeded`, the worker in **Enforce** mode updates matching existing `entraiddeviceid` / `entraiddeviceidlinux` **Audit** assignments to request fresh processing. Scale-set extension events fan out to the discovered VM instances. It preserves the package hash, version, parameters, and Audit mode; it does not execute server commands or delete/recreate assignments. **Audit** sync mode only logs what would be requested.
+
+Azure omits custom package URIs from assignment GET responses. The worker recovers a URI only from a deployed policy definition with the same configuration name and package hash. Missing/ambiguous packages or protected parameters fail explicitly rather than risk changing the configuration. Missing assignments are logged for Azure Policy deployment/remediation; the worker does not invent an assignment.
+
+Processing is asynchronous: the assignment can become `Pending` before its agent submits a fresh report. A successful refresh request is not a completed audit or a guarantee of immediate compliance. Existing MDE-triggered correlation, the Compliant-only Guest Configuration event gate, and scheduled/manual inventory remain in place.
+
+Refresh requests are recorded in the `machines` table (`PartitionKey=guest-refreshes`), keyed by Event Grid event ID and assignment ID. Completed request records suppress duplicate deliveries. Pending/uncertain records are not automatically replayed: inspect the assignment's latest check time/report against `RequestedAt` and `PreviousCheckedAt`, and reconcile the record only after verifying the original request's outcome. Do not clear a reservation merely because a timeout elapsed. Package URIs are never written to these records or worker traces.
 
 ## Scope & Configuration Parameters
 

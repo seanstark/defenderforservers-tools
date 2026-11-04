@@ -9,7 +9,11 @@ This Azure Machine Configuration solution reads that `intuneDeviceId` from Windo
 | Platform | Machine Configuration Package | Source Location on Endpoint | Output in `GuestConfigurationResources` |
 | --- | --- | --- | --- |
 | **Windows** | `machineConfiguration/entraid-deviceid/output/entraiddeviceid.zip` | Registry key: `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM`<br>Value name: `EnrollmentPayload` (`REG_SZ` JSON) | `Reasons[0].Phrase`: `intuneDeviceId=<guid>`<br>`IntuneDeviceId`: `<guid>` |
-| **Linux** | `machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip` | File path: `/var/opt/microsoft/mdatp/wdavstate`<br>Property: `mEnrollmentPayload` (escaped JSON) | `Reasons[0].Phrase`: `intuneDeviceId=<guid>`<br>`IntuneDeviceId`: `<guid>` |
+| **Linux** | `machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip` | First: `/var/opt/microsoft/mdatp/wdavstate`, `mEnrollmentPayload`.<br>Fallback: `/var/log/microsoft/mdatp/microsoft_defender_enterprise_sensecm.log`, the newest `SenseCM: enrollment result was received` line's `MemEnrollmentPayload.intuneDeviceId`. | `Reasons[0].Phrase`: `intuneDeviceId=<guid>`<br>`IntuneDeviceId`: `<guid>` |
+
+Linux package version **1.0.1** preserves working wdavstate results and streams the current SenseCM log when no valid ID is available there. It accepts only non-zero GUIDs and successful enrollment results. It does not reuse an older log entry after a newer failed, malformed, or ID-less enrollment. Missing/unreadable sources and invalid results are reported as noncompliant, without logging the full enrollment payload. Rotated/archived logs are not searched.
+
+Run the fallback regression tests with `pwsh -File machineConfiguration/entraid-deviceid-linux/tests/Test-EntraIdDeviceIdLinux.ps1`. Rebuild using [Build-entraid-deviceid-linux.ps1](entraid-deviceid-linux/Build-entraid-deviceid-linux.ps1) with the published HTTPS `-ContentUri`. Publish the rebuilt package and update the policy definitions/assignments to its generated hash/version before refreshing live machines; refreshing an old assignment alone does not install the new package.
 
 ## Table of contents
 
@@ -82,4 +86,3 @@ GuestConfigurationResources
    - **Tier 1 (`MdeAadDeviceId`):** Uses `DeviceInfo.AadDeviceId` from MDE Advanced Hunting when present.
    - **Tier 2 (`GuestConfigurationIntuneDeviceId`):** Uses `gcEntraDeviceId` (`intuneDeviceId` from `GuestConfigurationResources`) to look up `GET /v1.0/devices?$filter=deviceId eq '{intuneDeviceId}'`.
    - **Tier 3 (`MicrosoftSenseHostnameAndOS`):** Falls back to `GET /v1.0/devices?$filter=displayName eq '{hostname}'` matching `operatingSystem` and `managementType == 'MicrosoftSense'`.
-

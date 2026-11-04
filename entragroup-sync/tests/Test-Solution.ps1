@@ -43,7 +43,8 @@ try {
             'Send-MachineWork', 'Get-AccessToken', 'Invoke-WebRequest', 'Start-Sleep',
             'Get-SubscriptionName', 'Get-ArcExtensions', 'Get-MdeNetworkAddresses', 'Get-MdeAntivirus', 'Get-ManagementGroupSubscriptions', 'Write-FunctionLog',
             'Get-SharedAdminUnitGroups', 'Save-SharedAdminUnitGroups', 'New-AdminUnitSecurityGroup', 'Initialize-InventoryGroups',
-            'Start-InventoryJob', 'Complete-InventoryJob', 'Invoke-InventoryRun', 'Get-InventoryJobStatus', 'New-ReportSyncRequest')) {
+            'Start-InventoryJob', 'Complete-InventoryJob', 'Invoke-InventoryRun', 'Get-InventoryJobStatus', 'New-ReportSyncRequest',
+            'Get-GuestConfigurationRefreshBody', 'Request-GuestConfigurationRefresh')) {
             $command = Get-Command $name -ErrorAction SilentlyContinue
             $originals[$name] = if ($command -and $command.CommandType -eq 'Function') { $command.ScriptBlock } else { $null }
         }
@@ -421,6 +422,200 @@ try {
             Assert-Equal $script:VmssDiscoveryCalls 1
             Assert-Equal $script:QueuedParent.Count 2
             Assert-Equal $script:QueuedParent[0] "EventGrid:$vmss/virtualMachines/0"
+        }
+        Test-Case 'MDE events request Guest Configuration refresh only after successful provisioning' {
+            $env:SYNC_MODE = 'Enforce'
+            $script:RefreshCalls = @()
+            $script:EventQueued = 0
+            $script:ExtensionState = 'Succeeded'
+            function script:Request-GuestConfigurationRefresh {
+                param($ResourceId, $ExtensionName, $EventId, $Config)
+                Assert-Equal $ResourceId $id.ToLowerInvariant()
+                Assert-Equal $Config.Mode 'Enforce'
+                $script:RefreshCalls += "$ExtensionName/$EventId"
+            }
+            function script:Send-MachineWork { $script:EventQueued++ }
+            function script:Invoke-CloudRequest {
+                param($Uri)
+                if ($Uri.Contains('/guestConfigurationAssignments/')) {
+                    return @{ Status = 200; Content = '{"properties":{"complianceStatus":"Compliant"}}' }
+                }
+                @{ Status = 200; Content = (@{ properties = @{ provisioningState = $script:ExtensionState } } | ConvertTo-Json -Compress) }
+            }
+            Assert-Equal (Invoke-MdeExtensionEvent "$id/extensions/MDE.Windows" -EventId 'event-win') 1
+            Assert-Equal (Invoke-MdeExtensionEvent "$id/extensions/MDE.Linux" -EventId 'event-linux') 1
+            Assert-Equal $script:RefreshCalls[0] 'MDE.Windows/event-win'
+            Assert-Equal $script:RefreshCalls[1] 'MDE.Linux/event-linux'
+            $script:ExtensionState = 'Creating'
+            Assert-Equal (Invoke-MdeExtensionEvent "$id/extensions/MDE.Linux" -EventId 'not-ready') 0
+            Assert-Equal (Invoke-MdeExtensionEvent "$id/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/entraiddeviceid") 1
+            Assert-Equal $script:RefreshCalls.Count 2
+            Assert-Equal $script:EventQueued 3
+            $env:SYNC_MODE = 'Audit'
+        }
+        Test-Case 'MDE refresh targets native VMs and VMSS instances including scale-set fan-out' {
+            $env:SYNC_MODE = 'Enforce'
+            $vm = '/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/Servers/providers/Microsoft.Compute/virtualMachines/vm01'
+            $vmss = '/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/Servers/providers/Microsoft.Compute/virtualMachineScaleSets/set01'
+            $script:RefreshTargets = @()
+            $script:EventQueued = 0
+            function script:Request-GuestConfigurationRefresh {
+                param($ResourceId, $ExtensionName, $EventId, $Config)
+                Assert-Equal $ExtensionName 'MDE.Linux'
+                Assert-Equal $EventId 'event-linux'
+                $script:RefreshTargets += $ResourceId.ToLowerInvariant()
+            }
+            function script:Send-MachineWork { $script:EventQueued++ }
+            function script:Invoke-CloudRequest {
+                param($Uri)
+                if ($Uri.Contains('/Microsoft.ResourceGraph/')) {
+                    return @{ Status = 200; Content = (@{ data = @(@{ id = "$vmss/virtualMachines/0" }, @{ id = "$vmss/virtualMachines/1" }) } | ConvertTo-Json -Compress) }
+                }
+                @{ Status = 200; Content = '{"properties":{"provisioningState":"Succeeded"}}' }
+            }
+            Assert-Equal (Invoke-MdeExtensionEvent "$vm/extensions/MDE.Linux" -EventId 'event-linux') 1
+            Assert-Equal (Invoke-MdeExtensionEvent "$vmss/virtualMachines/2/extensions/MDE.Linux" -EventId 'event-linux') 1
+            Assert-Equal (Invoke-MdeExtensionEvent "$vmss/extensions/MDE.Linux" -EventId 'event-linux') 2
+            Assert-Equal ($script:RefreshTargets -join ',') (@($vm,"$vmss/virtualMachines/2","$vmss/virtualMachines/0","$vmss/virtualMachines/1").ToLowerInvariant() -join ',')
+            Assert-True ($vmss.ToLowerInvariant() -notin $script:RefreshTargets)
+            Assert-Equal $script:EventQueued 4
+            $env:SYNC_MODE = 'Audit'
+        }
+        Test-Case 'Guest Configuration refresh preserves Audit package settings and rejects unsafe assignments' {
+            function script:Invoke-CloudRequest { throw 'A known package URI must not query policy definitions.' }
+            $assignment = @{
+                location = 'westus2'
+                properties = @{
+                    context = 'AzurePolicy'
+                    complianceStatus = 'Compliant'
+                    guestConfiguration = @{
+                        name = 'entraiddeviceidlinux'; assignmentType = 'Audit'; contentType = 'Custom'
+                        contentHash = ('A' * 64); contentUri = 'https://example.test/audit.zip'
+                        version = '1.0.1'; configurationParameter = @(@{ name = 'Value'; value = 'keep' })
+                    }
+                }
+            }
+            $body = Get-GuestConfigurationRefreshBody $assignment '11111111-1111-1111-1111-111111111111'
+            Assert-Equal $body.properties.guestConfiguration.assignmentType 'Audit'
+            Assert-Equal $body.properties.guestConfiguration.configurationParameter[0].value 'keep'
+            Assert-Equal $body.properties.context 'AzurePolicy'
+            Assert-True (-not $body.properties.ContainsKey('complianceStatus'))
+            $assignment.properties.guestConfiguration.assignmentType = 'ApplyAndMonitor'
+            Assert-Throws { Get-GuestConfigurationRefreshBody $assignment '11111111-1111-1111-1111-111111111111' }
+            $assignment.properties.guestConfiguration.assignmentType = 'Audit'
+            $assignment.properties.guestConfiguration.configurationProtectedParameter = @(@{ name = 'Hidden'; value = $null })
+            Assert-Throws { Get-GuestConfigurationRefreshBody $assignment '11111111-1111-1111-1111-111111111111' }
+            $assignment.properties.guestConfiguration.Remove('configurationProtectedParameter')
+            $assignment.properties.guestConfiguration.contentUri = 'http://example.test/audit.zip'
+            Assert-Throws { Get-GuestConfigurationRefreshBody $assignment '11111111-1111-1111-1111-111111111111' }
+        }
+        Test-Case 'Hidden custom package URIs resolve only from hash-matched paginated policy definitions' {
+            $script:PolicyLookups = 0
+            $script:PolicyUris = @('https://example.test/original.zip')
+            function script:Invoke-CloudRequest {
+                param($Uri, $Method, $Body)
+                Assert-True ($Uri.Contains('/Microsoft.ResourceGraph/resources'))
+                Assert-Equal $Method 'POST'
+                Assert-True ($Body.query.Contains('A' * 64))
+                $script:PolicyLookups++
+                if ($script:PolicyLookups -eq 1) {
+                    return @{ Content = '{"data":[],"$skipToken":"next"}' }
+                }
+                Assert-Equal $Body.options['$skipToken'] 'next'
+                $resources = @($script:PolicyUris | ForEach-Object { @{
+                    properties = @{ guestConfiguration = @{
+                        name = 'entraiddeviceidlinux'; assignmentType = 'Audit'; contentHash = ('A' * 64); contentUri = $_
+                    } }
+                } })
+                @{ Content = (@{ data = @(@{ policyRule = @{ then = @{ details = @{ deployment = @{ properties = @{ template = @{ resources = $resources } } } } } } }) } | ConvertTo-Json -Depth 20 -Compress) }
+            }
+            $assignment = @{ location = 'westus2'; properties = @{ guestConfiguration = @{
+                name = 'entraiddeviceidlinux'; assignmentType = 'Audit'; contentType = 'Custom'; contentHash = ('A' * 64); contentUri = $null
+            } } }
+            $body = Get-GuestConfigurationRefreshBody $assignment '11111111-1111-1111-1111-111111111111'
+            Assert-Equal $script:PolicyLookups 2
+            Assert-Equal $body.properties.guestConfiguration.contentUri 'https://example.test/original.zip'
+            Assert-True ($null -eq $assignment.properties.guestConfiguration.contentUri)
+            $script:PolicyLookups = 0
+            $script:PolicyUris += 'https://example.test/ambiguous.zip'
+            Assert-Throws { Get-GuestConfigurationRefreshBody $assignment '11111111-1111-1111-1111-111111111111' }
+            $script:PolicyLookups = 0
+            $script:PolicyUris = @()
+            Assert-Throws { Get-GuestConfigurationRefreshBody $assignment '11111111-1111-1111-1111-111111111111' }
+        }
+        Test-Case 'Audit mode and missing assignments never cause Guest Configuration writes' {
+            function script:Invoke-CloudRequest { throw 'Audit mode must not request assignment changes.' }
+            function script:Invoke-Table { throw 'No refresh reservations should be written.' }
+            Assert-Equal (Request-GuestConfigurationRefresh $id 'MDE.Linux' '' @{ Mode = 'Audit' }) 0
+            Assert-Throws { Request-GuestConfigurationRefresh $id 'MDE.Linux' '' @{ Mode = 'Enforce' } }
+            function script:Invoke-CloudRequest { @{ Status = 200; Content = '{"value":[]}' } }
+            Assert-Equal (Request-GuestConfigurationRefresh $id 'MDE.Linux' 'missing' @{ Mode = 'Enforce' }) 0
+            function script:Invoke-CloudRequest { @{ Status = 404 } }
+            Assert-Equal (Request-GuestConfigurationRefresh $id 'MDE.Linux' 'missing' @{ Mode = 'Enforce' }) 0
+        }
+        Test-Case 'Guest refresh reservations suppress duplicate and uncertain event deliveries' {
+            $script:RefreshAssignmentId = "$($id.ToLowerInvariant())/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/entraiddeviceidlinux-test"
+            $script:RefreshClaims = @{}
+            $script:GuestPuts = 0
+            $script:GuestPutFails = $false
+            $script:GuestReservationConflict = $false
+            $script:GuestListCalls = 0
+            $script:BadGuestNext = $false
+            $script:AuditAssignment = @{ id = $script:RefreshAssignmentId; location = 'westus2'; properties = @{
+                latestReportId = 'previous-report'
+                lastComplianceStatusChecked = '2026-11-03T22:14:03Z'
+                guestConfiguration = @{
+                    name = 'entraiddeviceidlinux'; assignmentType = 'Audit'; contentType = 'Custom'
+                    contentHash = ('A' * 64); contentUri = 'https://example.test/audit.zip'
+                }
+            } }
+            function script:Invoke-CloudRequest {
+                param($Uri, $Method = 'GET', $Body, $Headers, [switch]$DisableRetry)
+                if ($Method -eq 'PUT') {
+                    $script:GuestPuts++
+                    Assert-True $DisableRetry
+                    Assert-Equal $Headers['If-Match'] 'assignment-etag'
+                    Assert-Equal $Body.properties.guestConfiguration.assignmentType 'Audit'
+                    if ($script:GuestPutFails) { throw 'Refresh response was lost.' }
+                    return @{ Status = 200; Content = ($script:AuditAssignment | ConvertTo-Json -Depth 10 -Compress) }
+                }
+                if ($Uri.Contains('/guestConfigurationAssignments?')) {
+                    $script:GuestListCalls++
+                    if (-not $Uri.Contains('$skiptoken=')) {
+                        $next = if ($script:BadGuestNext) { 'https://management.azure.com/another-machine/guestConfigurationAssignments?api-version=2024-04-05' } else { "$Uri&`$skiptoken=page-two" }
+                        return @{ Status = 200; Content = (@{ value = @(); nextLink = $next } | ConvertTo-Json -Compress) }
+                    }
+                    return @{ Status = 200; Content = (@{ value = @($script:AuditAssignment) } | ConvertTo-Json -Depth 10 -Compress) }
+                }
+                @{ Status = 200; Headers = @{ ETag = 'assignment-etag' }; Content = ($script:AuditAssignment | ConvertTo-Json -Depth 10 -Compress) }
+            }
+            function script:Invoke-Table {
+                param($Path, $Method = 'GET', $Body, $Headers, $AllowStatus)
+                $key = if ($Method -eq 'POST') { $Body.RowKey } else { [regex]::Match($Path, "RowKey='([^']+)'").Groups[1].Value }
+                if ($Method -eq 'GET') {
+                    if (-not $script:RefreshClaims.ContainsKey($key)) { return @{ Status = 404 } }
+                    return @{ Status = 200; Content = ($script:RefreshClaims[$key] | ConvertTo-Json -Compress) }
+                }
+                if ($Method -eq 'POST' -and ($script:GuestReservationConflict -or $script:RefreshClaims.ContainsKey($key))) { return @{ Status = 409 } }
+                $script:RefreshClaims[$key] = $Body.Clone()
+                @{ Status = 204 }
+            }
+            Assert-Equal (Request-GuestConfigurationRefresh $id 'MDE.Linux' 'event-one' @{ Mode = 'Enforce' }) 1
+            Assert-Equal $script:GuestListCalls 2
+            Assert-Equal $script:RefreshClaims[(Get-MachineKey "event-one`n$($script:RefreshAssignmentId)")].PreviousCheckedAt '2026-11-03T22:14:03.0000000+00:00'
+            Assert-Equal (Request-GuestConfigurationRefresh $id 'MDE.Linux' 'event-one' @{ Mode = 'Enforce' }) 0
+            Assert-Equal $script:GuestPuts 1
+            $script:GuestPutFails = $true
+            Assert-Throws { Request-GuestConfigurationRefresh $id 'MDE.Linux' 'uncertain-event' @{ Mode = 'Enforce' } }
+            Assert-Throws { Request-GuestConfigurationRefresh $id 'MDE.Linux' 'uncertain-event' @{ Mode = 'Enforce' } }
+            Assert-Equal $script:GuestPuts 2
+            $script:GuestPutFails = $false
+            $script:GuestReservationConflict = $true
+            Assert-Throws { Request-GuestConfigurationRefresh $id 'MDE.Linux' 'racing-event' @{ Mode = 'Enforce' } }
+            Assert-Equal $script:GuestPuts 2
+            $script:BadGuestNext = $true
+            Assert-Throws { Request-GuestConfigurationRefresh $id 'MDE.Linux' 'invalid-page' @{ Mode = 'Enforce' } }
+            Assert-Equal $script:GuestPuts 2
         }
         Test-Case 'Full machine workflow resolves deviceId to object ID in Audit' {
             $script:Candidates = @($candidate)

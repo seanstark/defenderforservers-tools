@@ -14,5 +14,4 @@ if ($event.eventType -ne 'Microsoft.Resources.ResourceWriteSuccess' -or
     $event.data.operationName -notin $validOps) {
     throw 'Unexpected event type or operation.'
 }
-$null = Invoke-MdeExtensionEvent -Subject ([string]$event.subject)
-
+$null = Invoke-MdeExtensionEvent -Subject ([string]$event.subject) -EventId ([string](Get-InventoryValue $event @('id')))

@@ -3,7 +3,7 @@
     "displayName": "Audit MDE Entra ID Device ID on Linux machines",
     "policyType": "Custom",
     "mode": "Indexed",
-    "description": "Deploys the Azure Machine Configuration assignment that audits and reports the MDE Entra ID Device ID (intuneDeviceId) from /var/opt/microsoft/mdatp/wdavstate (mEnrollmentPayload) on Linux machines.",
+    "description": "Deploys a Linux Audit assignment that reports intuneDeviceId from wdavstate, falling back to the newest enrollment result in microsoft_defender_enterprise_sensecm.log.",
     "metadata": {
       "category": "Guest Configuration",
       "requiredProviders": [
@@ -13,10 +13,10 @@
         "name": "entraiddeviceidlinux",
         "contentType": "Custom",
         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-        "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
-        "version": "1.0.0"
+        "contentHash": "955BCE70E95EFF23F84D11D5EC3C27439DEDE01F891C4C9A241E833FFAD2681E",
+        "version": "1.0.1"
       },
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     "parameters": {
       "IncludeArcMachines": {
@@ -210,9 +210,9 @@
                         "name": "entraiddeviceidlinux",
                         "contentType": "Custom",
                         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-                        "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
+                        "contentHash": "955BCE70E95EFF23F84D11D5EC3C27439DEDE01F891C4C9A241E833FFAD2681E",
                         "assignmentType": "Audit",
-                        "version": "1.0.0"
+                        "version": "1.0.1"
                       }
                     }
                   },
@@ -227,9 +227,9 @@
                         "name": "entraiddeviceidlinux",
                         "contentType": "Custom",
                         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-                        "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
+                        "contentHash": "955BCE70E95EFF23F84D11D5EC3C27439DEDE01F891C4C9A241E833FFAD2681E",
                         "assignmentType": "Audit",
-                        "version": "1.0.0"
+                        "version": "1.0.1"
                       }
                     }
                   },
@@ -244,9 +244,9 @@
                         "name": "entraiddeviceidlinux",
                         "contentType": "Custom",
                         "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
-                        "contentHash": "DEB7300353CEE86ECE53E96B31C5258A3036AE5026596C794F274752DFA20D6B",
+                        "contentHash": "955BCE70E95EFF23F84D11D5EC3C27439DEDE01F891C4C9A241E833FFAD2681E",
                         "assignmentType": "Audit",
-                        "version": "1.0.0"
+                        "version": "1.0.1"
                       }
                     }
                   }

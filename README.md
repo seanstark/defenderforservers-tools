@@ -42,7 +42,7 @@ Supported targets include applicable Azure virtual machines, virtual machine sca
 The `entraid-deviceid` (Windows) and `entraid-deviceid-linux` (Linux) Azure Machine Configuration solutions extract and report the MDE Security Settings Management (`MicrosoftSense`) `intuneDeviceId` (which maps directly to the Entra ID `deviceId`) from endpoints that are onboarded to Defender for Endpoint after verifying that `MDE.Windows` or `MDE.Linux` is installed:
 
 - **Windows (`machineConfiguration/entraid-deviceid/`):** Reads `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\SenseCM` &rarr; `EnrollmentPayload` and outputs `intuneDeviceId=<guid>`.
-- **Linux (`machineConfiguration/entraid-deviceid-linux/`):** Reads `/var/opt/microsoft/mdatp/wdavstate` &rarr; `mEnrollmentPayload` and outputs `intuneDeviceId=<guid>`.
+- **Linux (`machineConfiguration/entraid-deviceid-linux/`):** Reads `/var/opt/microsoft/mdatp/wdavstate` &rarr; `mEnrollmentPayload`, falling back to the newest enrollment-result payload in `/var/log/microsoft/mdatp/microsoft_defender_enterprise_sensecm.log`, and outputs `intuneDeviceId=<guid>`.
 - **Combined Windows & Linux Deployment (Native VMs + Azure Arc):**
   - **Deploy Both Windows & Linux Combined Policies Together:** [`configureEntraIdDeviceId.armtemplate.json`](configureEntraIdDeviceId.armtemplate.json)
   - **Windows Combined Policy (`Audit MDE Entra ID Device ID on Windows machines`):** [`configureEntraIdDeviceIdWindows.armtemplate.json`](configureEntraIdDeviceIdWindows.armtemplate.json)

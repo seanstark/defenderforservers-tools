@@ -119,10 +119,12 @@ function ConvertFrom-WdavStateContent {
         }
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($intuneDeviceId)) {
+    $deviceGuid = [guid]::Empty
+    if ([guid]::TryParse($intuneDeviceId, [ref] $deviceGuid) -and $deviceGuid -ne [guid]::Empty -and
+        $errorCode -in @('', '0')) {
         return @{
             Status         = 'Present'
-            IntuneDeviceId = $intuneDeviceId
+            IntuneDeviceId = $deviceGuid.ToString('D')
             ErrorCode      = $errorCode
             Message        = $message
         }
@@ -145,6 +147,104 @@ function ConvertFrom-WdavStateContent {
     }
 }
 
+function ConvertFrom-SenseCmEnrollmentLog {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(ValueFromPipeline)]
+        [AllowEmptyString()]
+        [string] $Line
+    )
+    begin {
+        $seen = $false
+        $latestPayload = ''
+    }
+    process {
+        if ($Line -match 'SenseCM:\s*enrollment result was received\b') {
+            $seen = $true
+            $latestPayload = if ($Line -match 'MemEnrollmentPayload:\s*(.*)$') { $Matches[1] } else { '' }
+        }
+    }
+    end {
+        $state = @{ Status = 'PayloadMissing'; IntuneDeviceId = ''; ErrorCode = ''; Message = 'No SenseCM enrollment-result line was found.' }
+        if ($seen) {
+            $payload = $null
+            try {
+                if ([string]::IsNullOrWhiteSpace($latestPayload)) { throw 'Enrollment payload is empty.' }
+                $payload = ConvertFrom-Json -InputObject $latestPayload -Depth 20 -NoEnumerate -ErrorAction Stop
+                if ($null -eq $payload -or $payload.GetType() -ne [System.Management.Automation.PSCustomObject]) {
+                    throw 'Enrollment payload is not a JSON object.'
+                }
+            }
+            catch {
+                $state.Status = 'InvalidPayload'
+                $state.Message = 'The newest SenseCM enrollment-result line has an invalid JSON payload.'
+            }
+            if ($null -ne $payload -and $state.Status -ne 'InvalidPayload') {
+                $state.ErrorCode = [string] $payload.errorCode
+                $state.Message = [string] $payload.message
+                $deviceGuid = [guid]::Empty
+                if ($state.ErrorCode -notin @('', '0')) {
+                    $state.Status = 'EnrollmentError'
+                    $state.Message = "The newest SenseCM enrollment failed (errorCode='$($state.ErrorCode)')."
+                }
+                elseif ([guid]::TryParse([string] $payload.intuneDeviceId, [ref] $deviceGuid) -and $deviceGuid -ne [guid]::Empty) {
+                    $state.Status = 'Present'
+                    $state.IntuneDeviceId = $deviceGuid.ToString('D')
+                }
+                else {
+                    $state.Status = 'IntuneDeviceIdMissing'
+                    $state.Message = 'The newest SenseCM enrollment result has no valid, non-zero intuneDeviceId GUID.'
+                }
+            }
+        }
+        return $state
+    }
+}
+
+function Get-LinuxEnrollmentState {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [string] $StatePath = '/var/opt/microsoft/mdatp/wdavstate',
+        [string] $LogPath = '/var/log/microsoft/mdatp/microsoft_defender_enterprise_sensecm.log'
+    )
+    $state = @{ Status = 'FileMissing'; IntuneDeviceId = ''; Message = "MDE state file '$StatePath' does not exist." }
+    if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
+        try {
+            $state = ConvertFrom-WdavStateContent -Content ([string] (Get-Content -LiteralPath $StatePath -Raw -ErrorAction Stop))
+        }
+        catch {
+            $state = @{ Status = 'ReadError'; IntuneDeviceId = ''; Message = "MDE state file '$StatePath' could not be read: $($_.Exception.Message)" }
+            Write-Warning $state.Message
+        }
+    }
+    if ($state.Status -eq 'Present') {
+        $state.Source = 'wdavstate'
+        return $state
+    }
+
+    $logState = @{ Status = 'FileMissing'; IntuneDeviceId = ''; Message = "SenseCM log '$LogPath' does not exist." }
+    if (Test-Path -LiteralPath $LogPath -PathType Leaf) {
+        try {
+            $logState = Get-Content -LiteralPath $LogPath -ErrorAction Stop | ConvertFrom-SenseCmEnrollmentLog
+        }
+        catch {
+            $logState = @{ Status = 'ReadError'; IntuneDeviceId = ''; Message = "SenseCM log '$LogPath' could not be read: $($_.Exception.Message)" }
+            Write-Warning $logState.Message
+        }
+    }
+    if ($logState.Status -eq 'Present') {
+        $logState.Source = 'SenseCM'
+        return $logState
+    }
+    return @{
+        Status = 'EnrollmentUnavailable'
+        IntuneDeviceId = ''
+        Message = "wdavstate: $($state.Status) $($state.Message) SenseCM log: $($logState.Status) $($logState.Message)"
+    }
+}
+
 [DscResource()]
 class EntraIdDeviceIdLinux {
     [DscProperty(Key)]
@@ -160,55 +260,19 @@ class EntraIdDeviceIdLinux {
         $current = [EntraIdDeviceIdLinux]::new()
         $current.Name = $this.Name
         $current.IntuneDeviceId = ''
-        $path = '/var/opt/microsoft/mdatp/wdavstate'
-
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            $current.Reasons = @([EntraIdDeviceIdLinuxReason] @{
-                Code   = 'EntraIdDeviceIdLinux:EntraIdDeviceIdLinux:FileMissing'
-                Phrase = "MDE state file '$path' does not exist."
-            })
-            return $current
-        }
-
-        try {
-            $content = Get-Content -LiteralPath $path -Raw -ErrorAction Stop
-        }
-        catch {
-            $current.Reasons = @([EntraIdDeviceIdLinuxReason] @{
-                Code   = 'EntraIdDeviceIdLinux:EntraIdDeviceIdLinux:ReadError'
-                Phrase = "MDE state file '$path' could not be read. $($_.Exception.Message)"
-            })
-            return $current
-        }
-
-        $state = ConvertFrom-WdavStateContent -Content ([string] $content)
+        $state = Get-LinuxEnrollmentState
         $current.IntuneDeviceId = [string] $state.IntuneDeviceId
-
-        switch ($state.Status) {
-            'EmptyFile' {
-                $current.Reasons = @([EntraIdDeviceIdLinuxReason] @{
-                    Code   = 'EntraIdDeviceIdLinux:EntraIdDeviceIdLinux:EmptyFile'
-                    Phrase = "MDE state file '$path' is empty."
-                })
-            }
-            'PayloadMissing' {
-                $current.Reasons = @([EntraIdDeviceIdLinuxReason] @{
-                    Code   = 'EntraIdDeviceIdLinux:EntraIdDeviceIdLinux:PayloadMissing'
-                    Phrase = "MDE state file '$path' does not contain mEnrollmentPayload."
-                })
-            }
-            'IntuneDeviceIdMissing' {
-                $current.Reasons = @([EntraIdDeviceIdLinuxReason] @{
-                    Code   = 'EntraIdDeviceIdLinux:EntraIdDeviceIdLinux:IntuneDeviceIdMissing'
-                    Phrase = "mEnrollmentPayload in '$path' does not contain a non-empty intuneDeviceId value (errorCode='$($state.ErrorCode)', message='$($state.Message)')."
-                })
-            }
-            default {
-                $current.Reasons = @([EntraIdDeviceIdLinuxReason] @{
-                    Code   = 'EntraIdDeviceIdLinux:EntraIdDeviceIdLinux:Compliant'
-                    Phrase = "intuneDeviceId=$($state.IntuneDeviceId)"
-                })
-            }
+        if ($state.Status -eq 'Present') {
+            $current.Reasons = @([EntraIdDeviceIdLinuxReason] @{
+                Code   = 'EntraIdDeviceIdLinux:EntraIdDeviceIdLinux:Compliant'
+                Phrase = "intuneDeviceId=$($state.IntuneDeviceId)"
+            })
+        }
+        else {
+            $current.Reasons = @([EntraIdDeviceIdLinuxReason] @{
+                Code   = "EntraIdDeviceIdLinux:EntraIdDeviceIdLinux:$($state.Status)"
+                Phrase = $state.Message
+            })
         }
 
         return $current
@@ -225,6 +289,6 @@ class EntraIdDeviceIdLinux {
         if ($this.Test()) {
             return
         }
-        throw "MDE state file '/var/opt/microsoft/mdatp/wdavstate' is managed by Microsoft Defender for Endpoint on Linux and cannot be synthesized manually."
+        throw 'MDE enrollment state and SenseCM logs are managed by Microsoft Defender for Endpoint on Linux and cannot be synthesized manually.'
     }
 }

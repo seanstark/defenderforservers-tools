@@ -1,6 +1,6 @@
 targetScope = 'subscription'
 
-@description('Worker Managed Identity Principal ID: The Object or Principal ID GUID of the Worker Function App System-Assigned Managed Identity to grant Reader access on this subscription.')
+@description('Worker Managed Identity Principal ID: The worker system-assigned identity to grant Reader and narrowly scoped Guest Configuration assignment read/write access on this subscription.')
 param workerPrincipalId string
 
 @description('Worker ArcEvent Function Resource ID: The full Azure Resource ID of the Worker Function App ArcEvent function (/subscriptions/.../providers/Microsoft.Web/sites/worker/functions/ArcEvent) that receives Event Grid events.')
@@ -63,6 +63,36 @@ resource reader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
     principalId: workerPrincipalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')
+  }
+}
+
+resource guestRefreshWriter 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
+  name: guid(subscription().id, 'arc-entra-guest-refresh-writer')
+  properties: {
+    roleName: 'MDE Guest Configuration Refresh (${subscription().subscriptionId})'
+    description: 'Read and refresh Guest Configuration assignments. No delete, policy write, or remote command permissions.'
+    type: 'CustomRole'
+    assignableScopes: [subscription().id]
+    permissions: [
+      {
+        actions: [
+          'Microsoft.GuestConfiguration/guestConfigurationAssignments/read'
+          'Microsoft.GuestConfiguration/guestConfigurationAssignments/write'
+        ]
+        notActions: []
+        dataActions: []
+        notDataActions: []
+      }
+    ]
+  }
+}
+
+resource guestRefreshRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(subscription().id, workerPrincipalId, 'guest-refresh-writer')
+  properties: {
+    principalId: workerPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: guestRefreshWriter.id
   }
 }
 
