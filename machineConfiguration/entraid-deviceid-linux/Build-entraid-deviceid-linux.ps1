@@ -19,8 +19,9 @@ if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt
     throw "This script requires PowerShell 7. Run it with 'pwsh', not Windows PowerShell ('powershell.exe')."
 }
 
-$configurationName = 'entraiddeviceidlinux'
-$policyVersion = '1.0.2'
+$packageVersion = '1.0.2'
+$configurationName = "entraiddeviceidlinux_$packageVersion"
+$policyVersion = '2.0.0'
 $guestConfigurationRoleDefinitionId = '/providers/Microsoft.Authorization/roleDefinitions/088ab73d-1256-47ae-bea9-9de8e7131f31'
 $configurationPath = Join-Path $PSScriptRoot 'entraid-deviceid-linux.ps1'
 $modulePath = Join-Path $PSScriptRoot 'Modules'
@@ -54,7 +55,7 @@ Import-Module GuestConfiguration
 $namedMof = Join-Path $compiledPath "$configurationName.mof"
 if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq [System.Runtime.InteropServices.Architecture]::X64) {
     . $configurationPath
-    entraiddeviceidlinux -OutputPath $compiledPath
+    & $configurationName -OutputPath $compiledPath
     $compiledMof = Join-Path $compiledPath 'localhost.mof'
     Move-Item -Path $compiledMof -Destination $namedMof -Force
 }
@@ -71,7 +72,7 @@ else {
 instance of EntraIdDeviceIdLinux as `$EntraIdDeviceIdLinux1ref
 {
 ResourceID = "[EntraIdDeviceIdLinux]$configurationName";
- ModuleVersion = "$policyVersion";
+ ModuleVersion = "$packageVersion";
  Name = "wdavstate";
  ModuleName = "EntraIdDeviceIdLinux";
  SourceInfo = "::5::9::EntraIdDeviceIdLinux";
@@ -93,7 +94,7 @@ instance of OMI_ConfigurationDocument
 
 New-GuestConfigurationPackage `
     -Name $configurationName `
-    -Version $policyVersion `
+    -Version $packageVersion `
     -Configuration $namedMof `
     -Path $OutputPath `
     -Type Audit `
@@ -102,7 +103,7 @@ $packageHash = (Get-FileHash -Path $packagePath -Algorithm SHA256).Hash
 
 if (-not $ContentUri) {
     Write-Host "Package created at '$packagePath' (SHA256: $packageHash)."
-    Write-Host 'Publish it to an HTTPS location, then rerun this script with -ContentUri to generate the policies.'
+    Write-Host 'To generate policies, rerun with a planned versioned HTTPS -ContentUri, then publish that newly generated ZIP without rebuilding it.'
     return
 }
 
@@ -172,7 +173,7 @@ foreach ($generatedPolicy in $generatedPolicies) {
 
     $properties.metadata | Add-Member -NotePropertyName version -NotePropertyValue $policyVersion -Force
     $properties | Add-Member -NotePropertyName version -NotePropertyValue $policyVersion -Force
-    $properties.metadata.guestConfiguration | Add-Member -NotePropertyName version -NotePropertyValue $policyVersion -Force
+    $properties.metadata.guestConfiguration | Add-Member -NotePropertyName version -NotePropertyValue $packageVersion -Force
     $properties.metadata.guestConfiguration.contentUri = $ContentUri.AbsoluteUri
     $properties.metadata.guestConfiguration.contentHash = $packageHash
     $properties.metadata.guestConfiguration.PSObject.Properties.Remove('enableAutoRemediation')
@@ -289,7 +290,7 @@ foreach ($generatedPolicy in $generatedPolicies) {
             continue
         }
         $guestConfiguration |
-            Add-Member -NotePropertyName version -NotePropertyValue $policyVersion -Force
+            Add-Member -NotePropertyName version -NotePropertyValue $packageVersion -Force
         if ($guestConfiguration.PSObject.Properties['assignmentType']) {
             $guestConfiguration.assignmentType = 'Audit'
         }

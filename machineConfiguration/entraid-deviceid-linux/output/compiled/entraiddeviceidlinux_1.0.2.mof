@@ -1,0 +1,26 @@
+/*
+@TargetNode='localhost'
+@GeneratedBy=seanstark
+@GenerationDate=11/04/2026 09:26:14
+@GenerationHost=LAPTOP-NLOC0RP2
+*/
+
+instance of EntraIdDeviceIdLinux as $EntraIdDeviceIdLinux1ref
+{
+ResourceID = "[EntraIdDeviceIdLinux]entraiddeviceidlinux_1.0.2";
+ ModuleVersion = "1.0.2";
+ Name = "wdavstate";
+ ModuleName = "EntraIdDeviceIdLinux";
+ SourceInfo = "::5::9::EntraIdDeviceIdLinux";
+ ConfigurationName = "entraiddeviceidlinux_1.0.2";
+};
+instance of OMI_ConfigurationDocument
+{
+ Version="2.0.0";
+ MinimumCompatibleVersion = "1.0.0";
+ CompatibleVersionAdditionalProperties= {"Omi_BaseResource:ConfigurationName"};
+ Author="seanstark";
+ GenerationDate="11/04/2026 09:26:14";
+ GenerationHost="LAPTOP-NLOC0RP2";
+ Name="entraiddeviceidlinux_1.0.2";
+};

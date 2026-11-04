@@ -2026,9 +2026,13 @@ function Write-FunctionLog {
 function Get-GuestConfigurationRefreshBody {
     param([hashtable]$Assignment, [string]$SubscriptionId)
     $current = Get-InventoryValue $Assignment @('properties', 'guestConfiguration')
+    $name = [string](Get-InventoryValue $Assignment @('properties', 'guestConfiguration', 'name'))
     if (-not $current -or $current['assignmentType'] -ne 'Audit' -or
-        $current['name'] -notin @('entraiddeviceid', 'entraiddeviceidlinux')) {
+        ($name -notin @('entraiddeviceid', 'entraiddeviceidlinux') -and $name -notmatch '^entraiddeviceidlinux_[0-9]+\.[0-9]+\.[0-9]+$')) {
         throw 'Only the Entra device ID Audit configurations may be refreshed.'
+    }
+    if ($name -match '^entraiddeviceidlinux_([0-9]+\.[0-9]+\.[0-9]+)$' -and [string]$current['version'] -ne $Matches[1]) {
+        throw 'Versioned Linux package name does not match its assignment version.'
     }
     if (@($current['configurationProtectedParameter'] | Where-Object { $null -ne $_ }).Count) {
         throw 'Protected configuration parameters cannot be safely reconstructed for refresh.'
@@ -2092,6 +2096,7 @@ function Request-GuestConfigurationRefresh {
     $next = "${collection}?api-version=2024-04-05"
     $requested = 0
     $matched = 0
+    $assignments = [Collections.Generic.List[object]]::new()
     do {
         $response = Invoke-CloudRequest -Uri $next -Resource 'https://management.azure.com/' -AllowStatus @(404)
         if ($response.Status -eq 404) {
@@ -2100,54 +2105,7 @@ function Request-GuestConfigurationRefresh {
         }
         $page = Read-JsonResponse $response
         if (-not $page.ContainsKey('value')) { throw 'Guest Configuration assignment listing has no value collection.' }
-        foreach ($item in $page.value) {
-            if ((Get-InventoryValue $item @('properties', 'guestConfiguration', 'name')) -ne $packageName) { continue }
-            $assignmentId = [string](Get-InventoryValue $item @('id'))
-            if (-not $assignmentId.StartsWith("$ResourceId/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/", [StringComparison]::OrdinalIgnoreCase) -or
-                $assignmentId -notmatch '/[^/?#%\\]+$') {
-                throw 'Guest Configuration listing returned an assignment outside the requested machine.'
-            }
-            $matched++
-            $key = Get-MachineKey "$EventId`n$($assignmentId.ToLowerInvariant())"
-            $claimPath = "machines(PartitionKey='guest-refreshes',RowKey='$key')"
-            $previous = Invoke-Table -Path $claimPath -AllowStatus @(404)
-            if ($previous.Status -ne 404) {
-                $stored = Read-JsonResponse $previous
-                if ($stored['Status'] -ne 'Requested') {
-                    throw "Guest Configuration refresh has a pending or uncertain outcome; inspect $claimPath before retrying."
-                }
-                Write-Information "Guest Configuration refresh was already requested for event $EventId on $assignmentId." -InformationAction Continue
-                continue
-            }
-            $uri = "https://management.azure.com${assignmentId}?api-version=2024-04-05"
-            $assignmentResponse = Invoke-CloudRequest -Uri $uri -Resource 'https://management.azure.com/'
-            $assignment = Read-JsonResponse $assignmentResponse
-            $body = Get-GuestConfigurationRefreshBody -Assignment $assignment -SubscriptionId $ResourceId.Split('/')[2]
-            $previousCheckedAt = Get-InventoryValue $assignment @('properties', 'lastComplianceStatusChecked')
-            $claim = @{
-                PartitionKey = 'guest-refreshes'; RowKey = $key; Status = 'Requesting'
-                EventId = $EventId; AssignmentId = $assignmentId
-                RequestedAt = [datetimeoffset]::UtcNow.ToString('o')
-                PreviousReportId = [string](Get-InventoryValue $assignment @('properties', 'latestReportId'))
-                PreviousCheckedAt = if ($previousCheckedAt) { ([datetimeoffset]$previousCheckedAt).ToUniversalTime().ToString('o') } else { '' }
-            }
-            $reservation = Invoke-Table -Path 'machines' -Method POST -Body $claim -AllowStatus @(409)
-            if ($reservation.Status -eq 409) { throw 'Another worker reserved this Guest Configuration refresh; retry after its result is recorded.' }
-            $headers = @{}
-            if ($assignmentResponse['Headers'] -and $assignmentResponse.Headers['ETag']) {
-                $headers['If-Match'] = [string]($assignmentResponse.Headers['ETag'] | Select-Object -First 1)
-            }
-            $updated = Read-JsonResponse (Invoke-CloudRequest -Uri $uri -Resource 'https://management.azure.com/' -Method PUT -Body $body -Headers $headers -DisableRetry)
-            if ((Get-InventoryValue $updated @('properties', 'guestConfiguration', 'assignmentType')) -ne 'Audit' -or
-                (Get-InventoryValue $updated @('properties', 'guestConfiguration', 'contentHash')) -ne $body.properties.guestConfiguration.contentHash) {
-                throw 'Guest Configuration refresh did not confirm the original Audit mode and package hash.'
-            }
-            $claim.Status = 'Requested'
-            $claim.RecordedAt = [datetimeoffset]::UtcNow.ToString('o')
-            $null = Invoke-Table -Path $claimPath -Method PUT -Body $claim -Headers @{ 'If-Match' = '*' }
-            $requested++
-            Write-SyncTrace 'GuestRefresh' "Requested an Audit assignment refresh for $assignmentId after $ExtensionName; in-guest evaluation is asynchronous."
-        }
+        foreach ($item in $page.value) { $assignments.Add($item) }
         $next = [string]$page['nextLink']
         if (-not $next) { $next = [string]$page['@odata.nextLink'] }
         if ($next) {
@@ -2158,6 +2116,65 @@ function Request-GuestConfigurationRefresh {
             }
         }
     } while ($next)
+    if ($ExtensionName -eq 'MDE.Linux') {
+        $versionedName = $assignments |
+            ForEach-Object { [string](Get-InventoryValue $_ @('properties', 'guestConfiguration', 'name')) } |
+            Where-Object { $_ -match '^entraiddeviceidlinux_[0-9]+\.[0-9]+\.[0-9]+$' } |
+            Sort-Object { [version]($_.Substring('entraiddeviceidlinux_'.Length)) } -Descending |
+            Select-Object -First 1
+        if ($versionedName) {
+            $packageName = $versionedName
+            Write-Information "Refreshing newest versioned Linux Audit package $packageName; older package identities are retained without being refreshed." -InformationAction Continue
+        }
+    }
+    foreach ($item in $assignments) {
+        if ((Get-InventoryValue $item @('properties', 'guestConfiguration', 'name')) -ne $packageName) { continue }
+        $assignmentId = [string](Get-InventoryValue $item @('id'))
+        if (-not $assignmentId.StartsWith("$ResourceId/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/", [StringComparison]::OrdinalIgnoreCase) -or
+            $assignmentId -notmatch '/[^/?#%\\]+$') {
+            throw 'Guest Configuration listing returned an assignment outside the requested machine.'
+        }
+        $matched++
+        $key = Get-MachineKey "$EventId`n$($assignmentId.ToLowerInvariant())"
+        $claimPath = "machines(PartitionKey='guest-refreshes',RowKey='$key')"
+        $previous = Invoke-Table -Path $claimPath -AllowStatus @(404)
+        if ($previous.Status -ne 404) {
+            $stored = Read-JsonResponse $previous
+            if ($stored['Status'] -ne 'Requested') {
+                throw "Guest Configuration refresh has a pending or uncertain outcome; inspect $claimPath before retrying."
+            }
+            Write-Information "Guest Configuration refresh was already requested for event $EventId on $assignmentId." -InformationAction Continue
+            continue
+        }
+        $uri = "https://management.azure.com${assignmentId}?api-version=2024-04-05"
+        $assignmentResponse = Invoke-CloudRequest -Uri $uri -Resource 'https://management.azure.com/'
+        $assignment = Read-JsonResponse $assignmentResponse
+        $body = Get-GuestConfigurationRefreshBody -Assignment $assignment -SubscriptionId $ResourceId.Split('/')[2]
+        $previousCheckedAt = Get-InventoryValue $assignment @('properties', 'lastComplianceStatusChecked')
+        $claim = @{
+            PartitionKey = 'guest-refreshes'; RowKey = $key; Status = 'Requesting'
+            EventId = $EventId; AssignmentId = $assignmentId
+            RequestedAt = [datetimeoffset]::UtcNow.ToString('o')
+            PreviousReportId = [string](Get-InventoryValue $assignment @('properties', 'latestReportId'))
+            PreviousCheckedAt = if ($previousCheckedAt) { ([datetimeoffset]$previousCheckedAt).ToUniversalTime().ToString('o') } else { '' }
+        }
+        $reservation = Invoke-Table -Path 'machines' -Method POST -Body $claim -AllowStatus @(409)
+        if ($reservation.Status -eq 409) { throw 'Another worker reserved this Guest Configuration refresh; retry after its result is recorded.' }
+        $headers = @{}
+        if ($assignmentResponse['Headers'] -and $assignmentResponse.Headers['ETag']) {
+            $headers['If-Match'] = [string]($assignmentResponse.Headers['ETag'] | Select-Object -First 1)
+        }
+        $updated = Read-JsonResponse (Invoke-CloudRequest -Uri $uri -Resource 'https://management.azure.com/' -Method PUT -Body $body -Headers $headers -DisableRetry)
+        if ((Get-InventoryValue $updated @('properties', 'guestConfiguration', 'assignmentType')) -ne 'Audit' -or
+            (Get-InventoryValue $updated @('properties', 'guestConfiguration', 'contentHash')) -ne $body.properties.guestConfiguration.contentHash) {
+            throw 'Guest Configuration refresh did not confirm the original Audit mode and package hash.'
+        }
+        $claim.Status = 'Requested'
+        $claim.RecordedAt = [datetimeoffset]::UtcNow.ToString('o')
+        $null = Invoke-Table -Path $claimPath -Method PUT -Body $claim -Headers @{ 'If-Match' = '*' }
+        $requested++
+        Write-SyncTrace 'GuestRefresh' "Requested an Audit assignment refresh for $assignmentId after $ExtensionName; in-guest evaluation is asynchronous."
+    }
     if (-not $matched) {
         Write-Warning "No $packageName Audit assignment exists on $ResourceId yet; Azure Policy deployment and the normal agent cycle remain responsible for its first evaluation."
     }

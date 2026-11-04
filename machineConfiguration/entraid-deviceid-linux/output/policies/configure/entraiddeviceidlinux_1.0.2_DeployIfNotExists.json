@@ -10,13 +10,13 @@
         "Microsoft.GuestConfiguration"
       ],
       "guestConfiguration": {
-        "name": "entraiddeviceidlinux",
+        "name": "entraiddeviceidlinux_1.0.2",
         "contentType": "Custom",
-        "contentUri": "https://github.com/seanstark/defenderforservers-tools/releases/download/machineconfiguration-linux-v1.0.2/entraiddeviceidlinux-1.0.2.zip",
-        "contentHash": "EB23DFE50BA8F35DF1F28880F4797BE80A8BD409EC3FA6B8C1E891EFB4CC364A",
+        "contentUri": "https://github.com/seanstark/defenderforservers-tools/releases/download/machineconfiguration-linux-v1.0.2/entraiddeviceidlinux_1.0.2.zip",
+        "contentHash": "036B3D008AB9929CA7D9DB639570171B7063333361F8CB6D96CBB4D952F14F96",
         "version": "1.0.2"
       },
-      "version": "1.0.2"
+      "version": "2.0.0"
     },
     "parameters": {
       "IncludeArcMachines": {
@@ -159,7 +159,7 @@
             "/providers/Microsoft.Authorization/roleDefinitions/088ab73d-1256-47ae-bea9-9de8e7131f31"
           ],
           "type": "Microsoft.GuestConfiguration/guestConfigurationAssignments",
-          "name": "[concat('entraiddeviceidlinux$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]",
+          "name": "[concat('entraiddeviceidlinux_1.0.2$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]",
           "existenceCondition": {
             "field": "Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus",
             "equals": "Compliant"
@@ -178,7 +178,7 @@
                   "value": "[field('type')]"
                 },
                 "assignmentName": {
-                  "value": "[concat('entraiddeviceidlinux$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]"
+                  "value": "[concat('entraiddeviceidlinux_1.0.2$pid', uniqueString(policy().assignmentId, policy().definitionReferenceId))]"
                 }
               },
               "template": {
@@ -207,10 +207,10 @@
                     "location": "[parameters('location')]",
                     "properties": {
                       "guestConfiguration": {
-                        "name": "entraiddeviceidlinux",
+                        "name": "entraiddeviceidlinux_1.0.2",
                         "contentType": "Custom",
-                        "contentUri": "https://github.com/seanstark/defenderforservers-tools/releases/download/machineconfiguration-linux-v1.0.2/entraiddeviceidlinux-1.0.2.zip",
-                        "contentHash": "EB23DFE50BA8F35DF1F28880F4797BE80A8BD409EC3FA6B8C1E891EFB4CC364A",
+                        "contentUri": "https://github.com/seanstark/defenderforservers-tools/releases/download/machineconfiguration-linux-v1.0.2/entraiddeviceidlinux_1.0.2.zip",
+                        "contentHash": "036B3D008AB9929CA7D9DB639570171B7063333361F8CB6D96CBB4D952F14F96",
                         "assignmentType": "Audit",
                         "version": "1.0.2"
                       }
@@ -224,10 +224,10 @@
                     "location": "[parameters('location')]",
                     "properties": {
                       "guestConfiguration": {
-                        "name": "entraiddeviceidlinux",
+                        "name": "entraiddeviceidlinux_1.0.2",
                         "contentType": "Custom",
-                        "contentUri": "https://github.com/seanstark/defenderforservers-tools/releases/download/machineconfiguration-linux-v1.0.2/entraiddeviceidlinux-1.0.2.zip",
-                        "contentHash": "EB23DFE50BA8F35DF1F28880F4797BE80A8BD409EC3FA6B8C1E891EFB4CC364A",
+                        "contentUri": "https://github.com/seanstark/defenderforservers-tools/releases/download/machineconfiguration-linux-v1.0.2/entraiddeviceidlinux_1.0.2.zip",
+                        "contentHash": "036B3D008AB9929CA7D9DB639570171B7063333361F8CB6D96CBB4D952F14F96",
                         "assignmentType": "Audit",
                         "version": "1.0.2"
                       }
@@ -241,10 +241,10 @@
                     "location": "[parameters('location')]",
                     "properties": {
                       "guestConfiguration": {
-                        "name": "entraiddeviceidlinux",
+                        "name": "entraiddeviceidlinux_1.0.2",
                         "contentType": "Custom",
-                        "contentUri": "https://github.com/seanstark/defenderforservers-tools/releases/download/machineconfiguration-linux-v1.0.2/entraiddeviceidlinux-1.0.2.zip",
-                        "contentHash": "EB23DFE50BA8F35DF1F28880F4797BE80A8BD409EC3FA6B8C1E891EFB4CC364A",
+                        "contentUri": "https://github.com/seanstark/defenderforservers-tools/releases/download/machineconfiguration-linux-v1.0.2/entraiddeviceidlinux_1.0.2.zip",
+                        "contentHash": "036B3D008AB9929CA7D9DB639570171B7063333361F8CB6D96CBB4D952F14F96",
                         "assignmentType": "Audit",
                         "version": "1.0.2"
                       }
@@ -257,7 +257,7 @@
         }
       }
     },
-    "version": "1.0.2"
+    "version": "2.0.0"
   },
   "name": "19d74e6c-5f32-4a89-8b15-73e620c9a4d8"
 }

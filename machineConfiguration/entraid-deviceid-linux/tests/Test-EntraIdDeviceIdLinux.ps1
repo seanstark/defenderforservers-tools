@@ -30,13 +30,23 @@ function Read-Fixture {
 }
 
 try {
+    Test-Case 'Native DSC configuration uses the version-named package identity' {
+        $manifest = Import-PowerShellDataFile (Join-Path $PSScriptRoot '..\Modules\EntraIdDeviceIdLinux\EntraIdDeviceIdLinux.psd1')
+        $name = "entraiddeviceidlinux_$($manifest.ModuleVersion)"
+        $configuration = Get-Content (Join-Path $PSScriptRoot '..\entraid-deviceid-linux.ps1') -Raw
+        $builder = Get-Content (Join-Path $PSScriptRoot '..\Build-entraid-deviceid-linux.ps1') -Raw
+        Assert-Equal ([regex]::Match($configuration, '^\s*Configuration\s+(\S+)\s*\{').Groups[1].Value) $name
+        Assert-Equal ([regex]::Match($configuration, 'EntraIdDeviceIdLinux\s+(\S+)\s*\{').Groups[1].Value) $name
+        Assert-Equal $builder.Contains('& $configurationName -OutputPath $compiledPath') $true
+    }
     Test-Case 'Package metadata and packaged module match the source module version' {
         $manifestPath = Join-Path $PSScriptRoot '..\Modules\EntraIdDeviceIdLinux\EntraIdDeviceIdLinux.psd1'
         $manifest = Import-PowerShellDataFile $manifestPath
-        $packagePath = Join-Path $PSScriptRoot '..\output\entraiddeviceidlinux.zip'
+        $packageName = "entraiddeviceidlinux_$($manifest.ModuleVersion)"
+        $packagePath = Join-Path $PSScriptRoot "..\output\$packageName.zip"
         $archive = [IO.Compression.ZipFile]::OpenRead($packagePath)
         try {
-            $metadataReader = [IO.StreamReader]::new($archive.GetEntry('entraiddeviceidlinux.metaconfig.json').Open())
+            $metadataReader = [IO.StreamReader]::new($archive.GetEntry("$packageName.metaconfig.json").Open())
             try { $metadata = $metadataReader.ReadToEnd() | ConvertFrom-Json }
             finally { $metadataReader.Dispose() }
             Assert-Equal $metadata.Version $manifest.ModuleVersion

@@ -508,6 +508,14 @@ try {
             $assignment.properties.guestConfiguration.Remove('configurationProtectedParameter')
             $assignment.properties.guestConfiguration.contentUri = 'http://example.test/audit.zip'
             Assert-Throws { Get-GuestConfigurationRefreshBody $assignment '11111111-1111-1111-1111-111111111111' }
+            $assignment.properties.guestConfiguration.contentUri = 'https://example.test/audit.zip'
+            $assignment.properties.guestConfiguration.name = 'entraiddeviceidlinux_1.0.2'
+            Assert-Throws { Get-GuestConfigurationRefreshBody $assignment '11111111-1111-1111-1111-111111111111' }
+            $assignment.properties.guestConfiguration.version = '1.0.2'
+            $body = Get-GuestConfigurationRefreshBody $assignment '11111111-1111-1111-1111-111111111111'
+            Assert-Equal $body.properties.guestConfiguration.name 'entraiddeviceidlinux_1.0.2'
+            $assignment.properties.guestConfiguration.name = 'entraiddeviceidlinux_untrusted'
+            Assert-Throws { Get-GuestConfigurationRefreshBody $assignment '11111111-1111-1111-1111-111111111111' }
         }
         Test-Case 'Hidden custom package URIs resolve only from hash-matched paginated policy definitions' {
             $script:PolicyLookups = 0
@@ -552,6 +560,41 @@ try {
             Assert-Equal (Request-GuestConfigurationRefresh $id 'MDE.Linux' 'missing' @{ Mode = 'Enforce' }) 0
             function script:Invoke-CloudRequest { @{ Status = 404 } }
             Assert-Equal (Request-GuestConfigurationRefresh $id 'MDE.Linux' 'missing' @{ Mode = 'Enforce' }) 0
+        }
+        Test-Case 'Linux refresh prefers the newest versioned package across pages and retains legacy assignments' {
+            $script:VersionedPuts = 0
+            $script:VersionedRecords = @(
+                foreach ($name in @('entraiddeviceidlinux', 'entraiddeviceidlinux_1.0.1', 'entraiddeviceidlinux_1.0.2')) {
+                    @{ id = "$id/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/$name"; location = 'westus2'; properties = @{
+                        guestConfiguration = @{
+                            name = $name; assignmentType = 'Audit'; contentType = 'Custom'
+                            version = if ($name -eq 'entraiddeviceidlinux') { '1.0.0' } else { $name.Substring('entraiddeviceidlinux_'.Length) }
+                            contentHash = ('A' * 64); contentUri = 'https://example.test/versioned.zip'
+                        }
+                    } }
+                }
+            )
+            function script:Invoke-CloudRequest {
+                param($Uri, $Method = 'GET', $Body)
+                if ($Uri.Contains('/guestConfigurationAssignments?')) {
+                    if ($Uri.Contains('$skiptoken=')) {
+                        return @{ Status = 200; Content = (@{ value = @($script:VersionedRecords[1], $script:VersionedRecords[2]) } | ConvertTo-Json -Depth 10 -Compress) }
+                    }
+                    return @{ Status = 200; Content = (@{ value = @($script:VersionedRecords[0]); nextLink = "$Uri&`$skiptoken=next" } | ConvertTo-Json -Depth 10 -Compress) }
+                }
+                Assert-True ($Uri.Contains('/entraiddeviceidlinux_1.0.2?'))
+                if ($Method -eq 'PUT') {
+                    $script:VersionedPuts++
+                    Assert-Equal $Body.properties.guestConfiguration.name 'entraiddeviceidlinux_1.0.2'
+                }
+                @{ Status = 200; Content = ($script:VersionedRecords[2] | ConvertTo-Json -Depth 10 -Compress) }
+            }
+            function script:Invoke-Table {
+                param($Method = 'GET')
+                @{ Status = if ($Method -eq 'GET') { 404 } else { 204 } }
+            }
+            Assert-Equal (Request-GuestConfigurationRefresh $id 'MDE.Linux' 'versioned-release' @{ Mode = 'Enforce' }) 1
+            Assert-Equal $script:VersionedPuts 1
         }
         Test-Case 'Guest refresh reservations suppress duplicate and uncertain event deliveries' {
             $script:RefreshAssignmentId = "$($id.ToLowerInvariant())/providers/Microsoft.GuestConfiguration/guestConfigurationAssignments/entraiddeviceidlinux-test"
