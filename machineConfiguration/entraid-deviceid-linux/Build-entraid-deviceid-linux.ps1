@@ -20,7 +20,7 @@ if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt
 }
 
 $configurationName = 'entraiddeviceidlinux'
-$policyVersion = '1.0.1'
+$policyVersion = '1.0.2'
 $guestConfigurationRoleDefinitionId = '/providers/Microsoft.Authorization/roleDefinitions/088ab73d-1256-47ae-bea9-9de8e7131f31'
 $configurationPath = Join-Path $PSScriptRoot 'entraid-deviceid-linux.ps1'
 $modulePath = Join-Path $PSScriptRoot 'Modules'
@@ -93,6 +93,7 @@ instance of OMI_ConfigurationDocument
 
 New-GuestConfigurationPackage `
     -Name $configurationName `
+    -Version $policyVersion `
     -Configuration $namedMof `
     -Path $OutputPath `
     -Type Audit `

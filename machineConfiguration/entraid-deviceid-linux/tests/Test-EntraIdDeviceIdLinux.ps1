@@ -30,6 +30,23 @@ function Read-Fixture {
 }
 
 try {
+    Test-Case 'Package metadata and packaged module match the source module version' {
+        $manifestPath = Join-Path $PSScriptRoot '..\Modules\EntraIdDeviceIdLinux\EntraIdDeviceIdLinux.psd1'
+        $manifest = Import-PowerShellDataFile $manifestPath
+        $packagePath = Join-Path $PSScriptRoot '..\output\entraiddeviceidlinux.zip'
+        $archive = [IO.Compression.ZipFile]::OpenRead($packagePath)
+        try {
+            $metadataReader = [IO.StreamReader]::new($archive.GetEntry('entraiddeviceidlinux.metaconfig.json').Open())
+            try { $metadata = $metadataReader.ReadToEnd() | ConvertFrom-Json }
+            finally { $metadataReader.Dispose() }
+            Assert-Equal $metadata.Version $manifest.ModuleVersion
+            Assert-Equal $metadata.Type 'Audit'
+            $manifestReader = [IO.StreamReader]::new($archive.GetEntry('Modules/EntraIdDeviceIdLinux/EntraIdDeviceIdLinux.psd1').Open())
+            try { Assert-Equal $manifestReader.ReadToEnd() (Get-Content $manifestPath -Raw) }
+            finally { $manifestReader.Dispose() }
+        }
+        finally { $archive.Dispose() }
+    }
     Test-Case 'Provided SenseCM line extracts the expected device GUID' {
         $r = $sample | ConvertFrom-SenseCmEnrollmentLog
         Assert-Equal $r.Status 'Present'

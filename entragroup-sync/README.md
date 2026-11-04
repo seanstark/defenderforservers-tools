@@ -93,7 +93,7 @@ An atomic Table Storage claim prevents overlapping timer/manual inventory runs a
 
 ### Step 2: Deploy the Azure Machine Configuration Policies (MDE Entra ID Device ID)
 
-For servers managed via MDE Security Settings Management (`MicrosoftSense` / MDE Attach) that are not domain/Entra-joined, these Azure Machine Configuration policies read the local MDE `intuneDeviceId` (`HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload` on Windows; wdavstate with a newest-enrollment SenseCM log fallback on Linux) and report it to Azure Resource Graph (`GuestConfigurationResources`). The log fallback requires Linux package version 1.0.1 or later; publish the rebuilt package and update its policy/assignment hash and version before refreshing live machines.
+For servers managed via MDE Security Settings Management (`MicrosoftSense` / MDE Attach) that are not domain/Entra-joined, these Azure Machine Configuration policies read the local MDE `intuneDeviceId` (`HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload` on Windows; wdavstate with a newest-enrollment SenseCM log fallback on Linux) and report it to Azure Resource Graph (`GuestConfigurationResources`). Use Linux package version 1.0.2 or later, which aligns the embedded package, module, and policy versions; publish the rebuilt package and update its policy/assignment URI, hash, and version before refreshing live machines.
 
 1. **Deploy Both Windows & Linux Policy Definitions Together (Recommended):**
 
