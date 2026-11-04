@@ -1719,6 +1719,20 @@ function Get-ReportHistoryPage {
     }
 }
 
+function Write-WorkerConfiguration {
+    $parameters = Get-FunctionParametersSummary
+    $configuration = @{
+        SyncMode = $parameters.SYNC_MODE
+        DefaultGroupMode = $parameters.SYNC_DEFAULT_GROUP_MODE
+        Parameters = $parameters
+        ObservedAt = [datetimeoffset]::UtcNow.ToString('o')
+    }
+    $null = Invoke-Table -Path "machines(PartitionKey='system',RowKey='worker-configuration')" -Method PUT -Body @{
+        PartitionKey = 'system'; RowKey = 'worker-configuration'
+        Data = ConvertTo-Json -InputObject $configuration -Depth 10 -Compress
+    }
+}
+
 function Get-ReportHealthResponse {
     param($Request)
     $appResourceId = Get-FunctionAppResourceId
@@ -1726,7 +1740,7 @@ function Get-ReportHealthResponse {
     $portalTenant = Get-RequestTenantDomain $Request
     $response = Invoke-Table -Path "machines(PartitionKey='system',RowKey='inventory')" -AllowStatus @(404)
     if ($response.Status -eq 404) {
-        return @{
+        $data = @{
             FunctionAppName = if ($appResourceId) { $appResourceId.Split('/')[-1] } else { '' }
             FunctionAppResourceId = $appResourceId
             AppInsightsName = if ($aiResourceId) { $aiResourceId.Split('/')[-1] } else { '' }
@@ -1741,10 +1755,12 @@ function Get-ReportHealthResponse {
             LastRunReason = 'No function runs recorded yet'
             LastRunStatus = ''
             LastRunMessage = ''
-            Parameters = Get-FunctionParametersSummary
+            Parameters = @{}
         }
     }
-    $data = ConvertFrom-Json -InputObject (Read-JsonResponse $response).Data -AsHashtable
+    else {
+        $data = ConvertFrom-Json -InputObject (Read-JsonResponse $response).Data -AsHashtable
+    }
     if ($appResourceId -and (-not $data['FunctionAppResourceId'] -or $data['FunctionAppResourceId'] -notmatch '/resourceGroups/')) {
         $data.FunctionAppResourceId = $appResourceId
     }
@@ -1754,7 +1770,15 @@ function Get-ReportHealthResponse {
     }
     if ($aiResourceId -and -not $data['AppInsightsName']) { $data.AppInsightsName = $aiResourceId.Split('/')[-1] }
     if ($portalTenant) { $data.PortalTenant = $portalTenant }
-    if (-not $data['Parameters']) { $data.Parameters = Get-FunctionParametersSummary }
+    $configurationResponse = Invoke-Table -Path "machines(PartitionKey='system',RowKey='worker-configuration')" -AllowStatus @(404)
+    if ($configurationResponse.Status -ne 404) {
+        $configuration = ConvertFrom-Json -InputObject (Read-JsonResponse $configurationResponse).Data -AsHashtable
+        $data.Parameters = $configuration.Parameters
+        $data.WorkerSettingsObservedAt = $configuration.ObservedAt
+    }
+    if (-not $data['Parameters']) { $data.Parameters = @{} }
+    $data.SyncMode = if ($data.Parameters['SYNC_MODE']) { $data.Parameters['SYNC_MODE'] } elseif ($data['SyncMode']) { $data.SyncMode } else { 'Unknown' }
+    $data.DefaultGroupMode = if ($data.Parameters['SYNC_DEFAULT_GROUP_MODE']) { $data.Parameters['SYNC_DEFAULT_GROUP_MODE'] } elseif ($data['DefaultGroupMode']) { $data.DefaultGroupMode } else { 'Unknown' }
     return $data
 }
 
@@ -1770,20 +1794,19 @@ function Get-ReportPermissionsResponse {
     $reportSite = Get-OptionalSetting 'WEBSITE_SITE_NAME'
 
     $permResp = Invoke-Table -Path "machines(PartitionKey='system',RowKey='permissions')" -AllowStatus @(404)
+    $invData = Get-ReportHealthResponse $Request
     $reportData = $null
     if ($permResp.Status -ne 404) {
         $reportData = ConvertFrom-Json -InputObject (Read-JsonResponse $permResp).Data -AsHashtable
     }
     else {
-        $invResp = Invoke-Table -Path "machines(PartitionKey='system',RowKey='inventory')" -AllowStatus @(404)
-        $invData = if ($invResp.Status -ne 404) { ConvertFrom-Json -InputObject (Read-JsonResponse $invResp).Data -AsHashtable } else { @{} }
         if ($invData['PermissionsReport']) {
             $reportData = $invData['PermissionsReport']
         }
         else {
-            $params = if ($invData['Parameters']) { $invData['Parameters'] } else { Get-FunctionParametersSummary }
+            $params = $invData.Parameters
             $syncMode = if ($invData['SyncMode']) { [string]$invData['SyncMode'] } else { [string]$params['SYNC_MODE'] }
-            if (-not $syncMode) { $syncMode = 'Audit' }
+            if (-not $syncMode) { $syncMode = 'Unknown' }
             $queuedCount = if ($null -ne $invData['MachinesQueued']) { [int]$invData['MachinesQueued'] } else { -1 }
             $lastStatus = [string]$invData['LastRunStatus']
             $lastMessage = [string]$invData['LastRunMessage']
@@ -1905,6 +1928,9 @@ function Get-ReportPermissionsResponse {
         }
     }
 
+    $reportData.SyncMode = $invData.SyncMode
+    $reportData.DefaultGroupMode = $invData.DefaultGroupMode
+    $reportData.WorkerSettingsObservedAt = $invData['WorkerSettingsObservedAt']
     $reportPrincipalLabel = if ($reportOid) { "Report Managed Identity ($reportOid)" } elseif ($reportSite) { "Report Managed Identity ($reportSite)" } else { 'Report Managed Identity' }
     $reportChecks = @(
         @{
@@ -2004,6 +2030,8 @@ function Write-FunctionLog {
     $current.LastRunStatus = $log.Status
     $current.LastRunMessage = $log.Message
     $current.Parameters = Get-FunctionParametersSummary
+    $current.SyncMode = $current.Parameters.SYNC_MODE
+    $current.DefaultGroupMode = $current.Parameters.SYNC_DEFAULT_GROUP_MODE
     if ($Entry['LastSuccessfulInventory']) {
         $current.LastSuccessfulInventory = [string]$Entry['LastSuccessfulInventory']
     }
@@ -3748,4 +3776,4 @@ function Test-ReportSyncRequest {
     return [string]$Request.Headers['Origin'] -ieq "https://$hostname"
 }
 
-Export-ModuleMember -Function Get-*, Resolve-*, Format-CloudGroupName, ConvertFrom-CloudGroupDisplayName, New-AdminUnitSecurityGroup, New-ReportSyncRequest, Update-GroupComplianceFlags, Set-VerifiedMembership, ConvertTo-ArcId, Invoke-MdeExtensionEvent, Invoke-InventorySync, Invoke-MachineSync, Test-ReportReader, Test-ReportSyncRequest, Write-FunctionLog
+Export-ModuleMember -Function Get-*, Resolve-*, Format-CloudGroupName, ConvertFrom-CloudGroupDisplayName, New-AdminUnitSecurityGroup, New-ReportSyncRequest, Update-GroupComplianceFlags, Set-VerifiedMembership, ConvertTo-ArcId, Invoke-MdeExtensionEvent, Invoke-InventorySync, Invoke-MachineSync, Test-ReportReader, Test-ReportSyncRequest, Write-FunctionLog, Write-WorkerConfiguration

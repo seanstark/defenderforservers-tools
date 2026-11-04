@@ -119,11 +119,12 @@
     }
 
     const rolesList = Array.isArray(data.TokenRoles) && data.TokenRoles.length ? data.TokenRoles.join(", ") : "Probed via Graph API";
-    const syncMode = data.SyncMode || "Audit";
-    const defaultGroupMode = data.DefaultGroupMode || "Passive";
+    const syncMode = data.SyncMode || "Unknown";
+    const defaultGroupMode = data.DefaultGroupMode || "Unknown";
+    const syncDescription = syncMode === "Enforce" ? "Adds to group" : syncMode === "Audit" ? "Observe only" : "Awaiting worker settings";
     const syncBadge = byId("header-sync-mode");
     if (syncBadge) {
-      syncBadge.textContent = `Sync Mode: ${syncMode} (${syncMode === "Enforce" ? "Adds to group" : "Observe only"})`;
+      syncBadge.textContent = `Sync Mode: ${syncMode} (${syncDescription})`;
       syncBadge.className = `badge mode-pill ${syncMode === "Enforce" ? "good" : "attention"}`;
       syncBadge.hidden = false;
     }
@@ -135,7 +136,7 @@
     }
     const items = [
       ["Overall readiness", text("span", missingCount > 0 ? "Action Required" : warningCount > 0 ? "Review Warnings" : "Ready", `badge ${missingCount > 0 ? "bad" : warningCount > 0 ? "attention" : "good"}`)],
-      ["Sync Mode (SYNC_MODE)", text("span", `${syncMode} (${syncMode === "Enforce" ? "Adds to group" : "Audit — observe only"})`, `badge ${syncMode === "Enforce" ? "good" : "attention"}`)],
+      ["Sync Mode (SYNC_MODE)", text("span", `${syncMode} (${syncDescription})`, `badge ${syncMode === "Enforce" ? "good" : "attention"}`)],
       ["Default Group Mode", text("span", `${defaultGroupMode} group (<Prefix>${defaultGroupMode}-<Id>)`, "badge")],
       ["Worker Managed Identity", text("span", data.WorkerPrincipalId ? `${data.WorkerFunctionName || "worker"} (${data.WorkerPrincipalId})` : (data.WorkerFunctionName || "worker"))],
       ["Report Managed Identity", text("span", data.ReportPrincipalId ? `${data.ReportFunctionName || "report"} (${data.ReportPrincipalId})` : (data.ReportFunctionName || "report"))],

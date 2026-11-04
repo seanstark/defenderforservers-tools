@@ -50,6 +50,25 @@ assert.match(source, /\["Correlation", correlationBadge\(machine\)\]/);
 assert.match(source, /id: "Status", label: "Sync status"/);
 console.log("PASS Dashboard separates identity correlation from sync failures.");
 
+for (const [file, inputName] of [["app.js", "health"], ["coverage.js", "latestHealth"], ["permissions.js", "data"]]) {
+  const script = fs.readFileSync(path.join(__dirname, "..", "report", "www", file), "utf8");
+  const start = script.indexOf("    const syncMode =");
+  const modes = script.slice(start, script.indexOf("    const syncBadge =", start));
+  for (const [syncMode, defaultGroupMode] of [["Enforce", "Active"], ["Audit", "Passive"]]) {
+    const input = file === "permissions.js" ? { SyncMode: syncMode, DefaultGroupMode: defaultGroupMode } : {
+      SyncMode: "stale", DefaultGroupMode: "stale",
+      Parameters: { SYNC_MODE: syncMode, SYNC_DEFAULT_GROUP_MODE: defaultGroupMode }
+    };
+    const result = vm.runInNewContext(`${modes}\n({syncMode, defaultGroupMode})`, { [inputName]: input });
+    assert.equal(result.syncMode, syncMode, file);
+    assert.equal(result.defaultGroupMode, defaultGroupMode, file);
+  }
+  const unknown = vm.runInNewContext(`${modes}\n({syncMode, defaultGroupMode})`, { [inputName]: {} });
+  assert.equal(unknown.syncMode, "Unknown", file);
+  assert.equal(unknown.defaultGroupMode, "Unknown", file);
+}
+console.log("PASS All report pages use authoritative worker modes and show Unknown without telemetry.");
+
 const summaryStart = source.indexOf("  function renderSummary()");
 const stats = source.slice(source.indexOf("    const stats = [", summaryStart), source.indexOf('    byId("summary").replaceChildren', summaryStart));
 vm.runInContext(`${stats}\nglobalThis.notInGroupFilter = stats.find(([key]) => key === "not-in-group")[2];`, context);

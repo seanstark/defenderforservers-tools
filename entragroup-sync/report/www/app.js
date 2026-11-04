@@ -1486,14 +1486,15 @@
     const lastReason = health.LastRunReason || (health.LastSuccessfulInventory ? "Scheduled timer (NCRONTAB schedule)" : "No function runs recorded yet");
     const lastFunction = health.LastRunFunction || (health.LastSuccessfulInventory ? "Inventory" : missing);
     const lastStatus = health.LastRunStatus || (health.LastSuccessfulInventory ? "Succeeded" : missing);
-    const syncMode = health.SyncMode || health.Parameters?.SYNC_MODE || "Audit";
-    const defaultGroupMode = health.Parameters?.SYNC_DEFAULT_GROUP_MODE || "Passive";
+    const syncMode = health.Parameters?.SYNC_MODE || health.SyncMode || "Unknown";
+    const defaultGroupMode = health.Parameters?.SYNC_DEFAULT_GROUP_MODE || health.DefaultGroupMode || "Unknown";
+    const syncDescription = syncMode === "Enforce" ? "Adds to group" : syncMode === "Audit" ? "Observe only" : "Awaiting worker settings";
     const syncModeTone = syncMode === "Enforce" ? "good" : "attention";
     const syncBadge = byId("header-sync-mode");
     if (syncBadge) {
-      syncBadge.textContent = `Sync Mode: ${syncMode} (${syncMode === "Enforce" ? "Adds to group" : "Observe only"})`;
+      syncBadge.textContent = `Sync Mode: ${syncMode} (${syncDescription})`;
       syncBadge.className = `badge mode-pill ${syncModeTone}`;
-      syncBadge.title = syncMode === "Enforce" ?
+      syncBadge.title = syncMode === "Unknown" ? "Worker settings have not been published yet." : syncMode === "Enforce" ?
         "SYNC_MODE is Enforce: verified devices are automatically added to their target Entra ID security group." :
         "SYNC_MODE is Audit: devices are evaluated and reported as WouldAdd without modifying Entra ID groups.";
       syncBadge.hidden = false;
@@ -1518,7 +1519,7 @@
     statusSpan.append(statusText);
     const aiSpan = document.createElement("span");
     appendLink(aiSpan, aiInfo.name ? `${aiInfo.name} (Search)` : "Open Transaction Search", aiInfo.searchUrl);
-    const syncModeSpan = text("span", `${syncMode} (${syncMode === "Enforce" ? "Enforcing group additions" : "Audit — observe only"})`, `badge ${syncModeTone}`);
+    const syncModeSpan = text("span", `${syncMode} (${syncDescription})`, `badge ${syncModeTone}`);
     const groupModeSpan = text("span", `${defaultGroupMode} group (<Prefix>${defaultGroupMode}-<Id>)`, "badge");
     const items = [
       ["Function App status", statusSpan],

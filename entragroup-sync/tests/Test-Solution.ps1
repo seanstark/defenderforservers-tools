@@ -44,7 +44,7 @@ try {
             'Get-SubscriptionName', 'Get-ArcExtensions', 'Get-MdeNetworkAddresses', 'Get-MdeAntivirus', 'Get-ManagementGroupSubscriptions', 'Write-FunctionLog',
             'Get-SharedAdminUnitGroups', 'Save-SharedAdminUnitGroups', 'New-AdminUnitSecurityGroup', 'Initialize-InventoryGroups',
             'Start-InventoryJob', 'Complete-InventoryJob', 'Invoke-InventoryRun', 'Get-InventoryJobStatus', 'New-ReportSyncRequest',
-            'Get-GuestConfigurationRefreshBody', 'Request-GuestConfigurationRefresh')) {
+            'Get-GuestConfigurationRefreshBody', 'Request-GuestConfigurationRefresh', 'Get-TokenClaims')) {
             $command = Get-Command $name -ErrorAction SilentlyContinue
             $originals[$name] = if ($command -and $command.CommandType -eq 'Function') { $command.ScriptBlock } else { $null }
         }
@@ -1838,6 +1838,73 @@ try {
             Assert-Equal $summary.Health 'Healthy'
             Assert-Equal $summary.LastRunReason 'Scheduled timer (NCRONTAB schedule)'
             Assert-Equal $summary.MachinesQueued 2
+            Assert-Equal $summary.SyncMode $env:SYNC_MODE
+            Assert-Equal $summary.DefaultGroupMode $env:SYNC_DEFAULT_GROUP_MODE
+        }
+        Test-Case 'Function logging replaces stale mode fields with current worker settings' {
+            $env:SYNC_MODE = 'Enforce'
+            $env:SYNC_DEFAULT_GROUP_MODE = 'Active'
+            function script:Invoke-Table {
+                param($Path, $Method = 'GET', $Body)
+                if ($Method -eq 'GET') {
+                    return @{ Status = 200; Content = '{"Data":"{\"SyncMode\":\"Audit\",\"DefaultGroupMode\":\"Passive\"}"}' }
+                }
+                if ($Method -eq 'PUT') { $script:UpdatedSummary = $Body.Data | ConvertFrom-Json -AsHashtable }
+                @{ Status = 204 }
+            }
+            Write-FunctionLog @{ FunctionName = 'Machine'; Status = 'Succeeded' }
+            Assert-Equal $script:UpdatedSummary.SyncMode 'Enforce'
+            Assert-Equal $script:UpdatedSummary.DefaultGroupMode 'Active'
+            Assert-Equal $script:UpdatedSummary.Parameters.SYNC_MODE 'Enforce'
+        }
+        Test-Case 'Worker startup snapshot overrides stale telemetry and report environment on all APIs' {
+            $env:SYNC_MODE = 'Enforce'
+            $env:SYNC_DEFAULT_GROUP_MODE = 'Active'
+            $script:ConfigurationEntity = $null
+            function script:Get-TokenClaims { @{ oid = 'report-identity' } }
+            function script:Invoke-Table {
+                param($Path, $Method = 'GET', $Body)
+                if ($Path -like "*RowKey='worker-configuration'*") {
+                    if ($Method -eq 'PUT') { $script:ConfigurationEntity = $Body; return @{ Status = 204 } }
+                    return @{ Status = 200; Content = ($script:ConfigurationEntity | ConvertTo-Json -Compress) }
+                }
+                if ($Path -like "*RowKey='permissions'*") {
+                    return @{ Status = 200; Content = '{"Data":"{\"SyncMode\":\"Audit\",\"DefaultGroupMode\":\"Passive\",\"Checks\":[]}"}' }
+                }
+                @{ Status = 200; Content = '{"Data":"{\"SyncMode\":\"Audit\",\"Parameters\":{\"SYNC_MODE\":\"Audit\",\"SYNC_DEFAULT_GROUP_MODE\":\"Passive\"}}"}' }
+            }
+            Write-WorkerConfiguration
+            $published = $script:ConfigurationEntity.Data | ConvertFrom-Json -AsHashtable
+            Assert-Equal $published.SyncMode 'Enforce'
+            Assert-Equal $published.DefaultGroupMode 'Active'
+            Assert-True ([bool]$published.ObservedAt)
+            $env:SYNC_MODE = 'Audit'
+            $env:SYNC_DEFAULT_GROUP_MODE = 'Passive'
+            $request = @{ Headers = @{} }
+            $health = Get-ReportHealthResponse $request
+            $permissions = Get-ReportPermissionsResponse $request
+            Assert-Equal $health.SyncMode 'Enforce'
+            Assert-Equal $health.DefaultGroupMode 'Active'
+            Assert-Equal $health.Parameters.SYNC_DEFAULT_GROUP_MODE 'Active'
+            Assert-Equal $permissions.SyncMode 'Enforce'
+            Assert-Equal $permissions.DefaultGroupMode 'Active'
+        }
+        Test-Case 'Health uses legacy worker parameters and never invents report-side defaults' {
+            function script:Invoke-Table {
+                param($Path)
+                if ($Path -like "*RowKey='inventory'*") {
+                    return @{ Status = 200; Content = '{"Data":"{\"SyncMode\":\"Audit\",\"Parameters\":{\"SYNC_MODE\":\"Enforce\",\"SYNC_DEFAULT_GROUP_MODE\":\"Active\"}}"}' }
+                }
+                @{ Status = 404 }
+            }
+            $health = Get-ReportHealthResponse @{ Headers = @{} }
+            Assert-Equal $health.SyncMode 'Enforce'
+            Assert-Equal $health.DefaultGroupMode 'Active'
+            function script:Invoke-Table { @{ Status = 404 } }
+            $health = Get-ReportHealthResponse @{ Headers = @{} }
+            Assert-Equal $health.SyncMode 'Unknown'
+            Assert-Equal $health.DefaultGroupMode 'Unknown'
+            Assert-Equal $health.Parameters.Count 0
         }
         Test-Case 'State and history transaction checks inner HTTP failures' {
             function script:Get-TableBase { 'https://example.table.core.windows.net' }
@@ -2237,7 +2304,7 @@ try {
             function script:Get-TokenClaims { @{ oid = 'cccccccc-dddd-eeee-ffff-000000000000' } }
             function script:Invoke-Table {
                 param($Path)
-                if ($Path -like "*RowKey='permissions'*") { return @{ Status = 404 } }
+                if ($Path -like "*RowKey='permissions'*" -or $Path -like "*RowKey='worker-configuration'*") { return @{ Status = 404 } }
                 if ($Path -like "*RowKey='inventory'*") {
                     return @{
                         Status = 200

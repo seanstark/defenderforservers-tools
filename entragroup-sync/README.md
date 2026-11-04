@@ -15,6 +15,10 @@
 - **Add-only safety:** Never deletes Entra devices or removes group members.
 - **Inventory-first group provisioning:** Prepares each discovered cloud-account/OS active/passive pair before queuing device correlation; groups may exist before any device successfully correlates.
 
+**Example reporting website:**
+
+![Cloud Server Correlation reporting website showing device inventory](images/report.png)
+
 ## Table of contents
 
 - [Solution at a Glance](#solution-at-a-glance)
@@ -25,6 +29,7 @@
   - [Step 4: Configure the Web Portal Redirect URI](#step-4-configure-the-web-portal-redirect-uri)
   - [Step 5: Grant Permissions to the Worker Managed Identity](#step-5-grant-permissions-to-the-worker-managed-identity)
   - [Step 6: Verify in the Web Portal & Switch to `Enforce` Mode](#step-6-verify-in-the-web-portal--switch-to-enforce-mode)
+- [Live inventory status and manual synchronization](#live-inventory-status-and-manual-synchronization)
 - [Architecture & Group Evaluation Workflow](#architecture--group-evaluation-workflow)
   - [3-Tier Microsoft Entra ID Device Correlation Chain](#3-tier-microsoft-entra-id-device-correlation-chain)
   - [Group Membership Evaluation Flow](#group-membership-evaluation-flow)
@@ -78,16 +83,6 @@ Follow these **6 straightforward steps** to deploy the solution end-to-end.
      - **Value:** `Report.Reader`
    - Go to **Enterprise applications** &rarr; select your app &rarr; **Users and groups**, and assign your users/groups to the **`Report.Reader`** role.
    - The same `Report.Reader` role authorizes **Start sync**; no additional role is required.
-
-#### Live inventory status and manual synchronization
-
-The Device inventory page checks uncached `GET /sync-status` every 15 seconds while visible, independently of cached device data. It shows the active inventory job, trigger, start time, and last outcome. **Start sync** sends a same-origin `POST /sync` with `X-Sync-Action: start`; signed-in users with `Report.Reader` in the configured tenant can invoke it. Use the Function App's default HTTPS hostname for this action. No Function keys, Graph tokens, or worker management permissions are exposed to the browser.
-
-The report identity remains a **Table Data Reader**, with **Service Bus Data Sender only on `inventory-sync`**. The worker receives requests on that dedicated queue and runs the same inventory workflow as the timer, using the existing scope and `Audit`/`Enforce` mode. Deploy the updated infrastructure as well as both ZIP packages to enable this feature on an existing installation; uploading ZIPs alone does not create the queue, RBAC assignments, or report namespace setting.
-
-An atomic Table Storage claim prevents overlapping timer/manual inventory runs across instances. Requests covered by a run that started after they were queued are coalesced rather than starting another pass. Manual requests expire after 15 minutes. A missing completion becomes **Interrupted** after 15 minutes; the next request can recover the claim. This recovery requires the worker's bounded `functionTimeout` to remain **at most 10 minutes** (including any `AzureFunctionsJobHost__functionTimeout` override); the worker validates this before claiming a job. Do not remove that execution bound. Check worker logs and the `inventory-sync` dead-letter queue if a request does not start.
-
-**Inventory completion is not completion of all device synchronization:** discovery, group preparation, and machine queueing finish first; per-device workers may continue afterward. **Refresh inventory** only refreshes report data and never starts a job.
 
 ---
 
@@ -220,6 +215,20 @@ az role assignment create --assignee-object-id $workerPrincipalId --assignee-pri
    ```powershell
    az functionapp config appsettings set --resource-group '<resource-group>' --name '<worker-app-name>' --settings SYNC_MODE=Enforce
    ```
+
+---
+
+## Live inventory status and manual synchronization
+
+**Sync Mode** and **Default Group** use a nonsecret settings snapshot published by the worker at startup, not the report app's settings or an older permissions check. Restarting the worker after a settings change publishes a new snapshot when its PowerShell runtime starts; refresh the report to reload it. Before worker telemetry is available, the values show **Unknown** rather than assumed defaults.
+
+The Device inventory page checks uncached `GET /sync-status` every 15 seconds while visible, independently of cached device data. It shows the active inventory job, trigger, start time, and last outcome. **Start sync** sends a same-origin `POST /sync` with `X-Sync-Action: start`; signed-in users with `Report.Reader` in the configured tenant can invoke it. Use the Function App's default HTTPS hostname for this action. No Function keys, Graph tokens, or worker management permissions are exposed to the browser.
+
+The report identity remains a **Table Data Reader**, with **Service Bus Data Sender only on `inventory-sync`**. The worker receives requests on that dedicated queue and runs the same inventory workflow as the timer, using the existing scope and `Audit`/`Enforce` mode. Deploy the updated infrastructure as well as both ZIP packages to enable this feature on an existing installation; uploading ZIPs alone does not create the queue, RBAC assignments, or report namespace setting.
+
+An atomic Table Storage claim prevents overlapping timer/manual inventory runs across instances. Requests covered by a run that started after they were queued are coalesced rather than starting another pass. Manual requests expire after 15 minutes. A missing completion becomes **Interrupted** after 15 minutes; the next request can recover the claim. This recovery requires the worker's bounded `functionTimeout` to remain **at most 10 minutes** (including any `AzureFunctionsJobHost__functionTimeout` override); the worker validates this before claiming a job. Do not remove that execution bound. Check worker logs and the `inventory-sync` dead-letter queue if a request does not start.
+
+**Inventory completion is not completion of all device synchronization:** discovery, group preparation, and machine queueing finish first; per-device workers may continue afterward. **Refresh inventory** only refreshes report data and never starts a job.
 
 ---
 

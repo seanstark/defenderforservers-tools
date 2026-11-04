@@ -413,11 +413,11 @@
     const totalPassive = machines.filter(m => ["Passive", "PassiveAudit"].includes(m.MdeAntivirusMode)).length;
     const totalConnected = machines.filter(m => m.ArcStatus === "Connected" || /^vm running$/i.test(String(m.ArcStatus || ""))).length;
     const totalDisconnected = machines.filter(m => m.ArcStatus === "Disconnected" || /^vm (stopped|deallocated)$/i.test(String(m.ArcStatus || ""))).length;
-    const syncMode = latestHealth?.SyncMode || latestHealth?.Parameters?.SYNC_MODE || "Audit";
-    const defaultGroupMode = latestHealth?.Parameters?.SYNC_DEFAULT_GROUP_MODE || "Passive";
+    const syncMode = latestHealth?.Parameters?.SYNC_MODE || latestHealth?.SyncMode || "Unknown";
+    const defaultGroupMode = latestHealth?.Parameters?.SYNC_DEFAULT_GROUP_MODE || latestHealth?.DefaultGroupMode || "Unknown";
     const syncBadge = byId("header-sync-mode");
     if (syncBadge) {
-      syncBadge.textContent = `Sync Mode: ${syncMode} (${syncMode === "Enforce" ? "Adds to group" : "Observe only"})`;
+      syncBadge.textContent = `Sync Mode: ${syncMode} (${syncMode === "Enforce" ? "Adds to group" : syncMode === "Audit" ? "Observe only" : "Awaiting worker settings"})`;
       syncBadge.className = `badge mode-pill ${syncMode === "Enforce" ? "good" : "attention"}`;
       syncBadge.hidden = false;
     }
