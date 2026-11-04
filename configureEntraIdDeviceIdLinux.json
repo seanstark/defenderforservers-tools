@@ -8,7 +8,7 @@
     "guestConfiguration": {
       "name": "entraiddeviceidlinux",
       "contentType": "Custom",
-      "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
+      "contentUri": "https://raw.githubusercontent.com/seanstark/defenderforservers-tools/770e079d38e3da51e68eff0afb33070df22e9305/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
       "contentHash": "955BCE70E95EFF23F84D11D5EC3C27439DEDE01F891C4C9A241E833FFAD2681E",
       "version": "1.0.1"
     },
@@ -205,7 +205,7 @@
                     "guestConfiguration": {
                       "name": "entraiddeviceidlinux",
                       "contentType": "Custom",
-                      "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
+                      "contentUri": "https://raw.githubusercontent.com/seanstark/defenderforservers-tools/770e079d38e3da51e68eff0afb33070df22e9305/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
                       "contentHash": "955BCE70E95EFF23F84D11D5EC3C27439DEDE01F891C4C9A241E833FFAD2681E",
                       "assignmentType": "Audit",
                       "version": "1.0.1"
@@ -222,7 +222,7 @@
                     "guestConfiguration": {
                       "name": "entraiddeviceidlinux",
                       "contentType": "Custom",
-                      "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
+                      "contentUri": "https://raw.githubusercontent.com/seanstark/defenderforservers-tools/770e079d38e3da51e68eff0afb33070df22e9305/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
                       "contentHash": "955BCE70E95EFF23F84D11D5EC3C27439DEDE01F891C4C9A241E833FFAD2681E",
                       "assignmentType": "Audit",
                       "version": "1.0.1"
@@ -239,7 +239,7 @@
                     "guestConfiguration": {
                       "name": "entraiddeviceidlinux",
                       "contentType": "Custom",
-                      "contentUri": "https://github.com/seanstark/defenderforservers-tools/raw/refs/heads/main/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
+                      "contentUri": "https://raw.githubusercontent.com/seanstark/defenderforservers-tools/770e079d38e3da51e68eff0afb33070df22e9305/machineConfiguration/entraid-deviceid-linux/output/entraiddeviceidlinux.zip",
                       "contentHash": "955BCE70E95EFF23F84D11D5EC3C27439DEDE01F891C4C9A241E833FFAD2681E",
                       "assignmentType": "Audit",
                       "version": "1.0.1"
@@ -252,5 +252,6 @@
         }
       }
     }
-  }
+  },
+  "version": "1.0.1"
 }

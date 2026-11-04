@@ -170,6 +170,7 @@ foreach ($generatedPolicy in $generatedPolicies) {
     $properties = $policy.properties
 
     $properties.metadata | Add-Member -NotePropertyName version -NotePropertyValue $policyVersion -Force
+    $properties | Add-Member -NotePropertyName version -NotePropertyValue $policyVersion -Force
     $properties.metadata.guestConfiguration | Add-Member -NotePropertyName version -NotePropertyValue $policyVersion -Force
     $properties.metadata.guestConfiguration.contentUri = $ContentUri.AbsoluteUri
     $properties.metadata.guestConfiguration.contentHash = $packageHash
@@ -304,6 +305,7 @@ $configurePolicyPath = Join-Path $policyPath "configure\${configurationName}_Dep
 $configurePolicyObj = Get-Content -Raw $configurePolicyPath | ConvertFrom-Json -Depth 100
 $portalPolicy = [ordered] @{
     mode       = $configurePolicyObj.properties.mode
+    version    = $policyVersion
     metadata   = $configurePolicyObj.properties.metadata
     parameters = $configurePolicyObj.properties.parameters
     policyRule = $configurePolicyObj.properties.policyRule
@@ -485,6 +487,7 @@ function Save-PolicyArmTemplate {
                 name = "[parameters('policyDefinitionName')]"
                 properties = [ordered] @{
                     policyType = 'Custom'
+                    version = $policyVersion
                     mode = $PolicyProps.mode
                     displayName = "[parameters('policyDefinitionDisplayName')]"
                     description = $Description
