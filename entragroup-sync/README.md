@@ -52,6 +52,7 @@
 | --- | --- |
 | App Service plan | Hosts both Function Apps. |
 | Worker and report Function Apps | Run synchronization and serve the web portal using managed identities. |
+| Dedicated user-assigned managed identity | Replaces the report app registration's client secret for website sign-in. |
 | Three Storage Accounts | Store Function host data, device state, history, and logs. |
 | Service Bus namespace and two queues | Queue device work (`machines`) and manual requests (`inventory-sync`). |
 | Application Insights and Log Analytics | Collect telemetry and diagnostics. |
@@ -76,13 +77,14 @@ Follow these **6 straightforward steps** to deploy the solution end-to-end.
    - The Function App will only query, create, and manage cloud-account security groups inside this Administrative Unit.
 2. **Create the Web Portal App Registration:**
    - Go to **Identity** &rarr; **Applications** &rarr; **App registrations** &rarr; **New registration** (Single tenant).
-   - Under **Certificates & secrets**, create a new **Client secret** and copy its **Value**.
+   - Copy the **Application (client) ID**. Do **not** create a client secret; the deployment creates a dedicated user-assigned identity for sign-in.
    - Under **App roles** &rarr; **Create app role**:
      - **Display name:** `Report Reader`
      - **Allowed member types:** `Users/Groups`
      - **Value:** `Report.Reader`
    - Go to **Enterprise applications** &rarr; select your app &rarr; **Users and groups**, and assign your users/groups to the **`Report.Reader`** role.
    - The same `Report.Reader` role authorizes **Start sync**; no additional role is required.
+   - The deployment operator must also be allowed to update this app registration's credentials (for example, its owner or a Cloud Application Administrator) so the federated credential can be created. This is an operator permission, not a permission granted to either Function App.
 
 ---
 
@@ -127,7 +129,6 @@ az group create --name 'rg-arc-entra-sync' --location 'eastus'
 
 # 3. Run Deploy.ps1 (remove -ManagementGroupIds or -SubscriptionIds if not used)
 cd .\entragroup-sync
-$secret = Read-Host 'Report App Client Secret' -AsSecureString
 
 .\Deploy.ps1 `
     -ResourceGroupName 'rg-arc-entra-sync' `
@@ -141,9 +142,10 @@ $secret = Read-Host 'Report App Client Secret' -AsSecureString
     -GcpLinuxGroupPrefix 'dfs-gcp-{id}-linux-{mode}' `
     -AzureWindowsGroupPrefix 'dfs-azure-{id}-windows-{mode}' `
     -AzureLinuxGroupPrefix 'dfs-azure-{id}-linux-{mode}' `
-    -ReportClientId '<report-app-client-id>' `
-    -ReportClientSecret $secret
+    -ReportClientId '<report-app-client-id>'
 ```
+
+`Deploy.ps1` creates the dedicated report login identity, attaches it alongside the report's system-assigned identity, and runs [Configure-ReportFederation.ps1](Configure-ReportFederation.ps1) to add the trust on the existing app registration. Federation must finish before website sign-in can work. Allow a few minutes for new trust propagation.
 
 #### Option B: Deploy via Azure Portal Button + Upload Function Code Packages
 1. Click **Deploy to Azure** to provision the Function Apps, Storage Accounts, Service Bus queue, and Application Insights:
@@ -155,6 +157,14 @@ $secret = Read-Host 'Report App Client Secret' -AsSecureString
    az functionapp deployment source config-zip --resource-group '<resource-group>' --name '<worker-app-name>' --src .\entragroup-sync\packages\worker.zip
    az functionapp deployment source config-zip --resource-group '<resource-group>' --name '<report-app-name>' --src .\entragroup-sync\packages\report.zip
    ```
+   Before signing in, use the deployment output `reportLoginIdentityPrincipalId` to create the app registration trust:
+   ```powershell
+   .\entragroup-sync\Configure-ReportFederation.ps1 `
+       -ReportClientId '<report-app-client-id>' `
+       -IdentityPrincipalId '<reportLoginIdentityPrincipalId-output>' `
+       -TenantId '<tenant-guid>'
+   ```
+   Alternatively, in the app registration's **Certificates & secrets > Federated credentials**, add the **Managed Identity** scenario and select the new `<prefix>-report-login-<suffix>` identity. Its subject is the identity's **principal/object ID**, issuer is `https://login.microsoftonline.com/<tenant-guid>/v2.0`, and audience is `api://AzureADTokenExchange`. The app and identity must be in the same tenant. The ARM template cannot create this Entra trust by itself.
 3. *(Optional for Option B)* Deploy the Subscription Event Grid trigger & `Reader` role (`infra/subscription.bicep`). For `entraiddeviceid*` assignment write events, the worker reads the current assignment and queues synchronization only when `properties.complianceStatus` is `Compliant`; noncompliant, pending, unknown, or missing statuses are logged and skipped. `MDE.Windows`/`MDE.Linux` extension events still require successful provisioning. Scheduled and manual inventory are unchanged; a compliance transition alone is not guaranteed to emit a resource-write event:
    ```powershell
    $subId = '<subscription-guid>'
@@ -176,6 +186,23 @@ $secret = Read-Host 'Report App Client Secret' -AsSecureString
    ```text
    https://<report-app-name>.azurewebsites.net/.auth/login/aad/callback
    ```
+3. Test a **fresh sign-in** (not an existing signed-in session) and confirm report access and **Start sync** remain restricted to `Report.Reader`.
+
+#### Report sign-in identities and existing deployments
+
+| Identity | Purpose |
+| --- | --- |
+| Worker system-assigned identity | Existing Azure, Graph, group, storage, and queue operations; unchanged. |
+| Report system-assigned identity | Existing host storage, Table Reader, and Sender only on `inventory-sync`; unchanged. |
+| Report login user-assigned identity | App registration credential only; no storage/queue RBAC or Graph application permissions are granted to it. Attach it only to this report app. |
+
+Easy Auth explicitly selects the login identity using the slot-sticky app setting `OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID` (the **identity client ID**, not the app registration ID). Its `authsettingsV2` registration keeps `reportClientId` and uses that setting name as `clientSecretSettingName`. Do not set `AZURE_CLIENT_ID` or change the data-access identity selectors to the login identity.
+
+For an existing installation, schedule a short sign-in maintenance window: the updated template switches Easy Auth to federation before `Deploy.ps1` creates the Entra trust. Redeploy with the **current** worker scope, naming patterns, sync/default modes, schedule, and hosting parameters, not example defaults. Existing app roles, user assignments, redirect URIs, and system-assigned identity principal IDs remain in place. If trust setup fails, fix the reported Entra permissions and rerun `Configure-ReportFederation.ps1`; it reuses an equivalent existing trust and refuses conflicting credentials.
+
+For a staged migration without switching sign-in first, create the dedicated user-assigned identity, attach it alongside the report's system identity, and run the federation helper before changing Easy Auth. Then set the slot-sticky override and `clientSecretSettingName` as described above. Keep the old credential available for rollback until a fresh sign-in succeeds. Only then remove `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` from app settings (if still present) and delete the corresponding **client secret** from the app registration. Neither the helper nor the deployment deletes app registration secrets automatically. Subsequent deployments use federation and no longer require `-ReportClientSecret`.
+
+This bootstrap targets the public Azure workforce tenant configuration. See [Microsoft's Easy Auth managed identity instructions](https://learn.microsoft.com/en-us/azure/app-service/configure-authentication-provider-aad#use-a-managed-identity-instead-of-a-secret).
 
 ---
 
@@ -458,14 +485,18 @@ The group-create POST is never automatically retried. If its result is uncertain
 | **Flag (`i` icon): Multiple or Wrong Groups** | Device is a member of more than one managed group (`MemberGroups.length > 1`) or belongs to a group whose AWS Account, GCP Project, or Azure Subscription does not match the machine. | Hover over the `i` indicator in the `Entra ID Group` column to inspect current managed groups and review stale memberships in Microsoft Entra ID. |
 | **Graph `403 Forbidden` in Worker Logs** | Missing Microsoft Graph application permissions, AU role assignment, or group ownership. | Re-run `.\Grant-GraphPermissions.ps1` for your chosen mode (`Audit`, `Enforce -AdminUnitId <guid>`, or `Enforce -AssignGroupOwner`). |
 | **Portal `401` / `403` or Stale Data** | Signed-in user lacks the `Report.Reader` app role, or browser/server cache is serving a recent snapshot. | Assign the user/group the `Report.Reader` role on the Report Enterprise Application in Entra ID. Click **Refresh inventory** in the portal toolbar to bypass the 15s server cache and 30s browser cache (`?refresh=1`). |
+| **Sign-in fails after identity-based authentication deployment** | The federated credential is missing, still propagating, or configured with the wrong identity ID. | Run `Configure-ReportFederation.ps1` with the login identity's **principal ID** and allow propagation. Check that the slot-sticky override contains its **client ID**, Easy Auth references that setting, and the same-tenant trust uses the documented issuer/audience. Test a new sign-in, not an existing session. |
 | **Start sync returns `403` / non-JSON permission error** | Easy Auth can reject browser POSTs before the function runs, including when `no-referrer` suppresses the referrer header. | Deploy the current report package and hard-refresh the browser. The report and sync fetch use `same-origin` referrer policy, preserving [Easy Auth CSRF protection](https://learn.microsoft.com/en-us/azure/app-service/overview-authentication-authorization#mitigation-of-cross-site-request-forgery) without sending referrers to external sites. |
 | **Start sync disabled / manual sync not configured (`503`)** | The report's Service Bus namespace setting is missing, often because only ZIP packages were updated. | Redeploy the updated infrastructure to configure `ServiceBusConnection__fullyQualifiedNamespace`, the `inventory-sync` queue, report Sender, and worker Receiver permissions. ZIP upload alone does not provision these resources. |
 
 ## Local Validation & Preview
 
 ```powershell
-# Run the 40 unit/regression tests
+# Run backend unit/regression tests
 .\tests\Test-Solution.ps1
+
+# Validate secretless sign-in bootstrap and identity isolation (mocked; no Azure changes)
+.\tests\Test-ReportFederation.ps1
 
 # Validate dashboard correlation and sync status rendering
 node .\tests\Test-Dashboard.cjs

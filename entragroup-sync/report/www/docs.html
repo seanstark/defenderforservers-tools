@@ -1005,6 +1005,11 @@
                     <td>Enforced by Easy Auth and checked on every request. The same role permits viewing the report and using Start sync; no additional role is required.</td>
                   </tr>
                   <tr>
+                    <td>Report Login User-Assigned Identity</td>
+                    <td><strong>Federated app registration credential</strong> (no client secret)</td>
+                    <td>A dedicated identity is attached alongside the report's existing system-assigned identity. <code>Configure-ReportFederation.ps1</code> creates the app registration trust; Easy Auth selects its client ID through the slot-sticky <code>OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID</code> setting. No data-access RBAC or Graph application permissions are granted to this login identity. Existing system identities, <code>Report.Reader</code>, user assignments, and redirect URIs are unchanged. Verify a fresh sign-in before deleting an old app registration secret.</td>
+                  </tr>
+                  <tr>
                     <td>Worker App Settings</td>
                     <td><code>SYNC_SUBSCRIPTION_IDS</code>, <code>SYNC_MANAGEMENT_GROUP_IDS</code>, <code>SYNC_RESOURCE_GROUP_NAMES</code>, <code>SYNC_DEFAULT_GROUP_MODE</code>, <code>SYNC_ADMIN_UNIT_ID</code>, <code>SYNC_AUTO_CREATE_GROUPS</code>, <code>SYNC_AWS_WINDOWS_GROUP_PREFIX</code>, <code>SYNC_AWS_LINUX_GROUP_PREFIX</code>, <code>SYNC_GCP_WINDOWS_GROUP_PREFIX</code>, <code>SYNC_GCP_LINUX_GROUP_PREFIX</code>, <code>SYNC_AZURE_WINDOWS_GROUP_PREFIX</code>, <code>SYNC_AZURE_LINUX_GROUP_PREFIX</code>, <code>SYNC_MODE</code>, <code>SYNC_FRESHNESS_HOURS</code>, <code>SYNC_SCHEDULE</code></td>
                     <td>Controls target scope (Subscriptions, Management Groups, Resource Groups), global default group mode (<code>Passive</code> by default, or <code>Active</code>), optional Administrative Unit GUID (<code>SYNC_ADMIN_UNIT_ID</code>) for automatic group creation (<code>SYNC_AUTO_CREATE_GROUPS</code>), the six Cloud account group naming prefixes (AWS Windows/Linux ending in <code>AccountId</code> tag, GCP Windows/Linux ending in <code>ProjectId</code> tag, and Azure Windows/Linux ending in <code>SubscriptionName</code> with AWS &amp; GCP machines excluded), <code>Audit</code> vs. <code>Enforce</code> mode, MDE freshness window (1–168h), and timer schedule.</td>

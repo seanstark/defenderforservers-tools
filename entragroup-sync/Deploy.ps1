@@ -15,7 +15,6 @@ param(
     [guid]$AdminUnitId = [guid]::Empty,
     [bool]$AutoCreateGroups = $false,
     [Parameter(Mandatory)][guid]$ReportClientId,
-    [Parameter(Mandatory)][securestring]$ReportClientSecret,
     [ValidateSet('Audit', 'Enforce')][string]$SyncMode = 'Audit',
     [string]$Schedule = '0 */30 * * * *',
     [ValidateRange(1, 168)][int]$FreshnessHours = 24,
@@ -83,14 +82,10 @@ $parameters = @{
     freshnessHours = @{ value = $FreshnessHours }; planSku = @{ value = $PlanSku }
     alertActionGroupIds = @{ value = $AlertActionGroupIds }
 }
-# Pass the login secret directly to ARM over HTTPS, never through a CLI argument or a parameter file.
-$parameters.reportClientSecret = @{ value = [Net.NetworkCredential]::new('', $ReportClientSecret).Password }
-try {
-    $outputs = Invoke-Deployment -Scope $group.id -Name "$NamePrefix-infra" -Template $template -Parameters $parameters
-}
-finally {
-    $parameters.Remove('reportClientSecret')
-}
+$outputs = Invoke-Deployment -Scope $group.id -Name "$NamePrefix-infra" -Template $template -Parameters $parameters
+$federation = & "$PSScriptRoot\Configure-ReportFederation.ps1" -ReportClientId $ReportClientId `
+    -IdentityPrincipalId $outputs.reportLoginIdentityPrincipalId.value -TenantId $account.tenantId
+Write-Host "Report sign-in federated credential: $($federation.Name)"
 
 $packageDirectory = Join-Path ([IO.Path]::GetTempPath()) "arc-entra-deploy-$([guid]::NewGuid().ToString('N'))"
 try {
@@ -132,6 +127,9 @@ Write-Host 'Next grant the worker Graph permissions and assign Report.Reader to 
 [pscustomobject]@{
     WorkerAppName = $outputs.workerAppName.value
     WorkerPrincipalId = $outputs.workerPrincipalId.value
+    ReportLoginIdentityResourceId = $outputs.reportLoginIdentityResourceId.value
+    ReportLoginIdentityClientId = $outputs.reportLoginIdentityClientId.value
+    ReportLoginIdentityPrincipalId = $outputs.reportLoginIdentityPrincipalId.value
     ReportAppName = $outputs.reportAppName.value
     ReportUrl = $outputs.reportUrl.value
     ReportRedirectUri = $outputs.reportRedirectUri.value

@@ -51,10 +51,6 @@ param autoCreateGroups bool = !empty(adminUnitId)
 @description('Report App Registration Client ID: The Application (client) ID GUID of the Microsoft Entra App Registration used to sign in users to the read-only web portal (must define the Report.Reader app role).')
 param reportClientId string
 
-@secure()
-@description('Report App Registration Client Secret: The client secret value for the Report App Registration used by Azure App Service Authentication (Easy Auth).')
-param reportClientSecret string
-
 @allowed(['Audit', 'Enforce'])
 @description('Synchronization Mode: Audit (default) only evaluates correlation and records WouldAdd without modifying any Entra ID groups. Enforce creates and updates group memberships for verified devices.')
 param syncMode string = 'Audit'
@@ -184,11 +180,23 @@ resource inventoryQueue 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = {
   }
 }
 
+resource reportLoginIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${namePrefix}-report-login-${take(suffix, 6)}'
+  location: location
+}
+
 resource apps 'Microsoft.Web/sites@2023-12-01' = [for (kind, i) in ['worker', 'report']: {
   name: i == 0 ? workerName : reportName
   location: location
   kind: 'functionapp'
-  identity: { type: 'SystemAssigned' }
+  identity: i == 0 ? {
+    type: 'SystemAssigned'
+  } : {
+    type: 'SystemAssigned, UserAssigned'
+    userAssignedIdentities: {
+      '${reportLoginIdentity.id}': {}
+    }
+  }
   properties: {
     serverFarmId: plan.id
     httpsOnly: true
@@ -232,7 +240,7 @@ resource apps 'Microsoft.Web/sites@2023-12-01' = [for (kind, i) in ['worker', 'r
         { name: 'ServiceBusConnection__fullyQualifiedNamespace', value: '${bus.name}.servicebus.windows.net' }
         { name: 'ServiceBusConnection__credential', value: 'managedidentity' }
       ] : [
-        { name: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', value: reportClientSecret }
+        { name: 'OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID', value: reportLoginIdentity.properties.clientId }
         { name: 'ServiceBusConnection__fullyQualifiedNamespace', value: '${bus.name}.servicebus.windows.net' }
       ])
     }
@@ -328,7 +336,7 @@ resource reportAuth 'Microsoft.Web/sites/config@2023-12-01' = {
         enabled: true
         registration: {
           clientId: reportClientId
-          clientSecretSettingName: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET'
+          clientSecretSettingName: 'OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID'
           openIdIssuer: '${environment().authentication.loginEndpoint}${tenantId}/v2.0'
         }
         validation: {
@@ -338,6 +346,14 @@ resource reportAuth 'Microsoft.Web/sites/config@2023-12-01' = {
     }
     login: { tokenStore: { enabled: false } }
     httpSettings: { requireHttps: true }
+  }
+}
+
+resource reportStickySettings 'Microsoft.Web/sites/config@2023-12-01' = {
+  parent: apps[1]
+  name: 'slotConfigNames'
+  properties: {
+    appSettingNames: ['OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID']
   }
 }
 
@@ -406,6 +422,9 @@ output workerAppName string = apps[0].name
 output workerPrincipalId string = apps[0].identity.principalId
 output workerFunctionId string = '${apps[0].id}/functions/ArcEvent'
 output reportAppName string = apps[1].name
+output reportLoginIdentityResourceId string = reportLoginIdentity.id
+output reportLoginIdentityClientId string = reportLoginIdentity.properties.clientId
+output reportLoginIdentityPrincipalId string = reportLoginIdentity.properties.principalId
 output reportUrl string = 'https://${apps[1].properties.defaultHostName}/'
 output reportRedirectUri string = 'https://${apps[1].properties.defaultHostName}/.auth/login/aad/callback'
 output dataStorageAccount string = storage.name

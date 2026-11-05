@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "5931560229687450894"
+      "templateHash": "3382389357603982967"
     }
   },
   "parameters": {
@@ -123,12 +123,6 @@
       "type": "string",
       "metadata": {
         "description": "Report App Registration Client ID: The Application (client) ID GUID of the Microsoft Entra App Registration used to sign in users to the read-only web portal (must define the Report.Reader app role)."
-      }
-    },
-    "reportClientSecret": {
-      "type": "securestring",
-      "metadata": {
-        "description": "Report App Registration Client Secret: The client secret value for the Report App Registration used by Azure App Service Authentication (Easy Auth)."
       }
     },
     "syncMode": {
@@ -332,6 +326,12 @@
       ]
     },
     {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[format('{0}-report-login-{1}', parameters('namePrefix'), take(variables('suffix'), 6))]",
+      "location": "[parameters('location')]"
+    },
+    {
       "copy": {
         "name": "apps",
         "count": "[length(createArray('worker', 'report'))]"
@@ -341,9 +341,7 @@
       "name": "[if(equals(copyIndex(), 0), variables('workerName'), variables('reportName'))]",
       "location": "[parameters('location')]",
       "kind": "functionapp",
-      "identity": {
-        "type": "SystemAssigned"
-      },
+      "identity": "[if(equals(copyIndex(), 0), createObject('type', 'SystemAssigned'), createObject('type', 'SystemAssigned, UserAssigned', 'userAssignedIdentities', createObject(format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-report-login-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))), createObject())))]",
       "properties": {
         "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', format('{0}-plan', parameters('namePrefix')))]",
         "httpsOnly": true,
@@ -354,7 +352,7 @@
           "ftpsState": "Disabled",
           "powerShellVersion": "7.6",
           "use32BitWorkerProcess": false,
-          "appSettings": "[concat(createArray(createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME', 'value', 'powershell'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME_VERSION', 'value', '7.6'), createObject('name', 'AzureWebJobsDisableHomepage', 'value', 'true'), createObject('name', 'AzureWebJobsStorage__accountName', 'value', format('{0}{1}', createArray('worker', 'report')[copyIndex()], variables('suffix'))), createObject('name', 'AzureWebJobsStorage__credential', 'value', 'managedidentity'), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix'))), '2020-02-02').ConnectionString), createObject('name', 'SYNC_STORAGE_ACCOUNT', 'value', format('sync{0}', variables('suffix'))), createObject('name', 'SYNC_TENANT_ID', 'value', parameters('tenantId')), createObject('name', 'SYNC_WORKER_FUNCTION_RESOURCE_ID', 'value', resourceId('Microsoft.Web/sites', variables('workerName'))), createObject('name', 'SYNC_APPINSIGHTS_RESOURCE_ID', 'value', resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix'))))), if(equals(copyIndex(), 0), createArray(createObject('name', 'SYNC_SUBSCRIPTION_IDS', 'value', join(parameters('subscriptionIds'), ',')), createObject('name', 'SYNC_MANAGEMENT_GROUP_IDS', 'value', join(parameters('managementGroupIds'), ',')), createObject('name', 'SYNC_RESOURCE_GROUP_NAMES', 'value', join(parameters('resourceGroupNames'), ',')), createObject('name', 'SYNC_AWS_WINDOWS_GROUP_PREFIX', 'value', parameters('awsWindowsGroupPrefix')), createObject('name', 'SYNC_AWS_LINUX_GROUP_PREFIX', 'value', parameters('awsLinuxGroupPrefix')), createObject('name', 'SYNC_GCP_WINDOWS_GROUP_PREFIX', 'value', parameters('gcpWindowsGroupPrefix')), createObject('name', 'SYNC_GCP_LINUX_GROUP_PREFIX', 'value', parameters('gcpLinuxGroupPrefix')), createObject('name', 'SYNC_AZURE_WINDOWS_GROUP_PREFIX', 'value', parameters('azureWindowsGroupPrefix')), createObject('name', 'SYNC_AZURE_LINUX_GROUP_PREFIX', 'value', parameters('azureLinuxGroupPrefix')), createObject('name', 'SYNC_DEFAULT_GROUP_MODE', 'value', parameters('defaultGroupMode')), createObject('name', 'SYNC_ADMIN_UNIT_ID', 'value', parameters('adminUnitId')), createObject('name', 'SYNC_AUTO_CREATE_GROUPS', 'value', string(parameters('autoCreateGroups'))), createObject('name', 'SYNC_MODE', 'value', parameters('syncMode')), createObject('name', 'SYNC_FRESHNESS_HOURS', 'value', string(parameters('freshnessHours'))), createObject('name', 'SYNC_SCHEDULE', 'value', parameters('schedule')), createObject('name', 'PSWorkerInProcConcurrencyUpperBound', 'value', '8'), createObject('name', 'FUNCTIONS_WORKER_PROCESS_COUNT', 'value', '2'), createObject('name', 'ServiceBusConnection__fullyQualifiedNamespace', 'value', format('{0}.servicebus.windows.net', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))), createObject('name', 'ServiceBusConnection__credential', 'value', 'managedidentity')), createArray(createObject('name', 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', 'value', parameters('reportClientSecret')), createObject('name', 'ServiceBusConnection__fullyQualifiedNamespace', 'value', format('{0}.servicebus.windows.net', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))))))]"
+          "appSettings": "[concat(createArray(createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME', 'value', 'powershell'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME_VERSION', 'value', '7.6'), createObject('name', 'AzureWebJobsDisableHomepage', 'value', 'true'), createObject('name', 'AzureWebJobsStorage__accountName', 'value', format('{0}{1}', createArray('worker', 'report')[copyIndex()], variables('suffix'))), createObject('name', 'AzureWebJobsStorage__credential', 'value', 'managedidentity'), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix'))), '2020-02-02').ConnectionString), createObject('name', 'SYNC_STORAGE_ACCOUNT', 'value', format('sync{0}', variables('suffix'))), createObject('name', 'SYNC_TENANT_ID', 'value', parameters('tenantId')), createObject('name', 'SYNC_WORKER_FUNCTION_RESOURCE_ID', 'value', resourceId('Microsoft.Web/sites', variables('workerName'))), createObject('name', 'SYNC_APPINSIGHTS_RESOURCE_ID', 'value', resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix'))))), if(equals(copyIndex(), 0), createArray(createObject('name', 'SYNC_SUBSCRIPTION_IDS', 'value', join(parameters('subscriptionIds'), ',')), createObject('name', 'SYNC_MANAGEMENT_GROUP_IDS', 'value', join(parameters('managementGroupIds'), ',')), createObject('name', 'SYNC_RESOURCE_GROUP_NAMES', 'value', join(parameters('resourceGroupNames'), ',')), createObject('name', 'SYNC_AWS_WINDOWS_GROUP_PREFIX', 'value', parameters('awsWindowsGroupPrefix')), createObject('name', 'SYNC_AWS_LINUX_GROUP_PREFIX', 'value', parameters('awsLinuxGroupPrefix')), createObject('name', 'SYNC_GCP_WINDOWS_GROUP_PREFIX', 'value', parameters('gcpWindowsGroupPrefix')), createObject('name', 'SYNC_GCP_LINUX_GROUP_PREFIX', 'value', parameters('gcpLinuxGroupPrefix')), createObject('name', 'SYNC_AZURE_WINDOWS_GROUP_PREFIX', 'value', parameters('azureWindowsGroupPrefix')), createObject('name', 'SYNC_AZURE_LINUX_GROUP_PREFIX', 'value', parameters('azureLinuxGroupPrefix')), createObject('name', 'SYNC_DEFAULT_GROUP_MODE', 'value', parameters('defaultGroupMode')), createObject('name', 'SYNC_ADMIN_UNIT_ID', 'value', parameters('adminUnitId')), createObject('name', 'SYNC_AUTO_CREATE_GROUPS', 'value', string(parameters('autoCreateGroups'))), createObject('name', 'SYNC_MODE', 'value', parameters('syncMode')), createObject('name', 'SYNC_FRESHNESS_HOURS', 'value', string(parameters('freshnessHours'))), createObject('name', 'SYNC_SCHEDULE', 'value', parameters('schedule')), createObject('name', 'PSWorkerInProcConcurrencyUpperBound', 'value', '8'), createObject('name', 'FUNCTIONS_WORKER_PROCESS_COUNT', 'value', '2'), createObject('name', 'ServiceBusConnection__fullyQualifiedNamespace', 'value', format('{0}.servicebus.windows.net', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))), createObject('name', 'ServiceBusConnection__credential', 'value', 'managedidentity')), createArray(createObject('name', 'OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID', 'value', reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-report-login-{1}', parameters('namePrefix'), take(variables('suffix'), 6))), '2023-01-31').clientId), createObject('name', 'ServiceBusConnection__fullyQualifiedNamespace', 'value', format('{0}.servicebus.windows.net', format('{0}-bus-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))))))]"
         }
       },
       "dependsOn": [
@@ -362,6 +360,7 @@
         "[resourceId('Microsoft.Storage/storageAccounts', format('{0}{1}', createArray('worker', 'report')[copyIndex()], variables('suffix')))]",
         "[resourceId('Microsoft.Insights/components', format('{0}-insights', parameters('namePrefix')))]",
         "[resourceId('Microsoft.Web/serverfarms', format('{0}-plan', parameters('namePrefix')))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-report-login-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))]",
         "[resourceId('Microsoft.Storage/storageAccounts', format('sync{0}', variables('suffix')))]"
       ]
     },
@@ -522,7 +521,7 @@
             "enabled": true,
             "registration": {
               "clientId": "[parameters('reportClientId')]",
-              "clientSecretSettingName": "MICROSOFT_PROVIDER_AUTHENTICATION_SECRET",
+              "clientSecretSettingName": "OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID",
               "openIdIssuer": "[format('{0}{1}/v2.0', environment().authentication.loginEndpoint, parameters('tenantId'))]"
             },
             "validation": {
@@ -541,6 +540,19 @@
         "httpSettings": {
           "requireHttps": true
         }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', if(equals(1, 0), variables('workerName'), variables('reportName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/config",
+      "apiVersion": "2023-12-01",
+      "name": "[format('{0}/{1}', if(equals(1, 0), variables('workerName'), variables('reportName')), 'slotConfigNames')]",
+      "properties": {
+        "appSettingNames": [
+          "OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID"
+        ]
       },
       "dependsOn": [
         "[resourceId('Microsoft.Web/sites', if(equals(1, 0), variables('workerName'), variables('reportName')))]"
@@ -667,6 +679,18 @@
     "reportAppName": {
       "type": "string",
       "value": "[if(equals(1, 0), variables('workerName'), variables('reportName'))]"
+    },
+    "reportLoginIdentityResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-report-login-{1}', parameters('namePrefix'), take(variables('suffix'), 6)))]"
+    },
+    "reportLoginIdentityClientId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-report-login-{1}', parameters('namePrefix'), take(variables('suffix'), 6))), '2023-01-31').clientId]"
+    },
+    "reportLoginIdentityPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-report-login-{1}', parameters('namePrefix'), take(variables('suffix'), 6))), '2023-01-31').principalId]"
     },
     "reportUrl": {
       "type": "string",
