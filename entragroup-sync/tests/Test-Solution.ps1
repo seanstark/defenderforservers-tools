@@ -111,7 +111,16 @@ try {
         }
         Test-Case 'Deployment creates missing groups, reuses existing groups, and surfaces CLI failures' {
             $originalAz = Get-Item Function:\global:az -ErrorAction SilentlyContinue
+            $originalRest = Get-Item Function:\global:Invoke-RestMethod -ErrorAction SilentlyContinue
             try {
+                function global:Invoke-RestMethod {
+                    param($Uri, $Method, $Headers, $ContentType, $Body, $TimeoutSec)
+                    if ($Method -ne 'PUT' -or $Uri -notlike 'https://management.azure.com/subscriptions/test/resourceGroups/*/providers/Microsoft.Resources/deployments/test-infra?*') {
+                        throw "Unexpected test request: $Method $Uri"
+                    }
+                    $global:DeploymentGroupTest.Body = $Body | ConvertFrom-Json -AsHashtable
+                    throw 'Stopped before deployment for resource group validation.'
+                }
                 function global:az {
                     $parts = @($args)
                     $command = $parts[0] + ' ' + $parts[1]
@@ -120,15 +129,18 @@ try {
                     if ($command -eq $global:DeploymentGroupTest.FailCommand) { $global:LASTEXITCODE = 1; return }
                     switch ($command) {
                         'account show' { '{"tenantId":"33333333-3333-3333-3333-333333333333"}' }
+                        'account get-access-token' { 'test-token' }
                         'group exists' { $global:DeploymentGroupTest.Exists }
                         'group show' { '{"id":"/subscriptions/test/resourceGroups/existing","location":"westus"}' }
                         'group create' { '{"id":"/subscriptions/test/resourceGroups/new","location":"eastus"}' }
-                        'bicep build' { throw 'Stopped before deployment for resource group validation.' }
+                        'bicep build' { '{}' }
                         default { throw "Unexpected test command: $command" }
                     }
                 }
                 foreach ($scenario in @(
                     @{ Exists = 'true'; Operation = 'show'; Location = 'westeurope'; FailCommand = '' }
+                    @{ Exists = 'true'; Operation = 'show'; Location = ''; FailCommand = '' }
+                    @{ Exists = 'true'; Operation = 'show'; Location = 'westus2'; FailCommand = ''; UseAlias = $true }
                     @{ Exists = 'false'; Operation = 'create'; Location = 'westeurope'; FailCommand = '' }
                     @{ Exists = 'false'; Operation = 'create'; Location = ''; FailCommand = '' }
                     @{ Exists = 'null'; Operation = ''; Location = ''; FailCommand = '' }
@@ -145,13 +157,20 @@ try {
                         SubscriptionIds = @('11111111-1111-1111-1111-111111111111')
                         ReportClientId = '22222222-2222-2222-2222-222222222222'
                     }
-                    if ($scenario.Location) { $parameters.Location = $scenario.Location }
+                    if ($scenario.Location) {
+                        if ($scenario.ContainsKey('UseAlias') -and $scenario.UseAlias) { $parameters.Region = $scenario.Location }
+                        else { $parameters.Location = $scenario.Location }
+                    }
                     $failure = $null
                     try { & "$PSScriptRoot\..\Deploy.ps1" @parameters } catch { $failure = $_ }
                     Assert-True ($null -ne $failure)
                     if ($scenario.FailCommand) { Assert-True ($failure.Exception.Message.StartsWith('Azure CLI command failed:')) }
                     elseif ($scenario.Exists -eq 'null') { Assert-True ($failure.Exception.Message.Contains('valid resource group existence result')) }
                     else { Assert-Equal $failure.Exception.Message 'Stopped before deployment for resource group validation.' }
+                    if (-not $scenario.FailCommand -and $scenario.Exists -ne 'null') {
+                        $expectedLocation = if ($scenario.Location) { $scenario.Location } elseif ($scenario.Exists -eq 'true') { 'westus' } else { 'eastus' }
+                        Assert-Equal $global:DeploymentGroupTest.Body.properties.parameters.location.value $expectedLocation
+                    }
                     $groupCommands = @($global:DeploymentGroupTest.Calls | Where-Object { $_[0] -eq 'group' -and $_[1] -ne 'exists' })
                     if (-not $scenario.Operation) { Assert-Equal $groupCommands.Count 0; continue }
                     Assert-Equal $groupCommands.Count 1
@@ -166,6 +185,8 @@ try {
             finally {
                 if ($originalAz) { Set-Item Function:\global:az $originalAz.ScriptBlock }
                 else { Remove-Item Function:\global:az }
+                if ($originalRest) { Set-Item Function:\global:Invoke-RestMethod $originalRest.ScriptBlock }
+                else { Remove-Item Function:\global:Invoke-RestMethod }
                 Remove-Variable -Name DeploymentGroupTest -Scope Global -ErrorAction SilentlyContinue
             }
         }

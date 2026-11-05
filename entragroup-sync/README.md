@@ -117,7 +117,7 @@ Creates the resource group if needed, deploys the Azure infrastructure, builds a
 
 > **Important Prerequisites for `Deploy.ps1`:**
 > - **Active Azure CLI Subscription Context:** `Deploy.ps1` deploys the infrastructure into the Azure subscription that your Azure CLI context (`az account show`) is currently set to. Run `az account set --subscription '<target-hosting-subscription-id>'` first.
-> - **Resource Group Location:** A missing `-ResourceGroupName` is created in `-Location` (default `eastus`). Existing groups are reused without changing their location or tags; their existing location is used for deployment.
+> - **Deployment Region:** Use `-Location 'westus2'` (or its alias `-Region 'westus2'`) to select the region for the solution resources and subscription deployment records, even when the resource group already exists. Missing groups are created in that region; existing groups keep their location and tags. If omitted, deployment uses the existing group's location, or `eastus` for a new group. This does not migrate existing resources between regions; use a new deployment for a regional move.
 > - **Omit Unused `-ManagementGroupIds` or `-SubscriptionIds` Parameters:** Because `-SubscriptionIds` is typed as `[guid[]]` and `-ManagementGroupIds` has a regex validation pattern, **remove `-ManagementGroupIds` from the command if you are only scoping by subscription(s), or remove `-SubscriptionIds` if you are only scoping by management group(s)** (do not pass placeholder text or `@('')`).
 
 ```powershell

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$ResourceGroupName,
-    [ValidateNotNullOrEmpty()][string]$Location = 'eastus',
+    [Alias('Region')][ValidateNotNullOrEmpty()][string]$Location = 'eastus',
     [Parameter(Mandatory)][ValidatePattern('^[a-z][a-z0-9-]{2,17}$')][string]$NamePrefix,
     [guid[]]$SubscriptionIds = @(),
     [ValidatePattern('^[A-Za-z0-9._()-]{1,90}$')][string[]]$ManagementGroupIds = @(),
@@ -70,10 +70,12 @@ else {
     Write-Host "Creating resource group '$ResourceGroupName' in '$Location'."
     $group = (Invoke-Az @('group', 'create', '--name', $ResourceGroupName, '--location', $Location, '--output', 'json')) | ConvertFrom-Json
 }
+$deploymentLocation = if ($PSBoundParameters.ContainsKey('Location')) { $Location } else { $group.location }
 $template = (Invoke-Az @('bicep', 'build', '--file', "$PSScriptRoot\infra\main.bicep", '--stdout')) | ConvertFrom-Json -AsHashtable
 $eventTemplate = (Invoke-Az @('bicep', 'build', '--file', "$PSScriptRoot\infra\subscription.bicep", '--stdout')) | ConvertFrom-Json -AsHashtable
 $parameters = @{
     namePrefix = @{ value = $NamePrefix }; tenantId = @{ value = $account.tenantId }
+    location = @{ value = $deploymentLocation }
     subscriptionIds = @{ value = @($SubscriptionIds | ForEach-Object ToString) }
     managementGroupIds = @{ value = @($ManagementGroupIds) }
     resourceGroupNames = @{ value = @($ResourceGroupNames) }
@@ -123,7 +125,7 @@ try {
             eventSubscriptionName = @{ value = "$NamePrefix-arc-sync" }
             resourceGroupNames = @{ value = @($ResourceGroupNames) }
         }
-        $null = Invoke-Deployment -Scope "/subscriptions/$subscription" -Name "$NamePrefix-events" -Template $eventTemplate -Parameters $eventParameters -Location $group.location
+        $null = Invoke-Deployment -Scope "/subscriptions/$subscription" -Name "$NamePrefix-events" -Template $eventTemplate -Parameters $eventParameters -Location $deploymentLocation
     }
 }
 finally {
