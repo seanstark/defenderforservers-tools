@@ -539,6 +539,8 @@
           machine.EntraCorrelationPath === "MicrosoftSenseHostnameAndOS" ?
           `Correlated via MicrosoftSense synthetic Entra device matching hostname (${hostListText}) and OS (${machine.OS || missing}).` :
           `Correlated via MDE DeviceInfo.AadDeviceId (${machine.EntraDeviceId || missing}) matching Entra ID deviceId.`;
+      } else if (machine.MdeReonboardingDetected && machine.Status === "Ambiguous") {
+        reason = "MDE re-onboarding or merged identity history was detected. Hostname-only matching cannot distinguish old Entra objects; a current MDE AadDeviceId or Machine Configuration intuneDeviceId is required.";
       } else if (machine.Status === "PendingMde" || !machine.MdeDeviceId) {
         reason = `Blocked at Step 1 (MDE Hunting): No onboarded MDE DeviceInfo record matched Resource ID '${machine.ArcResourceId || missing}'${machine.VirtualMachineId ? ` or VM ID '${machine.VirtualMachineId}'` : ""} within the 7-day hunting window. Entra ID lookup cannot run until the server is onboarded to MDE.`;
       } else if (machine.Status === "StaleEvidence") {
@@ -572,7 +574,11 @@
       ["Correlation Method", correlationMethodFor(machine)],
       ["Hostnames Checked", hostListText],
       ["Expected OS", osNode(machine.OS)],
-      ["MDE Device / Status", machine.MdeDeviceId ? `${machine.MdeDeviceName || machine.MdeDeviceId} (${machine.MdeOnboardingStatus || "Onboarded"})` : "No MDE match (PendingMde)"]
+      ["MDE Device / Status", machine.MdeDeviceId ? `${machine.MdeDeviceName || machine.MdeDeviceId} (${machine.MdeOnboardingStatus || "Onboarded"})` : "No MDE match (PendingMde)"],
+      ["MDE Device ID", machine.MdeDeviceId || "Not selected"],
+      ["MDE Sensor / Last Refreshed", `${machine.MdeSensorHealth || "Unknown"} / ${time(machine.MdeLastSeen)}`],
+      ["MDE Merged Device IDs", Array.isArray(machine.MdeMergedDeviceIds) && machine.MdeMergedDeviceIds.length ? machine.MdeMergedDeviceIds.join(", ") : "None reported"],
+      ["Re-onboarding Detected", machine.MdeReonboardingDetected ? "Yes — ID-based Entra correlation required" : "Not detected"]
     ];
     return ["MICROSOFT ENTRA ID DEVICE CORRELATION", rows];
   }

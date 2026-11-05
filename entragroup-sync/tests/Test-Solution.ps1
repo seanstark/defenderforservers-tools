@@ -109,6 +109,66 @@ try {
             DeviceManualTags = '["Production","Tier 1"]'; DeviceDynamicTags = '["Production","Server"]'
             RegistryDeviceTag = 'Managed'; MachineGroup = 'Production servers'
         }
+        Test-Case 'Deployment creates missing groups, reuses existing groups, and surfaces CLI failures' {
+            $originalAz = Get-Item Function:\global:az -ErrorAction SilentlyContinue
+            try {
+                function global:az {
+                    $parts = @($args)
+                    $command = $parts[0] + ' ' + $parts[1]
+                    $global:DeploymentGroupTest.Calls.Add($parts)
+                    $global:LASTEXITCODE = 0
+                    if ($command -eq $global:DeploymentGroupTest.FailCommand) { $global:LASTEXITCODE = 1; return }
+                    switch ($command) {
+                        'account show' { '{"tenantId":"33333333-3333-3333-3333-333333333333"}' }
+                        'group exists' { $global:DeploymentGroupTest.Exists }
+                        'group show' { '{"id":"/subscriptions/test/resourceGroups/existing","location":"westus"}' }
+                        'group create' { '{"id":"/subscriptions/test/resourceGroups/new","location":"eastus"}' }
+                        'bicep build' { throw 'Stopped before deployment for resource group validation.' }
+                        default { throw "Unexpected test command: $command" }
+                    }
+                }
+                foreach ($scenario in @(
+                    @{ Exists = 'true'; Operation = 'show'; Location = 'westeurope'; FailCommand = '' }
+                    @{ Exists = 'false'; Operation = 'create'; Location = 'westeurope'; FailCommand = '' }
+                    @{ Exists = 'false'; Operation = 'create'; Location = ''; FailCommand = '' }
+                    @{ Exists = 'null'; Operation = ''; Location = ''; FailCommand = '' }
+                    @{ Exists = 'false'; Operation = ''; Location = ''; FailCommand = 'group exists' }
+                    @{ Exists = 'false'; Operation = 'create'; Location = ''; FailCommand = 'group create' }
+                )) {
+                    $global:DeploymentGroupTest = @{
+                        Calls = [Collections.Generic.List[object]]::new()
+                        Exists = $scenario.Exists
+                        FailCommand = $scenario.FailCommand
+                    }
+                    $parameters = @{
+                        ResourceGroupName = 'rg-test'; NamePrefix = 'test'
+                        SubscriptionIds = @('11111111-1111-1111-1111-111111111111')
+                        ReportClientId = '22222222-2222-2222-2222-222222222222'
+                    }
+                    if ($scenario.Location) { $parameters.Location = $scenario.Location }
+                    $failure = $null
+                    try { & "$PSScriptRoot\..\Deploy.ps1" @parameters } catch { $failure = $_ }
+                    Assert-True ($null -ne $failure)
+                    if ($scenario.FailCommand) { Assert-True ($failure.Exception.Message.StartsWith('Azure CLI command failed:')) }
+                    elseif ($scenario.Exists -eq 'null') { Assert-True ($failure.Exception.Message.Contains('valid resource group existence result')) }
+                    else { Assert-Equal $failure.Exception.Message 'Stopped before deployment for resource group validation.' }
+                    $groupCommands = @($global:DeploymentGroupTest.Calls | Where-Object { $_[0] -eq 'group' -and $_[1] -ne 'exists' })
+                    if (-not $scenario.Operation) { Assert-Equal $groupCommands.Count 0; continue }
+                    Assert-Equal $groupCommands.Count 1
+                    Assert-Equal $groupCommands[0][1] $scenario.Operation
+                    if ($scenario.Operation -eq 'create') {
+                        $locationIndex = [array]::IndexOf($groupCommands[0], '--location')
+                        Assert-True ($locationIndex -ge 0)
+                        Assert-Equal $groupCommands[0][$locationIndex + 1] $(if ($scenario.Location) { $scenario.Location } else { 'eastus' })
+                    }
+                }
+            }
+            finally {
+                if ($originalAz) { Set-Item Function:\global:az $originalAz.ScriptBlock }
+                else { Remove-Item Function:\global:az }
+                Remove-Variable -Name DeploymentGroupTest -Scope Global -ErrorAction SilentlyContinue
+            }
+        }
         Test-Case 'Arc ID normalization and stable key' {
             Assert-Equal (ConvertTo-ArcId $id) $id.ToLowerInvariant()
             $vmId = '/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/Servers/providers/Microsoft.Compute/virtualMachines/Vm01'
@@ -245,13 +305,119 @@ try {
                 Assert-Equal $Path '/security/runHuntingQuery'
                 Assert-True ($Body.Query.IndexOf('summarize arg_max') -lt $Body.Query.IndexOf('where AzureResourceId'))
                 Assert-True ($Body.Query.Contains('take 101'))
-                foreach ($field in @('SensorHealthState', 'CloudPlatforms', 'AzureVmId', 'PublicIP',
+                foreach ($field in @('MergedDeviceIds', 'SensorHealthState', 'CloudPlatforms', 'AzureVmId', 'PublicIP',
                     'DeviceManualTags', 'DeviceDynamicTags', 'RegistryDeviceTag', 'MachineGroup')) {
                     Assert-True ($Body.Query.Contains($field))
                 }
                 @{ Content = '{"results":[]}' }
             }
             Assert-Equal @(Get-MdeCandidates $id).Count 0
+        }
+        Test-Case 'Merge lineage selects the current MDE identity, including transitive predecessors' {
+            $old = $candidate.Clone(); $old.DeviceId = 'mde-old'
+            $middle = $candidate.Clone(); $middle.DeviceId = 'mde-middle'; $middle.MergedDeviceIds = '["mde-old"]'
+            $current = $candidate.Clone(); $current.DeviceId = 'mde-current'; $current.MergedDeviceIds = @('mde-middle', 'mde-old')
+            $current.AadDeviceId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $result = Get-Correlation @($current, $middle, $old) 24 $now
+            Assert-Equal $result.Status 'Matched'
+            Assert-Equal $result.Candidate.DeviceId 'mde-current'
+            Assert-Equal $result.Candidate.AadDeviceId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $current.MergedDeviceIds = 'mde-middle, mde-old'
+            Assert-Equal (Get-Correlation @($old, $middle, $current) 24 $now).Candidate.DeviceId 'mde-current'
+        }
+        Test-Case 'Unavailable merge successors never reactivate a healthy predecessor' {
+            $old = $candidate.Clone(); $old.DeviceId = 'mde-old'
+            $current = $candidate.Clone(); $current.DeviceId = 'mde-current'; $current.MergedDeviceIds = '["mde-old"]'
+            $current.SensorHealthState = 'Inactive'
+            $result = Get-Correlation @($old, $current) 24 $now
+            Assert-Equal $result.Status 'PendingMde'
+            Assert-True ($null -eq $result.Candidate)
+            $current.SensorHealthState = 'Active'; $current.Timestamp = $now.AddHours(-25).ToString('o')
+            Assert-Equal (Get-Correlation @($old, $current) 24 $now).Status 'StaleEvidence'
+            $current.Timestamp = $now.ToString('o'); $current.OnboardingStatus = 'Offboarded'
+            Assert-True ((Get-Correlation @($old, $current) 24 $now).Status -notin @('Matched', 'NoEntraDevice'))
+        }
+        Test-Case 'Active sensor health is required and Timestamp does not break unrelated identity ties' {
+            foreach ($health in @('Inactive', 'ImpairedCommunication', 'NoSensorData', '', $null)) {
+                $unhealthy = $candidate.Clone(); $unhealthy.SensorHealthState = $health
+                $result = Get-Correlation @($unhealthy) 24 $now
+                Assert-Equal $result.Status 'PendingMde'
+                Assert-True ($result.Diagnostic.Contains('SensorHealthState'))
+            }
+            $older = $candidate.Clone(); $older.DeviceId = 'unrelated'; $older.Timestamp = $now.AddHours(-1).ToString('o')
+            Assert-Equal (Get-Correlation @($older, $candidate) 24 $now).Status 'Ambiguous'
+            $older.SensorHealthState = 'Inactive'
+            Assert-Equal (Get-Correlation @($older, $candidate) 24 $now).Candidate.DeviceId $candidate.DeviceId
+            foreach ($value in @($now.ToString('o'), $now.AddMinutes(1).ToString('o'))) {
+                $older.Timestamp = $value
+                Assert-Equal (Get-Correlation @($older, $candidate) 24 $now).Status 'Ambiguous'
+            }
+        }
+        Test-Case 'Freshness and clock skew bounds are exact and invalid timestamps fail closed' {
+            foreach ($value in @($null, 'not-a-date', $now.AddHours(-24).AddTicks(-1).ToString('o'), $now.AddMinutes(5).AddTicks(1).ToString('o'))) {
+                $row = $candidate.Clone(); $row.Timestamp = $value
+                Assert-Equal (Get-Correlation @($row) 24 $now).Status 'StaleEvidence'
+            }
+            foreach ($value in @($now.AddHours(-24).ToString('o'), $now.AddMinutes(5).ToString('o'))) {
+                $row = $candidate.Clone(); $row.Timestamp = $value
+                Assert-Equal (Get-Correlation @($row) 24 $now).Status 'Matched'
+            }
+        }
+        Test-Case 'Cyclic, self-referencing and malformed merge history cannot select a device' {
+            $first = $candidate.Clone(); $first.DeviceId = 'first'; $first.MergedDeviceIds = '["second"]'
+            $second = $candidate.Clone(); $second.DeviceId = 'second'; $second.MergedDeviceIds = '["first"]'
+            Assert-Equal (Get-Correlation @($first, $second) 24 $now).Status 'Ambiguous'
+            $first.MergedDeviceIds = '["first"]'
+            Assert-Equal (Get-Correlation @($first) 24 $now).Status 'Ambiguous'
+            foreach ($history in @('[invalid', '[12]', @{ old = 'first' })) {
+                $first.MergedDeviceIds = $history
+                Assert-Throws { Get-Correlation @($first) 24 $now }
+            }
+        }
+        Test-Case 'Known re-onboarding blocks hostname lookup but preserves authoritative ID correlation' {
+            function script:Invoke-Graph { throw 'Hostname lookup must not run with a known identity change.' }
+            $state = @{
+                MdeDeviceId = 'new-mde'; ComputerName = 'SERVER01'; OS = 'Linux'
+                MdeMergedDeviceIds = @('old-mde'); MdeReonboardingDetected = $true
+            }
+            $result = Resolve-EntraDeviceForMachine $state
+            Assert-Equal $result.Status 'Ambiguous'
+            Assert-Equal $result.CorrelationPath 'MicrosoftSenseAmbiguous'
+            Assert-True ($result.Diagnostic.Contains('re-onboarding'))
+            function script:Invoke-Graph {
+                param($Path)
+                Assert-True ([uri]::UnescapeDataString($Path).Contains("deviceId eq '44444444-4444-4444-4444-444444444444'"))
+                @{ Content = '{"value":[{"id":"55555555-5555-5555-5555-555555555555","deviceId":"44444444-4444-4444-4444-444444444444","accountEnabled":true}]}' }
+            }
+            $state.EntraDeviceId = '44444444-4444-4444-4444-444444444444'
+            Assert-Equal (Resolve-EntraDeviceForMachine $state).CorrelationPath 'MdeAadDeviceId'
+            $state.EntraDeviceId = ''
+            $state.GuestConfigEntraDeviceId = '44444444-4444-4444-4444-444444444444'
+            Assert-Equal (Resolve-EntraDeviceForMachine $state).CorrelationPath 'GuestConfigurationIntuneDeviceId'
+        }
+        Test-Case 'Hostname fallback considers all aliases and never uses enabled status to resolve duplicates' {
+            $state = @{ ComputerName = 'server01'; MdeDeviceName = 'server01.example.com'; OS = 'Linux' }
+            $script:SenseMode = 'aliases'
+            function script:Invoke-Graph {
+                param($Path)
+                $fqdn = [uri]::UnescapeDataString($Path).Contains("displayName eq 'server01.example.com'")
+                $first = @{ id = 'first-object'; deviceId = 'first-device'; displayName = 'server01'; operatingSystem = 'Linux'; managementType = 'MicrosoftSense'; accountEnabled = $true }
+                $second = @{ id = 'second-object'; deviceId = 'second-device'; displayName = 'server01'; operatingSystem = 'Linux'; managementType = 'MicrosoftSense'; accountEnabled = $false }
+                $values = @($first)
+                $body = @{}
+                if ($script:SenseMode -eq 'aliases' -and $fqdn) { $second.displayName = 'server01.example.com'; $values = @($second) }
+                elseif ($script:SenseMode -eq 'duplicates') { $values = @($first, $second) }
+                elseif ($script:SenseMode -eq 'paged') { $body['@odata.nextLink'] = 'https://graph.microsoft.com/v1.0/devices?next' }
+                if ($fqdn -and $script:SenseMode -ne 'aliases') { $first.displayName = 'server01.example.com'; $second.displayName = 'server01.example.com' }
+                $body.value = $values
+                @{ Content = ($body | ConvertTo-Json -Depth 10 -Compress) }
+            }
+            foreach ($mode in @('aliases', 'duplicates', 'paged')) {
+                $script:SenseMode = $mode
+                Assert-Equal (Resolve-EntraDeviceForMachine $state).Status 'Ambiguous'
+            }
+            $script:SenseMode = 'same-object'
+            Assert-Equal (Resolve-EntraDeviceForMachine $state).Status 'Found'
         }
         Test-Case 'Audit mode never writes group membership' {
             function script:Test-Group { @{ displayName = 'Arc servers' } }
@@ -813,6 +979,37 @@ try {
             Assert-Equal $script:Saved.EntraDeviceId '8d6e3dd1-4cc4-6d14-e0a3-4856e6059032'
             Assert-Equal $script:Saved.EntraObjectId '99999999-8888-7777-6666-555555555555'
             Assert-Equal $script:Saved.EntraCorrelationPath 'GuestConfigurationIntuneDeviceId'
+
+            $script:Prior = @{ FirstSeen = $now.ToString('o'); ArcAddedAt = ''; MdeDeviceId = 'previous-onboarding' }
+            function script:Get-MachineState { @{ Data = $script:Prior } }
+            function script:Invoke-Graph { throw 'Detected re-onboarding must not look up or modify a hostname-matched Entra device.' }
+            Invoke-MachineSync @{
+                ResourceId = $id; RunId = [guid]::NewGuid().ToString(); Source = 'Test'
+                ResourceData = @{ properties = @{ status = 'Connected'; osType = 'Linux' }; gcEntraDeviceId = '' }
+            }
+            Assert-Equal $script:Saved.Status 'Ambiguous'
+            Assert-Equal $script:Saved.EntraObjectId ''
+            Assert-Equal $script:Saved.MdeReonboardingDetected $true
+            Assert-Equal $script:Saved.MdeLastKnownDeviceId $script:Linux.DeviceId
+            Assert-True ($script:Saved.EntraDiagnostic.Contains('re-onboarding'))
+            $script:Prior = $script:Saved.Clone()
+            $lastKnown = $script:Linux.DeviceId
+            $script:Linux = $null
+            Invoke-MachineSync @{
+                ResourceId = $id; RunId = [guid]::NewGuid().ToString(); Source = 'Test'
+                ResourceData = @{ properties = @{ status = 'Connected'; osType = 'Linux' }; gcEntraDeviceId = '' }
+            }
+            Assert-Equal $script:Saved.Status 'PendingMde'
+            Assert-Equal $script:Saved.MdeLastKnownDeviceId $lastKnown
+            Assert-Equal $script:Saved.MdeReonboardingDetected $true
+            $script:Prior = $script:Saved.Clone()
+            $script:Linux = $candidate.Clone(); $script:Linux.AadDeviceId = ''
+            Invoke-MachineSync @{
+                ResourceId = $id; RunId = [guid]::NewGuid().ToString(); Source = 'Test'
+                ResourceData = @{ properties = @{ status = 'Connected'; osType = 'Linux' }; gcEntraDeviceId = '' }
+            }
+            Assert-Equal $script:Saved.Status 'Ambiguous'
+            Assert-Equal $script:Saved.MdeReonboardingDetected $true
         }
         Test-Case 'Inventory provisions each account-OS pair once before any device correlation' {
             $cfg = Get-SyncConfig
@@ -2358,6 +2555,7 @@ try {
                     Assert-True ($Body.Query.Contains('let MatchedDevices = DeviceInfo'))
                     Assert-True ($Body.Query.Contains('let NetInfo = DeviceNetworkInfo'))
                     Assert-True ($Body.Query.Contains('let AvInfo = DeviceTvmSecureConfigurationAssessment'))
+                    Assert-True ($Body.Query.Contains('MergedDeviceIds'))
                     return @{
                         Content = (@{
                             results = @(
@@ -2404,6 +2602,18 @@ try {
             Assert-Equal $entry.Candidates.Count 1
             Assert-Equal $entry.NetworkAddresses[0] '10.20.30.40'
             Assert-Equal $entry.Antivirus.Mode 'Passive'
+            Assert-Equal $entry.DeviceTelemetry['mde-bulk-1'].Antivirus.Mode 'Passive'
+            $old = $entry.Candidates[0].Clone()
+            $old.DeviceId = 'mde-old'
+            $old.Timestamp = $now.AddHours(-1).ToString('o')
+            $entry.Candidates[0].MergedDeviceIds = '["mde-old"]'
+            $entry.Candidates.Add($old)
+            $entry.DeviceTelemetry['mde-old'] = @{
+                NetworkAddresses = @('192.0.2.1')
+                Antivirus = @{ Mode = 'Active'; Timestamp = $now.ToString('o'); Status = 'Reported' }
+            }
+            $entry.NetworkAddresses = @('192.0.2.1')
+            $entry.Antivirus = $entry.DeviceTelemetry['mde-old'].Antivirus
 
             # Verify Invoke-MachineSync consumes MdeData without calling /security/runHuntingQuery
             function script:Invoke-Graph {
@@ -2443,6 +2653,9 @@ try {
             Assert-Equal $script:SavedBulkState.MdeDeviceId 'mde-bulk-1'
             Assert-Equal $script:SavedBulkState.MdeAntivirusMode 'Passive'
             Assert-True ('10.20.30.40' -in $script:SavedBulkState.IPAddresses)
+            Assert-True ('192.0.2.1' -notin $script:SavedBulkState.IPAddresses)
+            Assert-Equal $script:SavedBulkState.MdeMergedDeviceIds[0] 'mde-old'
+            Assert-Equal $script:SavedBulkState.MdeReonboardingDetected $true
         }
         Write-Host "`n$script:Passed passed; $script:Failed failed."
         if ($script:Failed) { throw 'Solution tests failed.' }

@@ -113,25 +113,23 @@ For servers managed via MDE Security Settings Management (`MicrosoftSense` / MDE
 Choose **Option A** (automated PowerShell deployment) or **Option B** (Azure Portal button + zip upload):
 
 #### Option A: One-Command PowerShell Deployment (`Deploy.ps1` — Recommended)
-Deploys the Azure infrastructure, builds and uploads `worker.zip` and `report.zip`, assigns `Reader` and the narrow Guest Configuration refresh role, and creates the Event Grid subscription. The deployment identity must be allowed to create custom role definitions and role assignments.
+Creates the resource group if needed, deploys the Azure infrastructure, builds and uploads `worker.zip` and `report.zip`, assigns `Reader` and the narrow Guest Configuration refresh role, and creates the Event Grid subscription. The deployment identity must be allowed to create resource groups when needed, custom role definitions, and role assignments.
 
 > **Important Prerequisites for `Deploy.ps1`:**
 > - **Active Azure CLI Subscription Context:** `Deploy.ps1` deploys the infrastructure into the Azure subscription that your Azure CLI context (`az account show`) is currently set to. Run `az account set --subscription '<target-hosting-subscription-id>'` first.
-> - **Existing Resource Group Required:** The target resource group (`-ResourceGroupName`) **must already exist** in that subscription before running `Deploy.ps1` (`Deploy.ps1` calls `az group show` and uses the existing resource group's location).
+> - **Resource Group Location:** A missing `-ResourceGroupName` is created in `-Location` (default `eastus`). Existing groups are reused without changing their location or tags; their existing location is used for deployment.
 > - **Omit Unused `-ManagementGroupIds` or `-SubscriptionIds` Parameters:** Because `-SubscriptionIds` is typed as `[guid[]]` and `-ManagementGroupIds` has a regex validation pattern, **remove `-ManagementGroupIds` from the command if you are only scoping by subscription(s), or remove `-SubscriptionIds` if you are only scoping by management group(s)** (do not pass placeholder text or `@('')`).
 
 ```powershell
 # 1. Set your Azure CLI context to the subscription that will host the Function Apps & Storage
 az account set --subscription '<hosting-subscription-guid>'
 
-# 2. Create the target resource group if it does not already exist
-az group create --name 'rg-arc-entra-sync' --location 'eastus'
-
-# 3. Run Deploy.ps1 (remove -ManagementGroupIds or -SubscriptionIds if not used)
+# 2. Run Deploy.ps1 (remove -ManagementGroupIds or -SubscriptionIds if not used)
 cd .\entragroup-sync
 
 .\Deploy.ps1 `
     -ResourceGroupName 'rg-arc-entra-sync' `
+    -Location 'eastus' `
     -NamePrefix 'mdemdcsync' `
     -SubscriptionIds @('<subscription-guid>') `
     -ManagementGroupIds @('<optional-management-group-id>') `
@@ -271,7 +269,18 @@ An atomic Table Storage claim prevents overlapping timer/manual inventory runs a
 | --- | --- | --- | --- |
 | **Tier 1** | **`MDE AadDeviceId`** (`MdeAadDeviceId`) | Reads `AadDeviceId` from MDE Advanced Hunting (`DeviceInfo`) and queries `GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'`. | Primary method for Microsoft Entra joined or hybrid joined servers where MDE directly reports `AadDeviceId`. |
 | **Tier 2** | **`Machine Configuration (intuneDeviceId)`** (`GuestConfigurationIntuneDeviceId`) | Reads `intuneDeviceId=<guid>` from `GuestConfigurationResources` (`entraiddeviceid` on Windows reading `HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload`; `entraiddeviceidlinux` on Linux reading wdavstate with a newest-enrollment SenseCM log fallback) and queries `GET /v1.0/devices?$filter=deviceId eq '{intuneDeviceId}'`. | Used when `AadDeviceId` is empty in MDE (workgroup / AWS / GCP / Linux servers enrolled via MDE Security Settings Management) and the Azure Machine Configuration assignment has reported back. |
-| **Tier 3** | **`MicrosoftSense (Hostname & OS)`** (`MicrosoftSenseHostnameAndOS`) | Queries `GET /v1.0/devices?$filter=displayName eq '{hostname}'` across candidate hostnames (`ComputerName`, `MdeDeviceName`, `Fqdn`, `MachineName`) and requires a unique match on `operatingSystem` (`Windows` / `Linux`) and `managementType == 'MicrosoftSense'`. | Automatic fallback when `AadDeviceId` is empty and the Machine Configuration assignment has not yet reported. |
+| **Tier 3** | **`MicrosoftSense (Hostname & OS)`** (`MicrosoftSenseHostnameAndOS`) | Queries `GET /v1.0/devices?$filter=displayName eq '{hostname}'` across candidate hostnames (`ComputerName`, `MdeDeviceName`, `Fqdn`, `MachineName`) and requires one distinct object across all aliases matching `operatingSystem` (`Windows` / `Linux`) and `managementType == 'MicrosoftSense'`. Pagination or multiple objects is ambiguous, even if only one object is enabled. | Fallback only after a unique fresh Active MDE record is selected, neither ID-based path resolves, and no MDE re-onboarding/merge history has been detected. |
+
+#### Re-onboarding safeguards
+
+- Both scheduled bulk and event/manual device queries collect `MergedDeviceIds`, `MergedToDeviceId`, `SensorHealthState`, and `Timestamp` from the latest `DeviceInfo` row per `DeviceId`. `Timestamp` is the recorded last-refresh time, not proof that a newer device ID represents the same physical machine.
+- `MergedToDeviceId` excludes retired records. `MergedDeviceIds` identifies predecessors to exclude **before** checking the successor's health/freshness, so an unavailable successor never revives its old record. Merge history accepts JSON string arrays or comma-separated IDs. Invalid history fails explicitly.
+- A selected record must be `Onboarded`, unmerged, `SensorHealthState == Active`, and within `SYNC_FRESHNESS_HOURS` (default 24h), allowing at most five minutes of future clock skew. No healthy current record means no Entra lookup or membership write. Two unrelated fresh Active records stay `Ambiguous`; the worker never picks one just because its timestamp is newer. A single Active record is also blocked if another unmerged identity has equally recent or newer telemetry, even if that other sensor is unhealthy.
+- Known merge history or a changed MDE ID on a previously tracked Azure resource sets a durable `MdeReonboardingDetected` flag. `MdeLastKnownDeviceId` preserves the last observed ID even through missing telemetry. These fields persist in device state/history; `MdeMergedDeviceIds` records the selected record's merge history.
+- After that detection, hostname-only matching is **blocked**, even if Entra returns one enabled device. A valid MDE `AadDeviceId` or Machine Configuration `intuneDeviceId` must resolve the Entra object instead. MDE merge IDs are **not Entra device IDs** and cannot safely break an Entra hostname tie. The report explains the block in its correlation diagnostic.
+- Bulk network/antivirus enrichment is keyed by the selected MDE `DeviceId`, never by whichever predecessor row was returned last. Existing group memberships are not removed.
+
+This mitigates known re-onboarding; it cannot prove identity when no merge/change evidence exists. Use Machine Configuration ID reporting for authoritative correlation of MicrosoftSense-managed devices. See [Microsoft's DeviceInfo schema](https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-deviceinfo-table).
 
 ### Group Membership Evaluation Flow
 
@@ -292,8 +301,8 @@ Before using a group resolved from shared metadata for a membership update, the 
 | --- | --- | --- | --- |
 | **Gate 1: Scope Rule** | Resource is `HybridCompute/machines`, `Compute/virtualMachines`, `ClassicCompute/virtualMachines`, or `virtualMachineScaleSets/virtualMachines` (`!Compute.AKS`), and `(Sub in SUB_IDS OR MG_IDS) AND (RG_NAMES empty OR matching RG)` | Proceed to Gate 2 | Ignored / rejected outside scope |
 | **Gate 2: ARM State** | Arc `properties.status == "Connected"` or Azure VM / VMSS `PowerState` is running (not `deallocated` or `stopped`) | Extract OS, `SubscriptionName`, `GuestConfigEntraDeviceId`, and `AccountId` / `ProjectId` tags | `ArcMissing` (HTTP 404) or `ArcNotConnected` |
-| **Gate 3: MDE Match** | Latest `DeviceInfo` row per `DeviceId` (7d) where `AzureResourceId =~ id` (or `AzureVmId =~ vmId`), `OnboardingStatus == "Onboarded"`, `MergedToDeviceId == ""`, `Timestamp <= SYNC_FRESHNESS_HOURS` (24h), and **count == 1** | Proceed to Gate 4 (even if `AadDeviceId` is empty on MDE-managed servers) | `PendingMde` (0), `StaleEvidence` (>24h), `Ambiguous` (>1), or `InvalidEntraIdentifier` |
-| **Gate 4: 3-Tier Entra ID Correlation** | **Tier 1 (`MdeAadDeviceId`):** `GET /devices?$filter=deviceId eq '{AadDeviceId}'`<br>**Tier 2 (`GuestConfigurationIntuneDeviceId`):** Joins `GuestConfigurationResources` (`entraiddeviceid` / `entraiddeviceidlinux` assignment reason `intuneDeviceId=<guid>`) &rarr; `GET /devices?$filter=deviceId eq '{intuneDeviceId}'`<br>**Tier 3 (`MicrosoftSenseHostnameAndOS`):** `GET /devices?$filter=displayName eq '{hostname}'` matching `operatingSystem` and `managementType == "MicrosoftSense"` | Extract Entra directory **object `id`** (`accountEnabled == true`) | `NoEntraDevice`, `EntraDeviceNotFound` (0), `Ambiguous` (>1), or `EntraDeviceDisabled` |
+| **Gate 3: MDE Match** | Latest `DeviceInfo` row per `DeviceId` (7d) where `AzureResourceId =~ id` (or `AzureVmId =~ vmId`), `OnboardingStatus == "Onboarded"`, `MergedToDeviceId == ""`, not superseded by `MergedDeviceIds`, `SensorHealthState == "Active"`, valid `Timestamp` within `SYNC_FRESHNESS_HOURS` (24h) and at most 5 minutes ahead, and **count == 1** | Proceed to Gate 4 (even if `AadDeviceId` is empty on MDE-managed servers) | `PendingMde` (0/health), `StaleEvidence` (timestamp), `Ambiguous` (merge conflict/>1), or `InvalidEntraIdentifier` |
+| **Gate 4: 3-Tier Entra ID Correlation** | **Tier 1 (`MdeAadDeviceId`):** `GET /devices?$filter=deviceId eq '{AadDeviceId}'`<br>**Tier 2 (`GuestConfigurationIntuneDeviceId`):** Joins `GuestConfigurationResources` (`entraiddeviceid` / `entraiddeviceidlinux` assignment reason `intuneDeviceId=<guid>`) &rarr; `GET /devices?$filter=deviceId eq '{intuneDeviceId}'`<br>**Tier 3 (`MicrosoftSenseHostnameAndOS`):** Only without detected re-onboarding; one distinct object across hostname aliases matching OS and `MicrosoftSense`, with no unexamined pages | Extract Entra directory **object `id`** (`accountEnabled == true`) | `NoEntraDevice`, `EntraDeviceNotFound` (0), `Ambiguous` (duplicates/re-onboarding), or `EntraDeviceDisabled` |
 | **Gate 5: Cloud, OS & Default Mode** | Resolves OS (`Windows` vs `Linux`), Cloud (`AWS` via `AccountId` tag, `GCP` via `ProjectId` tag, or `Azure` via `SubscriptionName`; AWS & GCP excluded from Azure Subscription groups), and `SYNC_DEFAULT_GROUP_MODE` (`Passive` by default, or `Active`) | Inspect existing group memberships (inside `SYNC_ADMIN_UNIT_ID` when configured); if already in Active when default is Passive (or Passive when default is Active), do not add to counterpart group | `GroupNotConfigured` or `MissingCloudIdentifier` |
 | **Gate 6: Per-Account Active/Passive Group & Flags** | **AWS:** `dfs-aws-<accountid>-<os>-<mode>`<br>**GCP:** `dfs-gcp-<projectid>-<os>-<mode>`<br>**Azure:** `dfs-azure-<subscriptionname>-<os>-<mode>`<br>Lowercase `windows` / `linux`, then a hyphen and `active` / `passive`; separate groups per OS | `Audit` = `WouldAdd`; `Enforce` = `POST /members/$ref` + read-back (`Verified`); evaluates compliance flags (AV mode mismatch `Should be Active`, `Multiple groups`, `Wrong group`) | `GroupNotFound` or `Failed` |
 

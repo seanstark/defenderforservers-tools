@@ -50,6 +50,20 @@ assert.match(source, /\["Correlation", correlationBadge\(machine\)\]/);
 assert.match(source, /id: "Status", label: "Sync status"/);
 console.log("PASS Dashboard separates identity correlation from sync failures.");
 
+context.machine = {
+  Status: "Ambiguous", EntraCorrelationPath: "MicrosoftSenseAmbiguous",
+  MdeDeviceId: "current-mde", MdeDeviceName: "server01", MdeSensorHealth: "Active",
+  MdeLastSeen: "2026-11-05T12:00:00Z", MdeMergedDeviceIds: ["retired-mde"],
+  MdeReonboardingDetected: true
+};
+const reonboardingRows = vm.runInContext("entraHoverSpec(machine)[1]", context);
+assert.match(reonboardingRows.find(([key]) => key === "Why Not Found")[1], /re-onboarding.*ID/i);
+assert.equal(reonboardingRows.find(([key]) => key === "MDE Device ID")[1], "current-mde");
+assert.equal(reonboardingRows.find(([key]) => key === "MDE Merged Device IDs")[1], "retired-mde");
+assert.match(reonboardingRows.find(([key]) => key === "MDE Sensor / Last Refreshed")[1], /^Active/);
+assert.match(reonboardingRows.find(([key]) => key === "Re-onboarding Detected")[1], /^Yes/);
+console.log("PASS Correlation details explain re-onboarding blocks and show selected/merged MDE evidence.");
+
 for (const [file, inputName] of [["app.js", "health"], ["coverage.js", "latestHealth"], ["permissions.js", "data"]]) {
   const script = fs.readFileSync(path.join(__dirname, "..", "report", "www", file), "utf8");
   const start = script.indexOf("    const syncMode =");

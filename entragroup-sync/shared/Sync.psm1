@@ -2388,6 +2388,7 @@ function Get-BulkMdeTelemetry {
             }
             $byResourceId[$rid] = @{
                 Candidates = [Collections.Generic.List[hashtable]]::new()
+                DeviceTelemetry = @{}
                 NetworkAddresses = @()
                 Antivirus = @{ Mode = ''; Timestamp = ''; Status = 'NoData' }
             }
@@ -2404,7 +2405,7 @@ let MatchedDevices = DeviceInfo
 | where Timestamp >= ago(7d)
 | summarize arg_max(Timestamp, *) by DeviceId
 | where tolower(AzureResourceId) in ($resLiterals)${vmClause}
-| project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId,
+| project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId, MergedDeviceIds,
     SensorHealthState, CloudPlatforms, AzureVmId, AzureResourceId, PublicIP,
     DeviceManualTags, DeviceDynamicTags, RegistryDeviceTag, MachineGroup;
 let NetInfo = DeviceNetworkInfo
@@ -2467,6 +2468,10 @@ MatchedDevices
                 else {
                     $entry.Antivirus = @{ Mode = ''; Timestamp = $avTs; Status = 'NoData' }
                 }
+                $entry.DeviceTelemetry[[string]$r['DeviceId']] = @{
+                    NetworkAddresses = $entry.NetworkAddresses
+                    Antivirus = $entry.Antivirus
+                }
             }
         }
         catch {
@@ -2482,6 +2487,7 @@ MatchedDevices
         foreach ($ip in $byResourceId[$k].NetworkAddresses) { $netList.Add([string]$ip) }
         $finalMap[$k] = @{
             Candidates = $candList
+            DeviceTelemetry = $byResourceId[$k].DeviceTelemetry
             NetworkAddresses = $netList
             Antivirus = $byResourceId[$k].Antivirus
         }
@@ -2809,23 +2815,57 @@ ${rgClause}| extend vmssId = tolower(id), vmssName = name, vmssTags = tags
 
 function Get-Correlation {
     param([array]$Candidates, [int]$FreshnessHours, [datetimeoffset]$Now = [datetimeoffset]::UtcNow)
-    $current = @($Candidates | Where-Object {
-        $null -ne $_ -and $_ -is [Collections.IDictionary] -and $_['OnboardingStatus'] -eq 'Onboarded' -and [string]::IsNullOrWhiteSpace([string]$_['MergedToDeviceId'])
+    $rows = @($Candidates | Where-Object { $null -ne $_ -and $_ -is [Collections.IDictionary] -and $_['DeviceId'] })
+    $current = @($rows | Where-Object {
+        $_['OnboardingStatus'] -eq 'Onboarded' -and [string]::IsNullOrWhiteSpace([string]$_['MergedToDeviceId'])
     })
-    if (-not $current.Count) { return @{ Status = 'PendingMde'; Candidate = $null } }
+    if (-not $current.Count) { return @{ Status = 'PendingMde'; Candidate = $null; Diagnostic = 'No onboarded, unmerged MDE DeviceInfo record with a device ID matched this Azure resource or VM ID.' } }
+    # Establish lineage before health/freshness checks so an unavailable successor never revives its predecessor.
+    $superseded = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($row in $rows) {
+        foreach ($mergedId in @(Get-MdeMergedDeviceIds $row)) {
+            if ($mergedId -eq $row['DeviceId']) {
+                return @{ Status = 'Ambiguous'; Candidate = $null; Diagnostic = 'MDE merge history contains a self-reference; correlation failed closed.' }
+            }
+            $null = $superseded.Add($mergedId)
+        }
+    }
+    $current = @($current | Where-Object { -not $superseded.Contains([string]$_['DeviceId']) })
+    if (-not $current.Count) {
+        return @{ Status = 'Ambiguous'; Candidate = $null; Diagnostic = 'MDE merge history has no unmerged successor; correlation failed closed.' }
+    }
     $fresh = @($current | Where-Object {
-        $time = [datetimeoffset]$_['Timestamp']
-        $time -ge $Now.AddHours(-$FreshnessHours) -and $time -le $Now.AddMinutes(5)
+        $time = [datetimeoffset]::MinValue
+        [datetimeoffset]::TryParse([string]$_['Timestamp'], [ref]$time) -and
+            $time -ge $Now.AddHours(-$FreshnessHours) -and $time -le $Now.AddMinutes(5)
     })
-    if (-not $fresh.Count) { return @{ Status = 'StaleEvidence'; Candidate = $null } }
-    if ($fresh.Count -ne 1) { return @{ Status = 'Ambiguous'; Candidate = $null } }
-    $candidate = $fresh[0]
+    if (-not $fresh.Count) {
+        return @{ Status = 'StaleEvidence'; Candidate = $null; Diagnostic = "No current MDE record has a valid Timestamp within SYNC_FRESHNESS_HOURS ($FreshnessHours h), allowing at most 5 minutes of future clock skew." }
+    }
+    $healthy = @($fresh | Where-Object { $_['SensorHealthState'] -eq 'Active' })
+    if (-not $healthy.Count) {
+        return @{ Status = 'PendingMde'; Candidate = $null; Diagnostic = 'Current MDE telemetry is fresh but SensorHealthState is not Active; hostname/Entra correlation was skipped.' }
+    }
+    if ($healthy.Count -ne 1) {
+        return @{ Status = 'Ambiguous'; Candidate = $null; Diagnostic = 'Multiple fresh Active MDE records remain without a unique merge successor. Timestamp alone cannot establish identity; correlation failed closed.' }
+    }
+    $candidate = $healthy[0]
+    $candidateTime = [datetimeoffset]$candidate['Timestamp']
+    if (@($fresh | Where-Object { $_ -ne $candidate -and [datetimeoffset]$_['Timestamp'] -ge $candidateTime }).Count) {
+        return @{ Status = 'Ambiguous'; Candidate = $null; Diagnostic = 'Another unmerged MDE identity has equally recent or newer telemetry than the Active record. Sensor health alone cannot justify reusing an older identity; correlation failed closed.' }
+    }
     if ([string]::IsNullOrWhiteSpace([string]$candidate['AadDeviceId'])) { return @{ Status = 'NoEntraDevice'; Candidate = $candidate } }
     $guid = [guid]::Empty
     if (-not [guid]::TryParse([string]$candidate['AadDeviceId'], [ref]$guid) -or $guid -eq [guid]::Empty) {
         return @{ Status = 'InvalidEntraIdentifier'; Candidate = $candidate }
     }
     return @{ Status = 'Matched'; Candidate = $candidate }
+}
+
+function Get-MdeMergedDeviceIds {
+    param([hashtable]$Candidate)
+    try { return @(ConvertTo-TagList $Candidate['MergedDeviceIds']) }
+    catch { throw "Invalid MDE merge history for DeviceId '$($Candidate['DeviceId'])': $($_.Exception.Message)" }
 }
 
 function Get-MdeCandidates {
@@ -2842,7 +2882,7 @@ DeviceInfo
 | where Timestamp >= ago(7d)
 | summarize arg_max(Timestamp, *) by DeviceId
 | where AzureResourceId =~ ${literal}${vmClause}
-| project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId,
+| project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId, MergedDeviceIds,
     SensorHealthState, CloudPlatforms, AzureVmId, PublicIP,
     DeviceManualTags, DeviceDynamicTags, RegistryDeviceTag, MachineGroup
 | take 101
@@ -2859,6 +2899,7 @@ DeviceInfo
                 AadDeviceId = $_['AadDeviceId']
                 OnboardingStatus = $_['OnboardingStatus']
                 MergedToDeviceId = $_['MergedToDeviceId']
+                MergedDeviceIds = $_['MergedDeviceIds']
                 Timestamp = $_['Timestamp']
                 SensorHealthState = $_['SensorHealthState']
                 CloudPlatforms = $_['CloudPlatforms']
@@ -3065,6 +3106,11 @@ function Set-MdeInventory {
     $State.EntraDeviceId = $Candidate.AadDeviceId
     $State.MdeOnboardingStatus = $Candidate.OnboardingStatus
     $State.MdeSensorHealth = [string](Get-InventoryValue $Candidate @('SensorHealthState'))
+    $State.MdeMergedDeviceIds = @(Get-MdeMergedDeviceIds $Candidate)
+    if ($State.MdeMergedDeviceIds.Count -or ($State['MdeLastKnownDeviceId'] -and $State.MdeLastKnownDeviceId -ne $Candidate.DeviceId)) {
+        $State.MdeReonboardingDetected = $true
+    }
+    $State.MdeLastKnownDeviceId = $Candidate.DeviceId
     $State.MdeCloudPlatforms = [string](Get-InventoryValue $Candidate @('CloudPlatforms'))
     $State.MdeAzureVmId = [string](Get-InventoryValue $Candidate @('AzureVmId'))
     $State.MdeDeviceGroup = [string](Get-InventoryValue $Candidate @('MachineGroup'))
@@ -3419,6 +3465,15 @@ function Resolve-EntraDeviceForMachine {
         }
     }
 
+    if ($State['MdeReonboardingDetected'] -or @($State['MdeMergedDeviceIds'] | Where-Object { $_ }).Count) {
+        return @{
+            Status = 'Ambiguous'
+            Device = $null
+            CorrelationPath = 'MicrosoftSenseAmbiguous'
+            Diagnostic = "MDE re-onboarding or merged identity history was detected for '$($State['MdeDeviceId'])'. Hostname-only matching cannot distinguish old Entra objects; require a current MDE AadDeviceId or Machine Configuration intuneDeviceId. 1. $primaryNote 2. $gcNote"
+        }
+    }
+
     # 3. Fallback path (when both MDE AadDeviceId and Machine Configuration intuneDeviceId are empty or not found in Entra):
     # Query Entra /devices by candidate hostnames and match OS + managementType == 'MicrosoftSense'
     $candidateNames = [Collections.Generic.List[string]]::new()
@@ -3435,6 +3490,7 @@ function Resolve-EntraDeviceForMachine {
     $expectedOs = ([string]$State['OS']).Trim()
     $fallbackSelect = 'id,deviceId,displayName,operatingSystem,managementType,accountEnabled'
     $fallbackNotes = [Collections.Generic.List[string]]::new()
+    $senseDevices = @{}
     foreach ($hostname in $candidateNames) {
         $escapedHost = $hostname.Replace("'", "''")
         $filter = [uri]::EscapeDataString("displayName eq '$escapedHost'")
@@ -3442,6 +3498,12 @@ function Resolve-EntraDeviceForMachine {
         if (-not $response.ContainsKey('value')) { continue }
         $matches = @($response.value)
         Write-SyncTrace 'MachineSync' "Entra MicrosoftSense fallback lookup for displayName='$hostname' (OS='$expectedOs') returned $($matches.Count) candidate(s)"
+        if ($response.ContainsKey('@odata.nextLink')) {
+            return @{
+                Status = 'Ambiguous'; Device = $null; CorrelationPath = 'MicrosoftSenseAmbiguous'
+                Diagnostic = "MicrosoftSense hostname lookup for '$hostname' exceeded its bounded result page; uniqueness cannot be established."
+            }
+        }
         if (-not $matches.Count) {
             $fallbackNotes.Add("displayName='$hostname' (0 matches)")
             continue
@@ -3452,33 +3514,23 @@ function Resolve-EntraDeviceForMachine {
             (-not $expectedOs -or [string]$_['operatingSystem'] -ieq $expectedOs -or ([string]$_['operatingSystem']).StartsWith($expectedOs, [StringComparison]::OrdinalIgnoreCase)) -and
             [string]$_['managementType'] -ieq 'MicrosoftSense'
         })
-        if ($senseMatches.Count -eq 1) {
-            return @{
-                Status = 'Found'
-                Device = $senseMatches[0]
-                CorrelationPath = 'MicrosoftSenseHostnameAndOS'
-                Diagnostic = "Correlated via MicrosoftSense fallback (displayName='$hostname', operatingSystem='$expectedOs', managementType='MicrosoftSense')."
-            }
-        }
-        if ($senseMatches.Count -gt 1) {
-            $enabledSense = @($senseMatches | Where-Object { $_['accountEnabled'] -eq $true })
-            if ($enabledSense.Count -eq 1) {
-                return @{
-                    Status = 'Found'
-                    Device = $enabledSense[0]
-                    CorrelationPath = 'MicrosoftSenseHostnameAndOS'
-                    Diagnostic = "Correlated via unique enabled MicrosoftSense fallback device (displayName='$hostname', operatingSystem='$expectedOs')."
-                }
-            }
+        foreach ($sense in $senseMatches) { $senseDevices[[string]$sense['id']] = $sense }
+        if ($senseDevices.Count -gt 1) {
             return @{
                 Status = 'Ambiguous'
                 Device = $null
                 CorrelationPath = 'MicrosoftSenseAmbiguous'
-                Diagnostic = "Multiple ($($senseMatches.Count)) MicrosoftSense Entra devices matched displayName='$hostname' and operatingSystem='$expectedOs'. Sync failed closed."
+                Diagnostic = "Multiple MicrosoftSense Entra objects matched candidate hostnames and operatingSystem='$expectedOs'. Enabled status does not establish the current MDE identity; sync failed closed."
             }
         }
         $foundSummary = @($matches | ForEach-Object { "OS=$([string]$_['operatingSystem'])/mgmt=$([string]$_['managementType'])" }) -join ', '
         $fallbackNotes.Add("displayName='$hostname' ($($matches.Count) found [$foundSummary], none matched OS='$expectedOs' + managementType='MicrosoftSense')")
+    }
+    if ($senseDevices.Count -eq 1) {
+        return @{
+            Status = 'Found'; Device = @($senseDevices.Values)[0]; CorrelationPath = 'MicrosoftSenseHostnameAndOS'
+            Diagnostic = "Correlated via one MicrosoftSense Entra object across candidate hostnames (operatingSystem='$expectedOs'), after MDE merge, Active sensor, and timestamp checks."
+        }
     }
 
     $fallbackDetail = if ($fallbackNotes.Count) {
@@ -3523,6 +3575,7 @@ function Invoke-MachineSync {
         LastChecked = [datetimeoffset]::UtcNow.ToString('o'); ArcStatus = 'Unknown'; OS = ''
         Status = 'PendingMde'; Membership = 'Unknown'; MembershipVerifiedAt = ''
         MdeDeviceId = ''; MdeDeviceName = ''; MdeLastSeen = ''; EntraDeviceId = ''; EntraObjectId = ''
+        MdeLastKnownDeviceId = ''; MdeMergedDeviceIds = @(); MdeReonboardingDetected = $false
         GuestConfigEntraDeviceId = ''; EntraCorrelationPath = ''; EntraDiagnostic = ''
         SubscriptionName = ''; ManagementGroup = ''; ComputerName = ''; Fqdn = ''; CloudProvider = ''; VirtualMachineId = ''
         ArcExtensions = @(); DefenderExtensionStatus = ''; IPAddresses = @(); MdeSensorHealth = ''; MdeOnboardingStatus = ''
@@ -3535,6 +3588,8 @@ function Invoke-MachineSync {
     if ($previous) {
         $state.FirstSeen = $previous.Data.FirstSeen
         $state.ArcAddedAt = [string]$previous.Data['ArcAddedAt']
+        $state.MdeLastKnownDeviceId = if ($previous.Data['MdeLastKnownDeviceId']) { [string]$previous.Data.MdeLastKnownDeviceId } else { [string]$previous.Data['MdeDeviceId'] }
+        $state.MdeReonboardingDetected = [bool]$previous.Data['MdeReonboardingDetected']
     }
     try {
         $armUri = Get-MachineArmUri $id
@@ -3604,6 +3659,9 @@ function Invoke-MachineSync {
                 }
             ) | Where-Object { $null -ne $_ -and $_ -is [Collections.IDictionary] }
             $correlation = Get-Correlation -Candidates $candidates -FreshnessHours $config.FreshnessHours
+            if (@($candidates | Where-Object { $_['MergedToDeviceId'] -or @(Get-MdeMergedDeviceIds $_).Count }).Count) {
+                $state.MdeReonboardingDetected = $true
+            }
             Write-SyncTrace 'MachineSync' "Correlation evaluated for $($state.MachineName): status=$($correlation.Status), candidates=$(@($candidates).Count), arcStatus=$($state.ArcStatus), os=$($state.OS)"
             $displayCandidate = $correlation.Candidate
             if (-not $displayCandidate) {
@@ -3612,10 +3670,15 @@ function Invoke-MachineSync {
             }
             if ($displayCandidate) {
                 Set-MdeInventory $state $displayCandidate
+                $deviceTelemetry = if ($null -ne $preloadedMde -and $preloadedMde['DeviceTelemetry'] -is [Collections.IDictionary]) {
+                    $preloadedMde.DeviceTelemetry[$state.MdeDeviceId]
+                } elseif ($null -ne $preloadedMde -and @($candidates).Count -eq 1) {
+                    $preloadedMde
+                } else { $null }
                 Invoke-InventoryStep $state 'MDE device tags' { Set-MdeTags $state $displayCandidate }
                 Invoke-InventoryStep $state 'MDE network addresses' {
-                    $netAddrs = if ($null -ne $preloadedMde -and $preloadedMde.ContainsKey('NetworkAddresses')) {
-                        @($preloadedMde['NetworkAddresses'])
+                    $netAddrs = if ($null -ne $deviceTelemetry -and $deviceTelemetry.ContainsKey('NetworkAddresses')) {
+                        @($deviceTelemetry['NetworkAddresses'])
                     } else {
                         @(Get-MdeNetworkAddresses $state.MdeDeviceId)
                     }
@@ -3623,8 +3686,8 @@ function Invoke-MachineSync {
                 }
                 $state.MdeAntivirusStatus = 'Failed'
                 Invoke-InventoryStep $state 'MDE antivirus mode' {
-                    $av = if ($null -ne $preloadedMde -and $preloadedMde['Antivirus'] -is [Collections.IDictionary]) {
-                        $preloadedMde['Antivirus']
+                    $av = if ($null -ne $deviceTelemetry -and $deviceTelemetry['Antivirus'] -is [Collections.IDictionary]) {
+                        $deviceTelemetry['Antivirus']
                     } else {
                         Get-MdeAntivirus $state.MdeDeviceId
                     }
@@ -3654,13 +3717,13 @@ function Invoke-MachineSync {
             else {
                 $state.Status = $correlation.Status
                 if ($state.Status -eq 'PendingMde') {
-                    $state.EntraDiagnostic = "No onboarded MDE DeviceInfo record matched Resource ID '$id'$(if ($state.VirtualMachineId) { " or VM ID '$($state.VirtualMachineId)'" }) within the 7-day hunting window. Entra ID lookup requires MDE correlation first."
+                    $state.EntraDiagnostic = $correlation.Diagnostic
                 }
                 elseif ($state.Status -eq 'StaleEvidence') {
-                    $state.EntraDiagnostic = "MDE DeviceInfo record matched ($($state.MdeDeviceName)), but its latest timestamp ($($state.MdeLastSeen)) is older than SYNC_FRESHNESS_HOURS ($($config.FreshnessHours)h)."
+                    $state.EntraDiagnostic = $correlation.Diagnostic
                 }
                 elseif ($state.Status -eq 'Ambiguous') {
-                    $state.EntraDiagnostic = "Multiple ($($candidates.Count)) active MDE DeviceInfo records matched this machine within the freshness window. Sync paused until duplicates age out."
+                    $state.EntraDiagnostic = $correlation.Diagnostic
                 }
                 elseif ($state.Status -in @('Matched', 'NoEntraDevice')) {
                     $entraResolution = Resolve-EntraDeviceForMachine $state

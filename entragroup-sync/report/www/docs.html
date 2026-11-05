@@ -483,8 +483,8 @@
                   <tr>
                     <td><strong>Tier 3</strong></td>
                     <td><strong><code>MicrosoftSense (Hostname &amp; OS)</code></strong> (<code>MicrosoftSenseHostnameAndOS</code>)</td>
-                    <td>Queries <code>GET /v1.0/devices?$filter=displayName eq '{hostname}'</code> across candidate hostnames (<code>ComputerName</code>, <code>MdeDeviceName</code>, <code>Fqdn</code>, <code>MachineName</code>) and requires a unique match on <code>operatingSystem</code> (<code>Windows</code> / <code>Linux</code>) and <code>managementType == 'MicrosoftSense'</code>.</td>
-                    <td>Automatic fallback when <code>AadDeviceId</code> is empty and the Machine Configuration assignment has not yet reported.</td>
+                    <td>Queries <code>GET /v1.0/devices?$filter=displayName eq '{hostname}'</code> across candidate hostnames and requires one distinct object across all aliases matching OS and <code>MicrosoftSense</code>. Pagination or multiple objects is ambiguous, even if only one is enabled.</td>
+                    <td>Fallback after selecting one fresh Active MDE record, only when neither ID-based path resolves and no MDE re-onboarding/merge history is known.</td>
                   </tr>
                 </tbody>
               </table>
@@ -616,7 +616,7 @@
           </g>
           <text data-node-label="" data-detail-anchor="" x="503.5" y="240" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Gate 3: MDE Match</text>
           <text data-detail="context" x="501.4" y="257" class="t-muted" font-size="8" text-anchor="middle">AzureResourceId &amp; Onboarded</text>
-        <text data-detail="fine" x="501.4" y="275" class="t-security" font-size="7" text-anchor="middle">1 unmerged &lt;=24h + GUID</text>
+        <text data-detail="fine" x="501.4" y="275" class="t-security" font-size="7" text-anchor="middle">1 current Active &lt;=24h</text>
         </g>
 
         <g id="node-entra_resolve" data-node-id="entra_resolve" data-node-label="Gate 4: Entra Check" tabindex="0" role="button" aria-label="Focus Gate 4: Entra Check, deviceId == AadDeviceId, 2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria" aria-pressed="false" data-node-kind="security" data-node-sublabel="deviceId == AadDeviceId" data-node-tag="1 object &amp; accountEnabled" data-node-context="2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria">
@@ -771,10 +771,10 @@
               <div class="doc-card">
                 <h3>Gates 3–4: MDE &amp; 3-Tier Entra Identity Correlation</h3>
                 <ul class="doc-list">
-                  <li><strong>MDE <code>DeviceInfo</code> criteria:</strong> Latest row per <code>DeviceId</code> over 7 days where <code>AzureResourceId =~ resourceId</code> (or <code>AzureVmId =~ vmId</code>), <code>OnboardingStatus == "Onboarded"</code>, <code>MergedToDeviceId == ""</code>, and <code>Timestamp &gt;= now() - SYNC_FRESHNESS_HOURS</code> (default 24h).</li>
+                  <li><strong>MDE <code>DeviceInfo</code> criteria:</strong> Latest row per <code>DeviceId</code> over 7 days, matched by <code>AzureResourceId</code> or <code>AzureVmId</code>. Excludes <code>MergedToDeviceId</code> records and predecessors listed in <code>MergedDeviceIds</code> before checking the successor's health/freshness. Requires one <code>Onboarded</code>, <code>SensorHealthState == Active</code> record with valid <code>Timestamp</code> within <code>SYNC_FRESHNESS_HOURS</code> (24h), allowing at most 5 minutes future skew. Unrelated Active records remain ambiguous; a single Active record is also blocked by equally recent/newer telemetry from another unmerged identity, even if unhealthy. Timestamp alone is not identity proof. Bulk network/antivirus enrichment follows the selected MDE ID.</li>
                   <li><strong>Tier 1 — MDE <code>AadDeviceId</code> (<code>MdeAadDeviceId</code>):</strong> Queries <code>GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'</code> when MDE reports a valid GUID.</li>
                   <li><strong>Tier 2 — Azure Machine Configuration <code>intuneDeviceId</code> (<code>GuestConfigurationIntuneDeviceId</code>):</strong> Joins <code>GuestConfigurationResources</code> (<code>entraiddeviceid</code> on Windows reading <code>HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload</code>; the <code>entraiddeviceidlinux</code> family on Linux reading wdavstate with a newest-enrollment SenseCM log fallback) to extract <code>intuneDeviceId=&lt;guid&gt;</code> and queries <code>GET /v1.0/devices?$filter=deviceId eq '{intuneDeviceId}'</code>. Linux policy 2.0.0 uses the distinct configuration <code>entraiddeviceidlinux_1.0.2</code> with package version 1.0.2. Publish the exact built ZIP and update its policy/assignment name, URI, hash, and version; retain legacy assignments and history.</li>
-                  <li><strong>Tier 3 — <code>MicrosoftSense</code> Hostname + OS Fallback (<code>MicrosoftSenseHostnameAndOS</code>):</strong> Queries <code>GET /v1.0/devices?$filter=displayName eq '{hostname}'</code> across candidate hostnames and matches <code>operatingSystem</code> + <code>managementType == "MicrosoftSense"</code>.</li>
+                  <li><strong>Tier 3 — <code>MicrosoftSense</code> Hostname + OS Fallback (<code>MicrosoftSenseHostnameAndOS</code>):</strong> Requires one distinct matching Entra object across all candidate hostnames and OS, with no unexamined pages. A single enabled object does not resolve duplicates. Known merge history or a changed previously tracked MDE ID sets durable <code>MdeReonboardingDetected</code>; hostname-only matching is then blocked until an ID-based path resolves. MDE merge IDs are not Entra IDs. <code>MdeLastKnownDeviceId</code> survives missing telemetry; diagnostics explain blocked matches. No old group memberships are removed.</li>
                   <li><strong>Event Grid Trigger (<code>ArcEvent</code>):</strong> Handles <code>Microsoft.Resources.ResourceWriteSuccess</code> events. For an <code>entraiddeviceid*</code> <code>guestConfigurationAssignment</code>, the worker reads the current resource and queues synchronization only if <code>properties.complianceStatus</code> is <code>Compliant</code>; other or missing statuses are logged and skipped. <code>MDE.Windows</code> / <code>MDE.Linux</code> extension events still require successful provisioning. Scheduled and manual inventory are unchanged. A compliance transition alone does not guarantee a resource-write event.</li>
                   <li><strong>MDE-triggered audit refresh:</strong> In <code>Enforce</code> mode, successful MDE extension events also request fresh processing of matching existing Entra-ID <code>Audit</code> assignments. For Linux, the newest version-named configuration is preferred; legacy configurations are refreshed only when no version-named configuration exists. Package hash, version, parameters, and Audit mode are preserved; hidden package URIs are resolved only from hash-matched deployed policies. Requests are deduplicated by event and assignment ID, and pending/uncertain writes are not blindly repeated. Missing assignments require Azure Policy deployment/remediation. The agent reports asynchronously, so request acceptance does not mean the audit has completed. No server commands or assignment deletion/recreation are used.</li>
                 </ul>
@@ -867,12 +867,12 @@
               </div>
               <div class="doc-card">
                 <h3>Defender Advanced Hunting — MDE device correlation &amp; tags</h3>
-                <p class="muted">Selects latest state per <code>DeviceId</code> before matching <code>AzureResourceId</code> (<code>POST /v1.0/security/runHuntingQuery</code>):</p>
+                <p class="muted">Selects latest state per <code>DeviceId</code> before matching <code>AzureResourceId</code> (also matches <code>AzureVmId</code> when available). Merge-lineage, sensor-health, freshness, and ambiguity checks run afterward in PowerShell (<code>POST /v1.0/security/runHuntingQuery</code>):</p>
                 <pre><code>DeviceInfo
 | where Timestamp &gt;= ago(7d)
 | summarize arg_max(Timestamp, *) by DeviceId
 | where AzureResourceId =~ "&lt;arc-resource-id&gt;"
-| project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId,
+| project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId, MergedDeviceIds,
     SensorHealthState, CloudPlatforms, AzureVmId, PublicIP,
     DeviceManualTags, DeviceDynamicTags, RegistryDeviceTag, MachineGroup
 | take 101</code></pre>

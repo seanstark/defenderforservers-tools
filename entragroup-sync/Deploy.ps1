@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$ResourceGroupName,
+    [ValidateNotNullOrEmpty()][string]$Location = 'eastus',
     [Parameter(Mandatory)][ValidatePattern('^[a-z][a-z0-9-]{2,17}$')][string]$NamePrefix,
     [guid[]]$SubscriptionIds = @(),
     [ValidatePattern('^[A-Za-z0-9._()-]{1,90}$')][string[]]$ManagementGroupIds = @(),
@@ -60,7 +61,15 @@ function Invoke-Deployment {
 }
 
 $account = (Invoke-Az @('account', 'show', '--output', 'json')) | ConvertFrom-Json
-$group = (Invoke-Az @('group', 'show', '--name', $ResourceGroupName, '--output', 'json')) | ConvertFrom-Json
+$groupExists = (Invoke-Az @('group', 'exists', '--name', $ResourceGroupName, '--output', 'json')) | ConvertFrom-Json
+if ($groupExists -isnot [bool]) { throw 'Azure CLI did not return a valid resource group existence result.' }
+if ($groupExists) {
+    $group = (Invoke-Az @('group', 'show', '--name', $ResourceGroupName, '--output', 'json')) | ConvertFrom-Json
+}
+else {
+    Write-Host "Creating resource group '$ResourceGroupName' in '$Location'."
+    $group = (Invoke-Az @('group', 'create', '--name', $ResourceGroupName, '--location', $Location, '--output', 'json')) | ConvertFrom-Json
+}
 $template = (Invoke-Az @('bicep', 'build', '--file', "$PSScriptRoot\infra\main.bicep", '--stdout')) | ConvertFrom-Json -AsHashtable
 $eventTemplate = (Invoke-Az @('bicep', 'build', '--file', "$PSScriptRoot\infra\subscription.bicep", '--stdout')) | ConvertFrom-Json -AsHashtable
 $parameters = @{
