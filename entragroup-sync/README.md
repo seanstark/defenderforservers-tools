@@ -1,4 +1,4 @@
-# Cloud Server Correlation — Azure Arc & Virtual Machine to Entra ID Security Group Sync
+# Cloud Server Correlation — Entra security group synchronization
 
 1. Automatically discovers Azure Arc-enabled servers (AWS, GCP, on-premises), Azure Virtual Machines, and Virtual Machine Scale Set (VMSS) instances
 2. Correlates them through Microsoft Defender for Endpoint (MDE) and Azure Machine Configuration to Microsoft Entra ID device objects
@@ -259,7 +259,7 @@ An atomic Table Storage claim prevents overlapping timer/manual inventory runs a
 
 ## Architecture & Group Evaluation Workflow
 
-![Azure Arc to Entra Security Group Synchronization Architecture](infra/architecture.archify.svg)
+![Entra security group synchronization architecture](infra/architecture.archify.svg)
 
 ### 3-Tier Microsoft Entra ID Device Correlation Chain
 

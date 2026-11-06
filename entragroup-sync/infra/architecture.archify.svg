@@ -4921,7 +4921,7 @@
 /* ]]> */
 </style>
 
-        <title id="archify-diagram-title">Azure Arc &amp; VM to Cloud account Entra Group Synchronization</title>
+        <title id="archify-diagram-title">Entra security group synchronization</title>
         <desc id="archify-diagram-description">Timer + MDE Extension Event Grid discovery · MDE Hunting correlation · Per-account Cloud account Entra group sync · Read-only portal</desc>
         <!-- Definitions -->
         <defs>
