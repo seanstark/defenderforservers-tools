@@ -1,6 +1,17 @@
 # Microsoft Defender for Servers tools
 
-This repository contains Azure Policy and Azure Machine Configuration solutions for managing Microsoft Defender for Endpoint settings across Azure and Azure Arc-enabled servers.
+This repository contains Azure Policy, Azure Machine Configuration, and Azure Functions solutions for managing Microsoft Defender for Endpoint settings and Entra security group membership across Azure and Azure Arc-enabled servers.
+
+## At a glance
+
+| Solution | Brief summary |
+| --- | --- |
+| [Defender passive mode](PASSIVE-MODE-SOLUTION.md) | Audit or configure Windows Defender Antivirus active/passive mode, with optional monitoring. |
+| [MDE device tagging](machineConfiguration/DEVICE-TAGGING-SOLUTION.md) | Audit or configure Defender for Endpoint group tags on Windows and Linux. |
+| [SenseCM Entra device ID discovery](machineConfiguration/ENTRAID-DEVICEID-SOLUTION.md) | Report the Entra device ID from MDE-managed Windows and Linux endpoints. |
+| [Entra security group synchronization](entragroup-sync/README.md) | Correlate Azure/Arc servers to Entra devices, add verified group members, and report history. |
+| [Azure Benefits for Windows Arc](configureazbenefitsforwindowsarc.json) | Audit or enable Azure Benefits on Windows Arc machines. |
+| [Change Tracking prerequisites](ConfigureChangeTracking_Initiative.json) | Deploy monitoring and Machine Configuration prerequisites for passive-mode auditing. |
 
 ## Table of contents
 
@@ -8,7 +19,7 @@ This repository contains Azure Policy and Azure Machine Configuration solutions 
   - [Defender for Endpoint passive mode](#defender-for-endpoint-passive-mode)
   - [Defender for Endpoint device tagging](#defender-for-endpoint-device-tagging)
   - [Defender for Endpoint SenseCM Entra ID device ID discovery](#defender-for-endpoint-sensecm-entra-id-device-id-discovery)
-  - [Arc to Entra security group synchronization](#arc-to-entra-security-group-synchronization)
+  - [Entra security group synchronization](#entra-security-group-synchronization)
 - [Choose a solution](#choose-a-solution)
 - [Estimated monthly Azure cost](#estimated-monthly-azure-cost)
 - [Deployment guidance](#deployment-guidance)
@@ -55,13 +66,13 @@ The `entraid-deviceid` (Windows) and `entraid-deviceid-linux` (Linux) Azure Mach
 
 [View the SenseCM Entra ID device ID guide](machineConfiguration/ENTRAID-DEVICEID-SOLUTION.md)
 
-### Arc to Entra security group synchronization
+### Entra security group synchronization
 
 The PowerShell Azure Functions solution correlates Arc-enabled Windows and Linux servers through Defender for Endpoint to existing Entra device objects. Scheduled reconciliation and Arc resource-write events drive optional, verified security-group additions. A separate Entra-authenticated HTML dashboard shows correlation, observed membership, and persisted history.
 
 It starts in audit-only mode. Machines without an Entra device are reported without membership changes, and the solution never removes members.
 
-![Azure Arc to Entra Security Group Synchronization Architecture](entragroup-sync/infra/architecture.archify.svg)
+![Entra security group synchronization architecture](entragroup-sync/infra/architecture.archify.svg)
 
 ![3-Tier Microsoft Entra ID Device Correlation Chain](entragroup-sync/infra/correlation.archify.svg)
 
@@ -69,7 +80,7 @@ It starts in audit-only mode. Machines without an Entra device are reported with
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fseanstark%2Fdefenderforservers-tools%2Fmain%2Fentragroup-sync%2Fazuredeploy.json)
 
-[View the Arc to Entra synchronization guide](entragroup-sync/README.md)
+[View the Entra security group synchronization guide](entragroup-sync/README.md)
 
 ## Choose a solution
 
@@ -79,7 +90,7 @@ It starts in audit-only mode. Machines without an Entra device are reported with
 | Monitor historical changes to the passive-mode registry setting | [Passive mode](PASSIVE-MODE-SOLUTION.md) |
 | Configure Microsoft Defender for Endpoint device groups on Windows | [Device tagging](machineConfiguration/DEVICE-TAGGING-SOLUTION.md) |
 | Configure Microsoft Defender for Endpoint device groups on Linux | [Device tagging](machineConfiguration/DEVICE-TAGGING-SOLUTION.md) |
-| Correlate Arc/MDE machines to Entra devices and add verified devices to a security group | [Arc to Entra sync](entragroup-sync/README.md) |
+| Correlate Arc/MDE machines to Entra devices and add verified devices to a security group | [Entra security group synchronization](entragroup-sync/README.md) |
 | Filter policy applicability by Azure resource tags | Both solutions |
 | Audit settings before enabling automatic remediation | Both solutions |
 
@@ -127,7 +138,7 @@ Start with audit behavior when validating scope and existing configuration. Enab
 | `configureMDEdevicetagging.json` | Portal-ready Windows device-tagging policy definition. |
 | `configureMDEdevicetaggingLinux.json` | Portal-ready Linux device-tagging policy definition. |
 | `workbook.json` | Azure Monitor workbook for passive-mode monitoring. |
-| `entragroup-sync/azuredeploy.json` | Compiled ARM template for deploying the Arc-to-Entra synchronization infrastructure. |
-| `entragroup-sync/` | PowerShell Functions, deployment templates, and HTML reporting for Arc-to-Entra group synchronization. |
+| `entragroup-sync/azuredeploy.json` | Compiled ARM template for deploying the Entra security group synchronization infrastructure. |
+| `entragroup-sync/` | PowerShell Functions, deployment templates, and HTML reporting for Entra security group synchronization. |
 
-For detailed implementation and deployment instructions, use the [passive-mode guide](PASSIVE-MODE-SOLUTION.md), [device-tagging guide](machineConfiguration/DEVICE-TAGGING-SOLUTION.md), or [Arc-to-Entra synchronization guide](entragroup-sync/README.md).
+For detailed implementation and deployment instructions, use the [passive-mode guide](PASSIVE-MODE-SOLUTION.md), [device-tagging guide](machineConfiguration/DEVICE-TAGGING-SOLUTION.md), or [Entra security group synchronization guide](entragroup-sync/README.md).
