@@ -6,10 +6,10 @@ This repository contains Azure Policy, Azure Machine Configuration, and Azure Fu
 
 | Solution | Brief summary |
 | --- | --- |
-| [Defender passive mode](PASSIVE-MODE-SOLUTION.md) | Audit or configure Windows Defender Antivirus active/passive mode, with optional monitoring. |
-| [MDE device tagging](machineConfiguration/DEVICE-TAGGING-SOLUTION.md) | Audit or configure Defender for Endpoint group tags on Windows and Linux. |
-| [SenseCM Entra device ID discovery](machineConfiguration/ENTRAID-DEVICEID-SOLUTION.md) | Report the Entra device ID from MDE-managed Windows and Linux endpoints. |
-| [Entra security group synchronization](entragroup-sync/README.md) | Correlate Azure/Arc servers to Entra devices, add verified group members, and report history. |
+| [Defender passive mode](PASSIVE-MODE-SOLUTION.md) | Audit or configure Windows Defender Antivirus active/passive mode, with optional monitoring using Azure Policy |
+| [MDE device tagging](machineConfiguration/DEVICE-TAGGING-SOLUTION.md) | Audit or configure Defender for Endpoint group tags on Windows and Linux using Azure Policy |
+| [SenseCM Entra device ID discovery](machineConfiguration/ENTRAID-DEVICEID-SOLUTION.md) | Report the Entra device ID from MDE-managed Windows and Linux endpoints using Azure Policy and Machine Configuration |
+| [Entra security group synchronization](entragroup-sync/README.md) | Correlate Azure/Arc servers to Entra devices, add verified group members, and report history with custom web app and function|
 | [Azure Benefits for Windows Arc](configureazbenefitsforwindowsarc.json) | Audit or enable Azure Benefits on Windows Arc machines. |
 | [Change Tracking prerequisites](ConfigureChangeTracking_Initiative.json) | Deploy monitoring and Machine Configuration prerequisites for passive-mode auditing. |
 
