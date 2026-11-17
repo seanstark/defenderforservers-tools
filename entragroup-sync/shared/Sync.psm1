@@ -123,8 +123,8 @@ function Get-SyncConfig {
     }
     $mode = Get-Setting 'SYNC_MODE' 'Audit'
     if ($mode -notin @('Audit', 'Enforce')) { throw 'SYNC_MODE must be Audit or Enforce.' }
-    $hours = [int](Get-Setting 'SYNC_FRESHNESS_HOURS' '24')
-    if ($hours -lt 1 -or $hours -gt 168) { throw 'SYNC_FRESHNESS_HOURS must be between 1 and 168.' }
+    $hours = [int](Get-Setting 'SYNC_FRESHNESS_HOURS' '2160')
+    if ($hours -lt 1 -or $hours -gt 2160) { throw 'SYNC_FRESHNESS_HOURS must be between 1 and 2160.' }
     @{
         Subscriptions = $subscriptions
         ManagementGroups = $managementGroups
@@ -831,7 +831,7 @@ function Get-FunctionParametersSummary {
         SYNC_ADMIN_UNIT_ID = if ($adminUnitId) { $adminUnitId } else { 'Not configured (pre-created groups only)' }
         SYNC_AUTO_CREATE_GROUPS = $autoCreate
         SYNC_SCHEDULE = Get-Setting 'SYNC_SCHEDULE' '0 0 */6 * * *'
-        SYNC_FRESHNESS_HOURS = Get-Setting 'SYNC_FRESHNESS_HOURS' '24'
+        SYNC_FRESHNESS_HOURS = Get-Setting 'SYNC_FRESHNESS_HOURS' '2160'
         SYNC_AWS_WINDOWS_GROUP_PREFIX = if ($awsWin) { "$awsWin (default: $(Format-CloudGroupName $awsWin $defaultGroupMode '<AccountId>'))" } else { 'Not configured' }
         SYNC_AWS_LINUX_GROUP_PREFIX = if ($awsLin) { "$awsLin (default: $(Format-CloudGroupName $awsLin $defaultGroupMode '<AccountId>'))" } else { 'Not configured' }
         SYNC_GCP_WINDOWS_GROUP_PREFIX = if ($gcpWin) { "$gcpWin (default: $(Format-CloudGroupName $gcpWin $defaultGroupMode '<ProjectId>'))" } else { 'Not configured' }
@@ -2244,7 +2244,6 @@ ComputeResources
 | where type =~ 'microsoft.compute/virtualmachinescalesets/virtualmachines'
 | extend vmssId = tolower(substring(id, 0, indexof(id, '/virtualMachines/')))
 | where vmssId == $vmssLiteral
-| where tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
 | project id
 | order by id asc
 "@
@@ -2296,7 +2295,6 @@ ComputeResources
 | where type =~ 'microsoft.compute/virtualmachinescalesets/virtualmachines'
 | extend vmssId = tolower(substring(id, 0, indexof(id, '/virtualMachines/')))
 | where vmssId == $vmssLiteral
-| where tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
 | project id
 | order by id asc
 "@
@@ -2402,19 +2400,19 @@ function Get-BulkMdeTelemetry {
         }
         $bulkQuery = @"
 let MatchedDevices = DeviceInfo
-| where Timestamp >= ago(7d)
+| where Timestamp >= ago(90d)
 | summarize arg_max(Timestamp, *) by DeviceId
 | where tolower(AzureResourceId) in ($resLiterals)${vmClause}
 | project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId, MergedDeviceIds,
     SensorHealthState, CloudPlatforms, AzureVmId, AzureResourceId, PublicIP,
     DeviceManualTags, DeviceDynamicTags, RegistryDeviceTag, MachineGroup;
 let NetInfo = DeviceNetworkInfo
-| where Timestamp >= ago(7d)
+| where Timestamp >= ago(90d)
 | where DeviceId in ((MatchedDevices | project DeviceId))
 | summarize arg_max(Timestamp, *) by DeviceId, NetworkAdapterName, MacAddress
 | summarize NetIPs = make_list(IPAddresses) by DeviceId;
 let AvInfo = DeviceTvmSecureConfigurationAssessment
-| where Timestamp >= ago(7d) and ConfigurationId == 'scid-2010'
+| where Timestamp >= ago(90d) and ConfigurationId == 'scid-2010'
 | where DeviceId in ((MatchedDevices | project DeviceId))
 | summarize arg_max(Timestamp, *) by DeviceId
 | project DeviceId, AvTimestamp = Timestamp, AvMode = tostring(parse_json(Context)[0][0]);
@@ -2424,7 +2422,7 @@ MatchedDevices
 "@
         try {
             Write-SyncTrace 'MDEHunting' "Executing bulk MDE hunting query for $($resIds.Count) machine(s)"
-            $huntResult = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $bulkQuery; Timespan = 'P7D' })
+            $huntResult = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $bulkQuery; Timespan = 'P90D' })
             if (-not $huntResult.ContainsKey('results')) { continue }
             $rows = @($huntResult.results)
             Write-SyncTrace 'MDEHunting' "Bulk MDE hunting query returned $($rows.Count) device row(s) for $($resIds.Count) machine(s)"
@@ -2615,7 +2613,6 @@ Resources
 | where type == 'microsoft.hybridcompute/machines'
     or (
         type in ('microsoft.compute/virtualmachines', 'microsoft.classiccompute/virtualmachines')
-        and tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
         and tostring(properties.virtualMachineProfile.extensionProfile) !contains 'Compute.AKS'
     )
 "@
@@ -2676,7 +2673,6 @@ ${rgClause}| extend vmssId = tolower(id), vmssName = name, vmssTags = tags
     ComputeResources
     | where type =~ "microsoft.compute/virtualmachinescalesets/virtualmachines"
     | extend vmssId = tolower(substring(id, 0, indexof(id, "/virtualMachines/")))
-    | where tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
     | project vmssId, instId = id, instName = name, instType = type, instTags = tags, instProps = properties
 ) on vmssId
 | project id = instId, name = instName, type = instType, subscriptionId, subscriptionName, managementGroup, resourceGroup, tags = iff(isnull(instTags) or tostring(instTags) == '{}', vmssTags, instTags), properties = instProps
@@ -2843,17 +2839,20 @@ function Get-Correlation {
     if (-not $fresh.Count) {
         return @{ Status = 'StaleEvidence'; Candidate = $null; Diagnostic = "No current MDE record has a valid Timestamp within SYNC_FRESHNESS_HOURS ($FreshnessHours h), allowing at most 5 minutes of future clock skew." }
     }
-    $healthy = @($fresh | Where-Object { $_['SensorHealthState'] -eq 'Active' })
-    if (-not $healthy.Count) {
-        return @{ Status = 'PendingMde'; Candidate = $null; Diagnostic = 'Current MDE telemetry is fresh but SensorHealthState is not Active; hostname/Entra correlation was skipped.' }
+    $candidate = $null
+    if ($fresh.Count -eq 1) {
+        $candidate = $fresh[0]
     }
-    if ($healthy.Count -ne 1) {
-        return @{ Status = 'Ambiguous'; Candidate = $null; Diagnostic = 'Multiple fresh Active MDE records remain without a unique merge successor. Timestamp alone cannot establish identity; correlation failed closed.' }
-    }
-    $candidate = $healthy[0]
-    $candidateTime = [datetimeoffset]$candidate['Timestamp']
-    if (@($fresh | Where-Object { $_ -ne $candidate -and [datetimeoffset]$_['Timestamp'] -ge $candidateTime }).Count) {
-        return @{ Status = 'Ambiguous'; Candidate = $null; Diagnostic = 'Another unmerged MDE identity has equally recent or newer telemetry than the Active record. Sensor health alone cannot justify reusing an older identity; correlation failed closed.' }
+    else {
+        $healthy = @($fresh | Where-Object { $_['SensorHealthState'] -eq 'Active' })
+        if ($healthy.Count -ne 1) {
+            return @{ Status = 'Ambiguous'; Candidate = $null; Diagnostic = 'Multiple fresh MDE records remain without a unique Active sensor or merge successor. Timestamp alone cannot establish identity; correlation failed closed.' }
+        }
+        $candidate = $healthy[0]
+        $candidateTime = [datetimeoffset]$candidate['Timestamp']
+        if (@($fresh | Where-Object { $_ -ne $candidate -and [datetimeoffset]$_['Timestamp'] -ge $candidateTime }).Count) {
+            return @{ Status = 'Ambiguous'; Candidate = $null; Diagnostic = 'Another unmerged MDE identity has equally recent or newer telemetry than the Active record. Sensor health alone cannot justify reusing an older identity; correlation failed closed.' }
+        }
     }
     if ([string]::IsNullOrWhiteSpace([string]$candidate['AadDeviceId'])) { return @{ Status = 'NoEntraDevice'; Candidate = $candidate } }
     $guid = [guid]::Empty
@@ -2880,7 +2879,7 @@ function Get-MdeCandidates {
     }
     $query = @"
 DeviceInfo
-| where Timestamp >= ago(7d)
+| where Timestamp >= ago(90d)
 | summarize arg_max(Timestamp, *) by DeviceId
 | where AzureResourceId =~ ${literal}${vmClause}
 | project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId, MergedDeviceIds,
@@ -2889,7 +2888,7 @@ DeviceInfo
 | take 101
 "@
     Write-SyncTrace 'MDEHunting' "Executing DeviceInfo hunting query for ResourceId=$ResourceId" @{ Query = $query }
-    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P7D' })
+    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P90D' })
     if (-not $result.ContainsKey('results')) { throw 'Hunting response is missing results.' }
     $rows = @($result.results)
     Write-SyncTrace 'MDEHunting' "DeviceInfo query for ResourceId=$ResourceId returned $($rows.Count) row(s)" @{
@@ -3170,12 +3169,12 @@ function Get-MdeNetworkAddresses {
     $literal = ConvertTo-Json -InputObject $DeviceId -Compress
     $query = @"
 DeviceNetworkInfo
-| where Timestamp >= ago(7d) and DeviceId == $literal
+| where Timestamp >= ago(90d) and DeviceId == $literal
 | summarize arg_max(Timestamp, *) by DeviceId, NetworkAdapterName, MacAddress
 | project IPAddresses
 | take 101
 "@
-    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P7D' })
+    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P90D' })
     if (-not $result.ContainsKey('results') -or @($result.results).Count -gt 100) {
         throw 'Network inventory is missing results or exceeded its safety limit.'
     }
@@ -3194,12 +3193,12 @@ function Get-MdeAntivirus {
     $literal = ConvertTo-Json -InputObject $DeviceId -Compress
     $query = @"
 DeviceTvmSecureConfigurationAssessment
-| where Timestamp >= ago(7d) and DeviceId == $literal and ConfigurationId == 'scid-2010'
+| where Timestamp >= ago(90d) and DeviceId == $literal and ConfigurationId == 'scid-2010'
 | summarize arg_max(Timestamp, *) by DeviceId
 | project DeviceId, Timestamp, AvMode = tostring(parse_json(Context)[0][0])
 | take 2
 "@
-    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P7D' })
+    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P90D' })
     if (-not $result.ContainsKey('results')) { throw 'Antivirus hunting response is missing results.' }
     if (@($result.results).Count -gt 1) {
         throw 'Antivirus inventory returned multiple records for one device.'
@@ -3711,54 +3710,42 @@ function Invoke-MachineSync {
             elseif (-not $cloudTarget.GroupName) {
                 $state.Membership = 'MissingIdentifier'
             }
-            if (-not (Test-MachineConnected $state.ArcStatus)) {
-                $state.Status = 'ArcNotConnected'
-                $state.EntraDiagnostic = "Machine status is '$($state.ArcStatus)' (not connected/running); Entra ID correlation was skipped."
+            $state.Status = $correlation.Status
+            if ($state.Status -eq 'PendingMde') {
+                $state.EntraDiagnostic = $correlation.Diagnostic
             }
-            else {
-                $state.Status = $correlation.Status
-                if ($state.Status -eq 'PendingMde') {
-                    $state.EntraDiagnostic = $correlation.Diagnostic
+            elseif ($state.Status -eq 'StaleEvidence') {
+                $state.EntraDiagnostic = $correlation.Diagnostic
+            }
+            elseif ($state.Status -eq 'Ambiguous') {
+                $state.EntraDiagnostic = $correlation.Diagnostic
+            }
+            elseif ($state.Status -in @('Matched', 'NoEntraDevice')) {
+                $entraResolution = Resolve-EntraDeviceForMachine $state
+                $state.EntraCorrelationPath = [string]$entraResolution['CorrelationPath']
+                $state.EntraDiagnostic = [string]$entraResolution['Diagnostic']
+                if ($entraResolution.Status -ne 'Found') {
+                    $state.Status = $entraResolution.Status
                 }
-                elseif ($state.Status -eq 'StaleEvidence') {
-                    $state.EntraDiagnostic = $correlation.Diagnostic
-                }
-                elseif ($state.Status -eq 'Ambiguous') {
-                    $state.EntraDiagnostic = $correlation.Diagnostic
-                }
-                elseif ($state.Status -in @('Matched', 'NoEntraDevice')) {
-                    $entraResolution = Resolve-EntraDeviceForMachine $state
-                    $state.EntraCorrelationPath = [string]$entraResolution['CorrelationPath']
-                    $state.EntraDiagnostic = [string]$entraResolution['Diagnostic']
-                    if ($entraResolution.Status -ne 'Found') {
-                        $state.Status = $entraResolution.Status
+                else {
+                    $device = $entraResolution.Device
+                    $state.EntraObjectId = ([guid]$device.id).ToString()
+                    if ($device['deviceId']) {
+                        $devGuid = [guid]::Empty
+                        if ([guid]::TryParse([string]$device['deviceId'], [ref]$devGuid) -and $devGuid -ne [guid]::Empty) {
+                            $state.EntraDeviceId = $devGuid.ToString()
+                        }
                     }
+                    if ($device.accountEnabled -ne $true) {
+                        $state.Status = 'EntraDeviceDisabled'
+                        $state.EntraDiagnostic = "Entra ID device object $($state.EntraObjectId) (deviceId=$($state.EntraDeviceId)) was found via $($state.EntraCorrelationPath), but accountEnabled is false."
+                    }
+                    elseif (-not $cloudTarget.Enabled) { $state.Status = 'GroupNotConfigured' }
+                    elseif (-not $cloudTarget.GroupName) { $state.Status = 'MissingCloudIdentifier' }
                     else {
-                        $device = $entraResolution.Device
-                        $state.EntraObjectId = ([guid]$device.id).ToString()
-                        if ($device['deviceId']) {
-                            $devGuid = [guid]::Empty
-                            if ([guid]::TryParse([string]$device['deviceId'], [ref]$devGuid) -and $devGuid -ne [guid]::Empty) {
-                                $state.EntraDeviceId = $devGuid.ToString()
-                            }
-                        }
-                        if ($device.accountEnabled -ne $true) {
-                            $state.Status = 'EntraDeviceDisabled'
-                            $state.EntraDiagnostic = "Entra ID device object $($state.EntraObjectId) (deviceId=$($state.EntraDeviceId)) was found via $($state.EntraCorrelationPath), but accountEnabled is false."
-                        }
-                        elseif (-not $cloudTarget.Enabled) { $state.Status = 'GroupNotConfigured' }
-                        elseif (-not $cloudTarget.GroupName) { $state.Status = 'MissingCloudIdentifier' }
-                        else {
-                            $state.Status = 'Matched'
-                            # Recheck machine state immediately before evaluating a membership write.
-                            $check = Read-JsonResponse (Invoke-CloudRequest -Uri $armUri -Resource 'https://management.azure.com/')
-                            $recheckMeta = Resolve-MachineStatusAndOS -ResourceId $id -Resource $check
-                            if (-not (Test-MachineConnected $recheckMeta.Status)) { $state.Status = 'ArcNotConnected'; $state.ArcStatus = $recheckMeta.Status }
-                            else {
-                                Set-VerifiedMembership $state $cloudTarget $config
-                                Write-SyncTrace 'MachineSync' "Completed group evaluation for $($state.MachineName) (correlationPath=$($entraResolution.CorrelationPath)): status=$($state.Status), membership=$($state.Membership), groupName=$($state.GroupName), flags=$($state.GroupFlags -join '; ')"
-                            }
-                        }
+                        $state.Status = 'Matched'
+                        Set-VerifiedMembership $state $cloudTarget $config
+                        Write-SyncTrace 'MachineSync' "Completed group evaluation for $($state.MachineName) (correlationPath=$($entraResolution.CorrelationPath)): status=$($state.Status), membership=$($state.Membership), groupName=$($state.GroupName), flags=$($state.GroupFlags -join '; ')"
                     }
                 }
             }

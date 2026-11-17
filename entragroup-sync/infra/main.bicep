@@ -59,9 +59,9 @@ param syncMode string = 'Audit'
 param schedule string = '0 0 */6 * * *'
 
 @minValue(1)
-@maxValue(168)
-@description('MDE Telemetry Freshness Window (Hours): Maximum age in hours (1 to 168, default 24) for Microsoft Defender for Endpoint DeviceInfo records to be trusted for correlation.')
-param freshnessHours int = 24
+@maxValue(2160)
+@description('MDE Telemetry Freshness Window (Hours): Maximum age in hours (1 to 2160, default 2160 / 90 days) for Microsoft Defender for Endpoint DeviceInfo records to be trusted for correlation.')
+param freshnessHours int = 2160
 
 @allowed(['B1', 'S1', 'P1v3'])
 @description('App Service Plan SKU: Hosting tier for the Worker and Report Function Apps (B1 Basic, S1 Standard, or P1v3 Premium v3). Default is B1.')

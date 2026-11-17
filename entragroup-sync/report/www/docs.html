@@ -765,13 +765,13 @@
                 <ul class="doc-list">
                   <li><strong>Supported resource types:</strong> <code>Microsoft.HybridCompute/machines</code>, <code>Microsoft.Compute/virtualMachines</code>, <code>Microsoft.ClassicCompute/virtualMachines</code>, and <code>Microsoft.Compute/virtualMachineScaleSets/virtualMachines</code> (excluding <code>Compute.AKS</code>).</li>
                   <li><strong>Scope rule:</strong> <code>(Subscription in SYNC_SUBSCRIPTION_IDS OR SYNC_MANAGEMENT_GROUP_IDS) AND (SYNC_RESOURCE_GROUP_NAMES empty OR matching RG)</code>.</li>
-                  <li><strong>ARM state criteria:</strong> Arc <code>properties.status == "Connected"</code>; Azure VM / VMSS <code>PowerState</code> must not be <code>deallocated</code> or <code>stopped</code> (otherwise stops with <code>ArcNotConnected</code> or <code>ArcMissing</code> on HTTP 404).</li>
+                  <li><strong>ARM state criteria:</strong> Extracts Arc/VM status, OS, <code>SubscriptionName</code>, <code>GuestConfigEntraDeviceId</code>, and <code>AccountId</code> / <code>ProjectId</code> tags. Offline Arc machines and stopped/deallocated VMs are still correlated to support ephemeral workloads (only HTTP 404 stops with <code>ArcMissing</code>).</li>
                 </ul>
               </div>
               <div class="doc-card">
                 <h3>Gates 3–4: MDE &amp; 3-Tier Entra Identity Correlation</h3>
                 <ul class="doc-list">
-                  <li><strong>MDE <code>DeviceInfo</code> criteria:</strong> Latest row per <code>DeviceId</code> over 7 days, matched by <code>AzureResourceId</code> or <code>AzureVmId</code>. Excludes <code>MergedToDeviceId</code> records and predecessors listed in <code>MergedDeviceIds</code> before checking the successor's health/freshness. Requires one <code>Onboarded</code>, <code>SensorHealthState == Active</code> record with valid <code>Timestamp</code> within <code>SYNC_FRESHNESS_HOURS</code> (24h), allowing at most 5 minutes future skew. Unrelated Active records remain ambiguous; a single Active record is also blocked by equally recent/newer telemetry from another unmerged identity, even if unhealthy. Timestamp alone is not identity proof. Bulk network/antivirus enrichment follows the selected MDE ID.</li>
+                  <li><strong>MDE <code>DeviceInfo</code> criteria:</strong> Latest row per <code>DeviceId</code> over 90 days, matched by <code>AzureResourceId</code> or <code>AzureVmId</code>. Excludes <code>MergedToDeviceId</code> records and predecessors listed in <code>MergedDeviceIds</code> before checking freshness. Requires a unique <code>Onboarded</code> record with valid <code>Timestamp</code> within <code>SYNC_FRESHNESS_HOURS</code> (2160h / 90 days), allowing at most 5 minutes future skew (or a single <code>Active</code> sensor when multiple unmerged records exist). Bulk network/antivirus enrichment follows the selected MDE ID.</li>
                   <li><strong>Tier 1 — MDE <code>AadDeviceId</code> (<code>MdeAadDeviceId</code>):</strong> Queries <code>GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'</code> when MDE reports a valid GUID.</li>
                   <li><strong>Tier 2 — Azure Machine Configuration <code>intuneDeviceId</code> (<code>GuestConfigurationIntuneDeviceId</code>):</strong> Joins <code>GuestConfigurationResources</code> (<code>entraiddeviceid</code> on Windows reading <code>HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload</code>; the <code>entraiddeviceidlinux</code> family on Linux reading wdavstate with a newest-enrollment SenseCM log fallback) to extract <code>intuneDeviceId=&lt;guid&gt;</code> and queries <code>GET /v1.0/devices?$filter=deviceId eq '{intuneDeviceId}'</code>. Linux policy 2.0.0 uses the distinct configuration <code>entraiddeviceidlinux_1.0.2</code> with package version 1.0.2. Publish the exact built ZIP and update its policy/assignment name, URI, hash, and version; retain legacy assignments and history.</li>
                   <li><strong>Tier 3 — <code>MicrosoftSense</code> Hostname + OS Fallback (<code>MicrosoftSenseHostnameAndOS</code>):</strong> Requires one distinct matching Entra object across all candidate hostnames and OS, with no unexamined pages. A single enabled object does not resolve duplicates. Known merge history or a changed previously tracked MDE ID sets durable <code>MdeReonboardingDetected</code>; hostname-only matching is then blocked until an ID-based path resolves. MDE merge IDs are not Entra IDs. <code>MdeLastKnownDeviceId</code> survives missing telemetry; diagnostics explain blocked matches. No old group memberships are removed.</li>
@@ -798,13 +798,12 @@
             <div class="doc-grid">
               <div class="doc-card">
                 <h3>Azure Resource Graph — Azure Arc &amp; Native Virtual Machine discovery (with properties, tags, subscription name, extensions &amp; Machine Configuration <code>intuneDeviceId</code>)</h3>
-                <p class="muted">Discovers Azure Arc machines and non-deallocated, non-AKS Azure Native VMs and joins subscription display names, management groups, installed extensions, and the <code>entraiddeviceid</code> / <code>entraiddeviceidlinux</code> Guest Configuration <code>intuneDeviceId</code> in a single Resource Graph query:</p>
+                <p class="muted">Discovers Azure Arc machines and non-AKS Azure Native VMs (including offline, stopped, and deallocated ephemeral workloads) and joins subscription display names, management groups, installed extensions, and the <code>entraiddeviceid</code> / <code>entraiddeviceidlinux</code> Guest Configuration <code>intuneDeviceId</code> in a single Resource Graph query:</p>
                 <pre><code>Resources
 | extend type = tolower(type)
 | where type == 'microsoft.hybridcompute/machines'
     or (
         type in ('microsoft.compute/virtualmachines', 'microsoft.classiccompute/virtualmachines')
-        and tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
         and tostring(properties.virtualMachineProfile.extensionProfile) !contains 'Compute.AKS'
     )
 | extend machineId = tolower(id)
@@ -853,7 +852,6 @@
 | join (ComputeResources
 | where type =~ "microsoft.compute/virtualmachinescalesets/virtualmachines"
 | extend vmssId = tolower(substring(id, 0, indexof(id, "/virtualMachines/")))
-| where tostring(properties.extended.instanceView.powerState.displayStatus) !contains 'deallocated'
 ) on vmssId
 | project id = id1, name = name1, type = type1, subscriptionId, subscriptionName, resourceGroup, tags = iff(isnull(tags1) or tostring(tags1) == '{}', vmssTags, tags1), properties = properties1, resources = resources1
 | order by id asc</code></pre>
@@ -869,7 +867,7 @@
                 <h3>Defender Advanced Hunting — MDE device correlation &amp; tags</h3>
                 <p class="muted">Selects latest state per <code>DeviceId</code> before matching <code>AzureResourceId</code> (also matches <code>AzureVmId</code> when available). Merge-lineage, sensor-health, freshness, and ambiguity checks run afterward in PowerShell (<code>POST /v1.0/security/runHuntingQuery</code>):</p>
                 <pre><code>DeviceInfo
-| where Timestamp &gt;= ago(7d)
+| where Timestamp &gt;= ago(90d)
 | summarize arg_max(Timestamp, *) by DeviceId
 | where AzureResourceId =~ "&lt;arc-resource-id&gt;"
 | project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId, MergedDeviceIds,
@@ -881,7 +879,7 @@
                 <h3>Defender Advanced Hunting — Network adapter IP addresses</h3>
                 <p class="muted">Collects latest IPv4/IPv6 addresses per adapter for the correlated MDE <code>DeviceId</code>:</p>
                 <pre><code>DeviceNetworkInfo
-| where Timestamp &gt;= ago(7d) and DeviceId == "&lt;mde-device-id&gt;"
+| where Timestamp &gt;= ago(90d) and DeviceId == "&lt;mde-device-id&gt;"
 | summarize arg_max(Timestamp, *) by DeviceId, NetworkAdapterName, MacAddress
 | project IPAddresses
 | take 101</code></pre>
@@ -890,7 +888,7 @@
                 <h3>Defender Advanced Hunting — Antivirus mode (<code>scid-2010</code>)</h3>
                 <p class="muted">Extracts AV mode from TVM configuration assessment (<code>0=Active</code>, <code>1=Passive</code>, <code>2=Disabled</code>, <code>3=Other</code>, <code>4=EDRBlocked</code>, <code>5=PassiveAudit</code>):</p>
                 <pre><code>DeviceTvmSecureConfigurationAssessment
-| where Timestamp &gt;= ago(7d) and DeviceId == "&lt;mde-device-id&gt;" and ConfigurationId == 'scid-2010'
+| where Timestamp &gt;= ago(90d) and DeviceId == "&lt;mde-device-id&gt;" and ConfigurationId == 'scid-2010'
 | summarize arg_max(Timestamp, *) by DeviceId
 | project DeviceId, Timestamp, AvMode = tostring(parse_json(Context)[0][0])
 | take 2</code></pre>

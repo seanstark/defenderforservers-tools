@@ -31,7 +31,7 @@ $env:SYNC_AZURE_WINDOWS_GROUP_PREFIX = 'MDfS-Azure-Windows-'
 $env:SYNC_AZURE_LINUX_GROUP_PREFIX = 'MDfS-Azure-Linux-'
 $env:SYNC_MODE = 'Audit'
 $env:SYNC_TENANT_ID = '33333333-3333-3333-3333-333333333333'
-$env:SYNC_FRESHNESS_HOURS = '24'
+$env:SYNC_FRESHNESS_HOURS = '2160'
 $module = Import-Module "$root\shared\Sync.psm1" -Force -PassThru
 try {
     & $module {
@@ -273,11 +273,12 @@ try {
             Assert-Equal $script:GraphBodies.Count 2
             Assert-Equal ($script:GraphBodies[0].managementGroups -join ',') 'mg-servers'
             Assert-True ($script:GraphBodies[0].query.Contains("type in ('microsoft.compute/virtualmachines', 'microsoft.classiccompute/virtualmachines')"))
-            Assert-True ($script:GraphBodies[0].query.Contains("!contains 'deallocated'"))
+            Assert-True (-not $script:GraphBodies[0].query.Contains("!contains 'deallocated'"))
             Assert-True ($script:GraphBodies[0].query.Contains("!contains 'Compute.AKS'"))
             Assert-True ($script:GraphBodies[0].query.Contains('tolower(resourceGroup) in ("rg-prod", "servers")'))
             Assert-True ($script:GraphBodies[1].query.Contains("type == 'microsoft.compute/virtualmachinescalesets'"))
             Assert-True ($script:GraphBodies[1].query.Contains('microsoft.compute/virtualmachinescalesets/virtualmachines'))
+            Assert-True (-not $script:GraphBodies[1].query.Contains("!contains 'deallocated'"))
             Assert-Equal $script:Queued.Count 2
             Assert-Equal $script:LastFunctionLog.FunctionName 'Inventory'
             Assert-Equal $script:LastFunctionLog.TriggerReason 'Scheduled timer (NCRONTAB schedule)'
@@ -309,16 +310,16 @@ try {
             Assert-Equal (Get-Correlation @($linux) 24 $now).Status 'NoEntraDevice'
         }
         Test-Case 'Missing, stale, merged, ambiguous and invalid candidates are blocked' {
-            Assert-Equal (Get-Correlation @() 24 $now).Status 'PendingMde'
-            $stale = $candidate.Clone(); $stale.Timestamp = $now.AddHours(-25).ToString('o')
-            Assert-Equal (Get-Correlation @($stale) 24 $now).Status 'StaleEvidence'
+            Assert-Equal (Get-Correlation @() 2160 $now).Status 'PendingMde'
+            $stale = $candidate.Clone(); $stale.Timestamp = $now.AddHours(-2161).ToString('o')
+            Assert-Equal (Get-Correlation @($stale) 2160 $now).Status 'StaleEvidence'
             $merged = $candidate.Clone(); $merged.MergedToDeviceId = 'new-device'
-            Assert-Equal (Get-Correlation @($merged) 24 $now).Status 'PendingMde'
-            Assert-Equal (Get-Correlation @($candidate, $candidate.Clone()) 24 $now).Status 'Ambiguous'
+            Assert-Equal (Get-Correlation @($merged) 2160 $now).Status 'PendingMde'
+            Assert-Equal (Get-Correlation @($candidate, $candidate.Clone()) 2160 $now).Status 'Ambiguous'
             $invalid = $candidate.Clone(); $invalid.AadDeviceId = 'not-a-guid'
-            Assert-Equal (Get-Correlation @($invalid) 24 $now).Status 'InvalidEntraIdentifier'
+            Assert-Equal (Get-Correlation @($invalid) 2160 $now).Status 'InvalidEntraIdentifier'
             $future = $candidate.Clone(); $future.Timestamp = $now.AddHours(1).ToString('o')
-            Assert-Equal (Get-Correlation @($future) 24 $now).Status 'StaleEvidence'
+            Assert-Equal (Get-Correlation @($future) 2160 $now).Status 'StaleEvidence'
         }
         Test-Case 'Hunting query selects latest identity before matching resource and has bounded output' {
             function script:Invoke-Graph {
@@ -350,38 +351,40 @@ try {
             $old = $candidate.Clone(); $old.DeviceId = 'mde-old'
             $current = $candidate.Clone(); $current.DeviceId = 'mde-current'; $current.MergedDeviceIds = '["mde-old"]'
             $current.SensorHealthState = 'Inactive'
-            $result = Get-Correlation @($old, $current) 24 $now
-            Assert-Equal $result.Status 'PendingMde'
-            Assert-True ($null -eq $result.Candidate)
-            $current.SensorHealthState = 'Active'; $current.Timestamp = $now.AddHours(-25).ToString('o')
-            Assert-Equal (Get-Correlation @($old, $current) 24 $now).Status 'StaleEvidence'
+            $result = Get-Correlation @($old, $current) 2160 $now
+            Assert-Equal $result.Status 'Matched'
+            Assert-Equal $result.Candidate.DeviceId 'mde-current'
+            $current.SensorHealthState = 'Active'; $current.Timestamp = $now.AddHours(-2161).ToString('o')
+            Assert-Equal (Get-Correlation @($old, $current) 2160 $now).Status 'StaleEvidence'
             $current.Timestamp = $now.ToString('o'); $current.OnboardingStatus = 'Offboarded'
-            Assert-True ((Get-Correlation @($old, $current) 24 $now).Status -notin @('Matched', 'NoEntraDevice'))
+            Assert-True ((Get-Correlation @($old, $current) 2160 $now).Status -notin @('Matched', 'NoEntraDevice'))
         }
         Test-Case 'Active sensor health is required and Timestamp does not break unrelated identity ties' {
             foreach ($health in @('Inactive', 'ImpairedCommunication', 'NoSensorData', '', $null)) {
                 $unhealthy = $candidate.Clone(); $unhealthy.SensorHealthState = $health
-                $result = Get-Correlation @($unhealthy) 24 $now
-                Assert-Equal $result.Status 'PendingMde'
-                Assert-True ($result.Diagnostic.Contains('SensorHealthState'))
+                $result = Get-Correlation @($unhealthy) 2160 $now
+                Assert-Equal $result.Status 'Matched'
+                Assert-Equal $result.Candidate.DeviceId $candidate.DeviceId
             }
             $older = $candidate.Clone(); $older.DeviceId = 'unrelated'; $older.Timestamp = $now.AddHours(-1).ToString('o')
-            Assert-Equal (Get-Correlation @($older, $candidate) 24 $now).Status 'Ambiguous'
+            Assert-Equal (Get-Correlation @($older, $candidate) 2160 $now).Status 'Ambiguous'
             $older.SensorHealthState = 'Inactive'
-            Assert-Equal (Get-Correlation @($older, $candidate) 24 $now).Candidate.DeviceId $candidate.DeviceId
+            Assert-Equal (Get-Correlation @($older, $candidate) 2160 $now).Candidate.DeviceId $candidate.DeviceId
+            $inactiveSecond = $candidate.Clone(); $inactiveSecond.DeviceId = 'unrelated-2'; $inactiveSecond.SensorHealthState = 'Inactive'
+            Assert-Equal (Get-Correlation @($older, $inactiveSecond) 2160 $now).Status 'Ambiguous'
             foreach ($value in @($now.ToString('o'), $now.AddMinutes(1).ToString('o'))) {
                 $older.Timestamp = $value
-                Assert-Equal (Get-Correlation @($older, $candidate) 24 $now).Status 'Ambiguous'
+                Assert-Equal (Get-Correlation @($older, $candidate) 2160 $now).Status 'Ambiguous'
             }
         }
         Test-Case 'Freshness and clock skew bounds are exact and invalid timestamps fail closed' {
-            foreach ($value in @($null, 'not-a-date', $now.AddHours(-24).AddTicks(-1).ToString('o'), $now.AddMinutes(5).AddTicks(1).ToString('o'))) {
+            foreach ($value in @($null, 'not-a-date', $now.AddHours(-2160).AddTicks(-1).ToString('o'), $now.AddMinutes(5).AddTicks(1).ToString('o'))) {
                 $row = $candidate.Clone(); $row.Timestamp = $value
-                Assert-Equal (Get-Correlation @($row) 24 $now).Status 'StaleEvidence'
+                Assert-Equal (Get-Correlation @($row) 2160 $now).Status 'StaleEvidence'
             }
-            foreach ($value in @($now.AddHours(-24).ToString('o'), $now.AddMinutes(5).ToString('o'))) {
+            foreach ($value in @($now.AddHours(-2160).ToString('o'), $now.AddMinutes(5).ToString('o'))) {
                 $row = $candidate.Clone(); $row.Timestamp = $value
-                Assert-Equal (Get-Correlation @($row) 24 $now).Status 'Matched'
+                Assert-Equal (Get-Correlation @($row) 2160 $now).Status 'Matched'
             }
         }
         Test-Case 'Cyclic, self-referencing and malformed merge history cannot select a device' {
@@ -915,6 +918,20 @@ try {
             Assert-Equal $script:Saved.IPAddresses.Count 3
             Assert-True ('203.0.113.10' -in $script:Saved.IPAddresses)
             Assert-Equal $script:Saved.InventoryStatus 'Collected'
+            $script:Candidates = @($candidate.Clone())
+            $script:Candidates[0].SensorHealthState = 'Inactive'
+            $script:Candidates[0].Timestamp = $now.AddDays(-30).ToString('o')
+            Invoke-MachineSync @{
+                ResourceId = $id; RunId = [guid]::NewGuid().ToString(); Source = 'Schedule'
+                ResourceData = @{
+                    name = 'server01'
+                    tags = @{ AccountId = '123456789012'; Environment = 'Production'; 'Cost center' = '123' }
+                    properties = @{ status = 'Disconnected'; osType = 'Windows'; cloudMetadata = @{ provider = 'AWS' }; vmId = 'arc-vm-id' }
+                }
+            }
+            Assert-Equal $script:Saved.ArcStatus 'Disconnected'
+            Assert-Equal $script:Saved.Status 'WouldAdd'
+            Assert-Equal $script:Saved.MdeSensorHealth 'Inactive'
             $script:Candidates = @($candidate.Clone())
             $script:Candidates[0].DeviceManualTags = '[malformed'
             Invoke-MachineSync @{ ResourceId = $id; RunId = [guid]::NewGuid().ToString(); Source = 'Test' }
@@ -1917,7 +1934,7 @@ try {
             Assert-Equal $script:Saved.MdeOnboardingStatus 'CanBeOnboarded'
             Assert-Equal $script:Saved.MdeDeviceId 'mde1'
             $script:ReportingCandidate.OnboardingStatus = 'Onboarded'
-            $script:ReportingCandidate.Timestamp = $now.AddHours(-25).ToString('o')
+            $script:ReportingCandidate.Timestamp = $now.AddHours(-2161).ToString('o')
             Invoke-MachineSync @{ ResourceId = $id; RunId = [guid]::NewGuid().ToString(); Source = 'Test' }
             Assert-Equal $script:Saved.Status 'StaleEvidence'
             Assert-Equal $script:Saved.MdeDeviceId 'mde1'

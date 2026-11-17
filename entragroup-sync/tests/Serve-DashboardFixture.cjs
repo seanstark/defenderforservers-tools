@@ -132,7 +132,7 @@ const server = http.createServer((request, response) => {
       SYNC_ADMIN_UNIT_ID: "44444444-aaaa-bbbb-cccc-555555555555",
       SYNC_AUTO_CREATE_GROUPS: "true (enabled via SYNC_ADMIN_UNIT_ID)",
       SYNC_SCHEDULE: "0 0 */6 * * *",
-      SYNC_FRESHNESS_HOURS: "24",
+      SYNC_FRESHNESS_HOURS: "2160",
       SYNC_AWS_WINDOWS_GROUP_PREFIX: "MDfS-AWS-Windows-{Passive|Active}-<AccountId> (default: MDfS-AWS-Windows-Passive-<AccountId>)",
       SYNC_AWS_LINUX_GROUP_PREFIX: "MDfS-AWS-Linux-{Passive|Active}-<AccountId> (default: MDfS-AWS-Linux-Passive-<AccountId>)",
       SYNC_GCP_WINDOWS_GROUP_PREFIX: "MDfS-GCP-Windows-{Passive|Active}-<ProjectId> (default: MDfS-GCP-Windows-Passive-<ProjectId>)",

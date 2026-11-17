@@ -542,7 +542,7 @@
       } else if (machine.MdeReonboardingDetected && machine.Status === "Ambiguous") {
         reason = "MDE re-onboarding or merged identity history was detected. Hostname-only matching cannot distinguish old Entra objects; a current MDE AadDeviceId or Machine Configuration intuneDeviceId is required.";
       } else if (machine.Status === "PendingMde" || !machine.MdeDeviceId) {
-        reason = `Blocked at Step 1 (MDE Hunting): No onboarded MDE DeviceInfo record matched Resource ID '${machine.ArcResourceId || missing}'${machine.VirtualMachineId ? ` or VM ID '${machine.VirtualMachineId}'` : ""} within the 7-day hunting window. Entra ID lookup cannot run until the server is onboarded to MDE.`;
+        reason = `Blocked at Step 1 (MDE Hunting): No onboarded MDE DeviceInfo record matched Resource ID '${machine.ArcResourceId || missing}'${machine.VirtualMachineId ? ` or VM ID '${machine.VirtualMachineId}'` : ""} within the 90-day hunting window. Entra ID lookup cannot run until the server is onboarded to MDE.`;
       } else if (machine.Status === "StaleEvidence") {
         reason = `Blocked at Step 1 (Stale MDE Telemetry): MDE DeviceInfo matched '${machine.MdeDeviceName || machine.MdeDeviceId}', but its last check-in (${time(machine.MdeLastSeen)}) is older than the configured freshness window (SYNC_FRESHNESS_HOURS).`;
       } else if (machine.Status === "NoEntraDevice") {
@@ -1559,7 +1559,7 @@
       ["SYNC_ADMIN_UNIT_ID", "Microsoft Entra ID Administrative Unit GUID for AU-scoped automatic security group creation and management"],
       ["SYNC_AUTO_CREATE_GROUPS", "Automatically create missing active/passive cloud-account groups inside SYNC_ADMIN_UNIT_ID in Enforce mode"],
       ["SYNC_SCHEDULE", "NCRONTAB timer schedule for full Azure Resource Graph inventory"],
-      ["SYNC_FRESHNESS_HOURS", "Maximum age in hours for MDE DeviceInfo telemetry (1–168)"],
+      ["SYNC_FRESHNESS_HOURS", "Maximum age in hours for MDE DeviceInfo telemetry (1–2160, default 2160 / 90 days)"],
       ["SYNC_AWS_WINDOWS_GROUP_PREFIX", "AWS Windows template; default dfs-aws-{id}-windows-{mode}, lowercase; id = AccountId tag"],
       ["SYNC_AWS_LINUX_GROUP_PREFIX", "AWS Linux template; default dfs-aws-{id}-linux-{mode}, lowercase; id = AccountId tag"],
       ["SYNC_GCP_WINDOWS_GROUP_PREFIX", "GCP Windows template; default dfs-gcp-{id}-windows-{mode}, lowercase; id = ProjectId tag"],

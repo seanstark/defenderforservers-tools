@@ -18,7 +18,7 @@ param(
     [Parameter(Mandatory)][guid]$ReportClientId,
     [ValidateSet('Audit', 'Enforce')][string]$SyncMode = 'Audit',
     [string]$Schedule = '0 0 */6 * * *',
-    [ValidateRange(1, 168)][int]$FreshnessHours = 24,
+    [ValidateRange(1, 2160)][int]$FreshnessHours = 2160,
     [ValidateSet('B1', 'S1', 'P1v3')][string]$PlanSku = 'B1',
     [string[]]$AlertActionGroupIds = @()
 )
