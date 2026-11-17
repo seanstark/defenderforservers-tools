@@ -2340,7 +2340,7 @@ try {
             Assert-Equal (& $originals['Start-InventoryJob'] -TriggerReason 'Manual') $null
         }
         Test-Case 'Interrupted jobs recover only with an enforced bounded function timeout' {
-            $env:AzureFunctionsJobHost__functionTimeout = '00:10:00'
+            $env:AzureFunctionsJobHost__functionTimeout = '01:00:00'
             $script:Recovered = $false
             function script:Invoke-Table {
                 param($Path, $Method = 'GET', $Headers, $Body)
@@ -2356,7 +2356,7 @@ try {
             Assert-Equal (Get-InventoryJobStatus).IsRunning $false
             Assert-True (& $originals['Start-InventoryJob'] -TriggerReason 'Recovery').RunId
             Assert-True $script:Recovered
-            foreach ($timeout in @('-00:00:01', '00:00:00', '00:10:01')) {
+            foreach ($timeout in @('-00:00:01', '00:00:00', '01:00:01')) {
                 $env:AzureFunctionsJobHost__functionTimeout = $timeout
                 Assert-Throws { & $originals['Start-InventoryJob'] -TriggerReason 'Unsafe timeout' }
             }
@@ -2465,7 +2465,7 @@ try {
                 & $trigger -SyncRequest (ConvertTo-Json -InputObject $request -Compress)
                 Assert-Equal $global:TestManualCalls.Count 1
                 Assert-Equal $global:TestManualCalls[0].TriggerReason 'Manual sync (Device inventory)'
-                $request.RequestedAt = [datetimeoffset]::UtcNow.AddMinutes(-16).ToString('o')
+                $request.RequestedAt = [datetimeoffset]::UtcNow.AddMinutes(-66).ToString('o')
                 & $trigger -SyncRequest $request
                 Assert-Equal $global:TestManualCalls.Count 1
                 $request.RequestedAt = [datetimeoffset]::UtcNow.AddMinutes(2).ToString('o')

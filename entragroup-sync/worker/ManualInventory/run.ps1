@@ -3,7 +3,7 @@ if ($SyncRequest -is [string]) { $SyncRequest = ConvertFrom-Json -InputObject $S
 $null = [guid]::Parse([string]$SyncRequest.RequestId)
 $requestedAt = [datetimeoffset]::Parse([string]$SyncRequest.RequestedAt)
 if ($requestedAt -gt [datetimeoffset]::UtcNow.AddMinutes(1)) { throw 'Manual inventory request timestamp is in the future.' }
-if ($requestedAt -lt [datetimeoffset]::UtcNow.AddMinutes(-15)) {
+if ($requestedAt -lt [datetimeoffset]::UtcNow.AddMinutes(-65)) {
     Write-Warning "Expired manual inventory request $($SyncRequest.RequestId) was not executed."
     return
 }

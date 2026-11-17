@@ -758,7 +758,7 @@
   function inventorySyncView(job, requestedAt, now = Date.now()) {
     const pending = Number.isFinite(Date.parse(requestedAt)) &&
       !(Date.parse(job?.StartedAt) >= Date.parse(requestedAt));
-    const waiting = pending && now - Date.parse(requestedAt) < 15 * 60 * 1000;
+    const waiting = pending && now - Date.parse(requestedAt) < 65 * 60 * 1000;
     let label = "No monitored run recorded";
     let details = job?.Message || "No live status available yet.";
     if (job?.IsRunning) {
@@ -768,7 +768,7 @@
       label = "Sync requested - waiting for worker";
       details = "The request was accepted into the queue; the inventory job has not started yet.";
     } else if (pending) {
-      label = "Sync request did not start within 15 minutes";
+      label = "Sync request did not start within 65 minutes";
       details = "Check the worker and inventory-sync dead-letter queue before retrying.";
     } else if (job?.Status === "Succeeded") {
       label = "Inventory idle - last run succeeded";

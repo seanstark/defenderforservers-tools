@@ -17,7 +17,7 @@ param(
     [bool]$AutoCreateGroups = $false,
     [Parameter(Mandatory)][guid]$ReportClientId,
     [ValidateSet('Audit', 'Enforce')][string]$SyncMode = 'Audit',
-    [string]$Schedule = '0 */30 * * * *',
+    [string]$Schedule = '0 0 */6 * * *',
     [ValidateRange(1, 168)][int]$FreshnessHours = 24,
     [ValidateSet('B1', 'S1', 'P1v3')][string]$PlanSku = 'B1',
     [string[]]$AlertActionGroupIds = @()

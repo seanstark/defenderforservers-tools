@@ -342,7 +342,7 @@ function Get-SharedAdminUnitGroups {
 function Save-SharedAdminUnitGroups {
     param([string]$AdminUnitId, [array]$Groups)
     $generation = [guid]::NewGuid().ToString()
-    $expires = [datetimeoffset]::UtcNow.AddMinutes(30)
+    $expires = [datetimeoffset]::UtcNow.AddMinutes(360)
     foreach ($group in $Groups) {
         $entity = @{
             PartitionKey = "au-groups-$AdminUnitId"
@@ -393,7 +393,7 @@ function Get-AdminUnitGroups {
     }
     $result = @($groups)
     $script:AdminUnitGroupsCache[$AdminUnitId] = $result
-    $script:AdminUnitGroupsExpires[$AdminUnitId] = [datetimeoffset]::UtcNow.AddMinutes(30)
+    $script:AdminUnitGroupsExpires[$AdminUnitId] = [datetimeoffset]::UtcNow.AddMinutes(360)
     $script:SharedAdminUnitGroups[$AdminUnitId] = $false
     return $result
 }
@@ -830,7 +830,7 @@ function Get-FunctionParametersSummary {
         SYNC_DEFAULT_GROUP_MODE = $defaultGroupMode
         SYNC_ADMIN_UNIT_ID = if ($adminUnitId) { $adminUnitId } else { 'Not configured (pre-created groups only)' }
         SYNC_AUTO_CREATE_GROUPS = $autoCreate
-        SYNC_SCHEDULE = Get-Setting 'SYNC_SCHEDULE' '0 */30 * * * *'
+        SYNC_SCHEDULE = Get-Setting 'SYNC_SCHEDULE' '0 0 */6 * * *'
         SYNC_FRESHNESS_HOURS = Get-Setting 'SYNC_FRESHNESS_HOURS' '24'
         SYNC_AWS_WINDOWS_GROUP_PREFIX = if ($awsWin) { "$awsWin (default: $(Format-CloudGroupName $awsWin $defaultGroupMode '<AccountId>'))" } else { 'Not configured' }
         SYNC_AWS_LINUX_GROUP_PREFIX = if ($awsLin) { "$awsLin (default: $(Format-CloudGroupName $awsLin $defaultGroupMode '<AccountId>'))" } else { 'Not configured' }
@@ -2535,8 +2535,9 @@ function Start-InventoryJob {
         if (-not (Test-Path -LiteralPath $hostPath)) { $hostPath = Join-Path $PSScriptRoot '..\worker\host.json' }
         $timeout = (Get-Content -LiteralPath $hostPath -Raw | ConvertFrom-Json).functionTimeout
     }
-    if ([timespan]::Parse($timeout) -le [timespan]::Zero -or [timespan]::Parse($timeout) -gt [timespan]::FromMinutes(10)) {
-        throw 'Inventory overlap protection requires a positive functionTimeout of at most 10 minutes.'
+    $parsedTimeout = [timespan]::Parse($timeout)
+    if ($parsedTimeout -le [timespan]::Zero -or $parsedTimeout -gt [timespan]::FromMinutes(60)) {
+        throw 'Inventory overlap protection requires a positive functionTimeout of at most 60 minutes.'
     }
     $now = [datetimeoffset]::UtcNow
     $path = "machines(PartitionKey='system',RowKey='inventory-job')"
@@ -2553,7 +2554,7 @@ function Start-InventoryJob {
         PartitionKey = 'system'; RowKey = 'inventory-job'
         RunId = [guid]::NewGuid().ToString()
         Status = 'Running'; TriggerReason = $TriggerReason
-        StartedAt = $now.ToString('o'); ExpiresAt = $now.AddMinutes(15).ToString('o')
+        StartedAt = $now.ToString('o'); ExpiresAt = $now.Add($parsedTimeout).AddMinutes(5).ToString('o')
         CompletedAt = ''; Message = 'Discovering machines, preparing groups, and queuing device synchronization.'
     }
     $claim = if ($existing.Status -eq 404) {

@@ -7,7 +7,7 @@
             "type": "String"
         },
         "Log_Analytics_Workspace": {
-            "defaultValue": "/subscriptions/9ebcb583-7adb-44ea-b688-06f1de624cc1/resourceGroups/sentinel-prd/providers/microsoft.operationalinsights/workspaces/sentinel-prd",
+            "defaultValue": "",
             "type": "String"
         }
     },

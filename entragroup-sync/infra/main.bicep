@@ -55,8 +55,8 @@ param reportClientId string
 @description('Synchronization Mode: Audit (default) only evaluates correlation and records WouldAdd without modifying any Entra ID groups. Enforce creates and updates group memberships for verified devices.')
 param syncMode string = 'Audit'
 
-@description('Inventory Timer Schedule (NCRONTAB): 6-field NCRONTAB expression controlling how often the full Azure Resource Graph inventory runs. Default 0 */30 * * * * runs every 30 minutes.')
-param schedule string = '0 */30 * * * *'
+@description('Inventory Timer Schedule (NCRONTAB): 6-field NCRONTAB expression controlling how often the full Azure Resource Graph inventory runs. Default 0 0 */6 * * * runs every 6 hours to accommodate large 10,000-server environments.')
+param schedule string = '0 0 */6 * * *'
 
 @minValue(1)
 @maxValue(168)
@@ -174,7 +174,7 @@ resource inventoryQueue 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = {
   properties: {
     lockDuration: 'PT5M'
     maxDeliveryCount: 10
-    defaultMessageTimeToLive: 'PT15M'
+    defaultMessageTimeToLive: 'PT65M'
     deadLetteringOnMessageExpiration: true
     enablePartitioning: false
   }
@@ -396,8 +396,8 @@ resource staleInventory 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
   location: location
   kind: 'LogAlert'
   properties: {
-    displayName: 'Arc-to-Entra inventory has not completed in 90 minutes'
-    description: 'Adjust the query threshold if changing the default 30-minute schedule.'
+    displayName: 'Arc-to-Entra inventory has not completed in 12 hours'
+    description: 'Adjust the query threshold if changing the default 6-hour schedule.'
     severity: 2
     enabled: true
     evaluationFrequency: 'PT15M'
@@ -406,7 +406,7 @@ resource staleInventory 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
     criteria: {
       allOf: [
         {
-          query: 'AppTraces | where AppRoleName == "${workerName}" and Message startswith "INFORMATION: Inventory completed:" or AppRoleName == "${workerName}" and Message startswith "Inventory completed:" | summarize LastSuccess = max(TimeGenerated) | where isnull(LastSuccess) or LastSuccess < ago(90m)'
+          query: 'AppTraces | where AppRoleName == "${workerName}" and Message startswith "INFORMATION: Inventory completed:" or AppRoleName == "${workerName}" and Message startswith "Inventory completed:" | summarize LastSuccess = max(TimeGenerated) | where isnull(LastSuccess) or LastSuccess < ago(12h)'
           timeAggregation: 'Count'
           operator: 'GreaterThan'
           threshold: 0

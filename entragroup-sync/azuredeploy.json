@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "3382389357603982967"
+      "templateHash": "3703346563248552181"
     }
   },
   "parameters": {
@@ -138,9 +138,9 @@
     },
     "schedule": {
       "type": "string",
-      "defaultValue": "0 */30 * * * *",
+      "defaultValue": "0 0 */6 * * *",
       "metadata": {
-        "description": "Inventory Timer Schedule (NCRONTAB): 6-field NCRONTAB expression controlling how often the full Azure Resource Graph inventory runs. Default 0 */30 * * * * runs every 30 minutes."
+        "description": "Inventory Timer Schedule (NCRONTAB): 6-field NCRONTAB expression controlling how often the full Azure Resource Graph inventory runs. Default 0 0 */6 * * * runs every 6 hours to accommodate large 10,000-server environments."
       }
     },
     "freshnessHours": {
@@ -317,7 +317,7 @@
       "properties": {
         "lockDuration": "PT5M",
         "maxDeliveryCount": 10,
-        "defaultMessageTimeToLive": "PT15M",
+        "defaultMessageTimeToLive": "PT65M",
         "deadLetteringOnMessageExpiration": true,
         "enablePartitioning": false
       },
@@ -631,8 +631,8 @@
       "location": "[parameters('location')]",
       "kind": "LogAlert",
       "properties": {
-        "displayName": "Arc-to-Entra inventory has not completed in 90 minutes",
-        "description": "Adjust the query threshold if changing the default 30-minute schedule.",
+        "displayName": "Arc-to-Entra inventory has not completed in 12 hours",
+        "description": "Adjust the query threshold if changing the default 6-hour schedule.",
         "severity": 2,
         "enabled": true,
         "evaluationFrequency": "PT15M",
@@ -643,7 +643,7 @@
         "criteria": {
           "allOf": [
             {
-              "query": "[format('AppTraces | where AppRoleName == \"{0}\" and Message startswith \"INFORMATION: Inventory completed:\" or AppRoleName == \"{1}\" and Message startswith \"Inventory completed:\" | summarize LastSuccess = max(TimeGenerated) | where isnull(LastSuccess) or LastSuccess < ago(90m)', variables('workerName'), variables('workerName'))]",
+              "query": "[format('AppTraces | where AppRoleName == \"{0}\" and Message startswith \"INFORMATION: Inventory completed:\" or AppRoleName == \"{1}\" and Message startswith \"Inventory completed:\" | summarize LastSuccess = max(TimeGenerated) | where isnull(LastSuccess) or LastSuccess < ago(12h)', variables('workerName'), variables('workerName'))]",
               "timeAggregation": "Count",
               "operator": "GreaterThan",
               "threshold": 0,

@@ -62,7 +62,7 @@
 
 | Sync trigger | When it runs |
 | --- | --- |
-| Schedule | Every 30 minutes by default, including discovery of newly connected machines. |
+| Schedule | Every 6 hours (`0 0 */6 * * *`) by default to support 10,000-server environments, including discovery of newly connected machines. |
 | Event Grid | Successful relevant MDE extension updates, or Machine Configuration assignment updates whose current status is `Compliant`. |
 | Manual | A signed-in `Report.Reader` user clicks **Start sync**. |
 
@@ -251,7 +251,7 @@ The Device inventory page checks uncached `GET /sync-status` every 15 seconds wh
 
 The report identity remains a **Table Data Reader**, with **Service Bus Data Sender only on `inventory-sync`**. The worker receives requests on that dedicated queue and runs the same inventory workflow as the timer, using the existing scope and `Audit`/`Enforce` mode. Deploy the updated infrastructure as well as both ZIP packages to enable this feature on an existing installation; uploading ZIPs alone does not create the queue, RBAC assignments, or report namespace setting.
 
-An atomic Table Storage claim prevents overlapping timer/manual inventory runs across instances. Requests covered by a run that started after they were queued are coalesced rather than starting another pass. Manual requests expire after 15 minutes. A missing completion becomes **Interrupted** after 15 minutes; the next request can recover the claim. This recovery requires the worker's bounded `functionTimeout` to remain **at most 10 minutes** (including any `AzureFunctionsJobHost__functionTimeout` override); the worker validates this before claiming a job. Do not remove that execution bound. Check worker logs and the `inventory-sync` dead-letter queue if a request does not start.
+An atomic Table Storage claim prevents overlapping timer/manual inventory runs across instances. Requests covered by a run that started after they were queued are coalesced rather than starting another pass. Manual requests expire after 65 minutes. A missing completion becomes **Interrupted** after `functionTimeout + 5 minutes` (65 minutes by default); the next request can recover the claim. This recovery requires the worker's bounded `functionTimeout` to remain **at most 60 minutes** (including any `AzureFunctionsJobHost__functionTimeout` override); the worker validates this before claiming a job. Do not remove that execution bound. Check worker logs and the `inventory-sync` dead-letter queue if a request does not start.
 
 **Inventory completion is not completion of all device synchronization:** discovery, group preparation, and machine queueing finish first; per-device workers may continue afterward. **Refresh inventory** only refreshes report data and never starts a job.
 
@@ -291,7 +291,7 @@ The scheduled inventory prepares groups before the per-device evaluation below:
 3. Publish the AU group IDs and metadata to the shared `machines` table, then queue machine work. The inventory log records existing, created, would-create, and missing counts. `Audit` mode writes only report/cache data and reports missing groups; it never creates Graph groups or creation reservations.
 4. Machine workers reuse the shared catalog for name lookup and membership discovery. Correlation and per-device membership checks still run. A new account arriving between inventories uses the guarded on-demand creation fallback.
 
-The shared catalog expires after **30 minutes** and is also cached in each runspace until that expiry. Entries use `PartitionKey=au-groups-<AU ID>`, one row per group object ID, with a generation marker; `PartitionKey=group-catalogs`, `RowKey=<AU ID>` publishes the generation, count, and expiry only after all rows are saved. Reads are paginated, so a large AU is not stored in a single Table property. Expired, absent, or concurrently overwritten/incomplete snapshots cause a fresh Graph listing; storage/Graph errors are surfaced. A publication failure stops that inventory pass before any machine work is queued. Stable per-group rows are reused on subsequent inventories; rows from removed groups are excluded by generation.
+The shared catalog expires after **6 hours** and is also cached in each runspace until that expiry. Entries use `PartitionKey=au-groups-<AU ID>`, one row per group object ID, with a generation marker; `PartitionKey=group-catalogs`, `RowKey=<AU ID>` publishes the generation, count, and expiry only after all rows are saved. Reads are paginated, so a large AU is not stored in a single Table property. Expired, absent, or concurrently overwritten/incomplete snapshots cause a fresh Graph listing; storage/Graph errors are surfaced. A publication failure stops that inventory pass before any machine work is queued. Stable per-group rows are reused on subsequent inventories; rows from removed groups are excluded by generation.
 
 Before using a group resolved from shared metadata for a membership update, the worker rechecks its live security-group properties and display name, and verifies that it still belongs to the configured AU before writing. Deleted, renamed, removed-from-AU, or ineligible groups fail closed until inventory/manual reconciliation; cached IDs never authorize creating a replacement. Groups are still created only inside the configured AU, and the worker never removes devices from existing groups.
 
@@ -379,7 +379,7 @@ All active Function App parameters are also displayed live on the portal under *
 | `SYNC_AZURE_LINUX_GROUP_PREFIX` (`-AzureLinuxGroupPrefix`) | Azure Linux template; default `dfs-azure-{id}-linux-{mode}`. `{id}` is the subscription name; AWS/GCP machines are excluded |
 | `SYNC_MODE` (`-SyncMode`) | `Audit` (default) or `Enforce` |
 | `SYNC_FRESHNESS_HOURS` (`-FreshnessHours`) | Maximum age of MDE evidence in hours (`1`–`168`, default `24`) |
-| `SYNC_SCHEDULE` (`-Schedule`) | Timer NCRONTAB schedule (default `0 */30 * * * *`) |
+| `SYNC_SCHEDULE` (`-Schedule`) | Timer NCRONTAB schedule (default `0 0 */6 * * *`, every 6 hours) |
 
 Complete templates containing `{id}` (or `{0}`) and `{mode}` produce entirely lowercase names, including the account identifier. Existing custom literal prefixes retain their legacy formatting behavior. Set a cloud/OS prefix to an empty string to disable that route; the deployment defaults enable all six routes.
 
