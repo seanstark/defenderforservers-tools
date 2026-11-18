@@ -85,9 +85,45 @@
       btn.append(text("span", label), text("strong", String(count)));
       btn.addEventListener("click", () => {
         statusFilter = (statusFilter === key) ? "" : key;
+        selectPermSection("perm-checks-panel");
         render();
       });
       container.append(btn);
+    }
+  }
+  function applyTableColumnFilters(table) {
+    if (!table) return;
+    const filterRow = table.querySelector("thead tr.column-filters");
+    const tbody = table.querySelector("tbody");
+    if (!filterRow || !tbody) return;
+    const inputs = [...filterRow.querySelectorAll("input")];
+    const active = inputs.map((inp, idx) => [idx, (inp.value || "").trim().toLowerCase()]).filter(([, val]) => val);
+    for (const row of tbody.rows) {
+      if (row.cells.length === 1 && row.cells[0].colSpan > 1) continue;
+      const visible = active.every(([idx, val]) => String(row.cells[idx]?.textContent || "").toLowerCase().includes(val));
+      row.hidden = !visible;
+    }
+  }
+  function initTableColumnFilters() {
+    for (const table of document.querySelectorAll("table")) {
+      const thead = table.querySelector("thead");
+      if (!thead || thead.querySelector("tr.column-filters")) continue;
+      const headerRow = thead.querySelector("tr");
+      if (!headerRow) continue;
+      const filterRow = document.createElement("tr");
+      filterRow.className = "column-filters";
+      for (const th of headerRow.children) {
+        const label = (th.textContent || "").trim() || "column";
+        const td = document.createElement("td");
+        const input = document.createElement("input");
+        input.type = "search";
+        input.placeholder = `Filter ${label}`;
+        input.setAttribute("aria-label", `Filter ${label}`);
+        input.addEventListener("input", () => applyTableColumnFilters(table));
+        td.append(input);
+        filterRow.append(td);
+      }
+      thead.append(filterRow);
     }
   }
 
@@ -229,6 +265,7 @@ az role assignment create --assignee-object-id $workerPrincipalId --assignee-pri
       tr.append(statusTd, categoryTd, permTd, principalTd, scopeTd, reqTd, detailsTd);
       tbody.append(tr);
     }
+    applyTableColumnFilters(tbody.closest("table"));
   }
 
   async function refresh(forceRefresh = false) {
@@ -256,6 +293,24 @@ az role assignment create --assignee-object-id $workerPrincipalId --assignee-pri
       render();
     });
   }
+  function selectPermSection(targetId) {
+    const ids = ["perm-checks-panel", "perm-remediation-panel"];
+    const activeId = ids.includes(targetId) ? targetId : "perm-checks-panel";
+    for (const id of ids) {
+      const el = byId(id);
+      if (el) el.hidden = id !== activeId;
+    }
+    for (const btn of document.querySelectorAll("#perm-section-tabs button[data-section-tab]")) {
+      const active = btn.dataset.sectionTab === activeId;
+      btn.classList.toggle("is-active", active);
+      btn.setAttribute("aria-selected", String(active));
+    }
+  }
+  for (const btn of document.querySelectorAll("#perm-section-tabs button[data-section-tab]")) {
+    btn.addEventListener("click", () => selectPermSection(btn.dataset.sectionTab));
+  }
+  initTableColumnFilters();
+  selectPermSection("perm-checks-panel");
   byId("perm-refresh").addEventListener("click", () => refresh(true));
   byId("theme-toggle")?.addEventListener("click", () => setTheme(currentTheme() === "dark" ? "light" : "dark"));
 

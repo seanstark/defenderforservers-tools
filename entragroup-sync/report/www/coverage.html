@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Cloud &amp; Entra ID group report — Cloud Server Correlation</title>
-  <script src="/theme.js"></script>
-  <link rel="stylesheet" href="/style.css">
-  <script src="/coverage.js" defer></script>
+  <title>Reports — Cloud Server Correlation</title>
+  <script src="/theme.js?v=20261118d"></script>
+  <link rel="stylesheet" href="/style.css?v=20261118d">
+  <script src="/coverage.js?v=20261118d" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#coverage-main">Skip to report</a>
   <header class="app-bar">
     <a class="app-brand" href="/"><span class="brand-mark" aria-hidden="true">AE</span>Cloud Server Correlation</a>
-    <span class="app-context">Cloud Servers / Entra ID — Cloud &amp; Group Rollup</span>
+    <span class="app-context">Cloud Servers / Entra ID — Reports</span>
     <div id="header-mode-badges" class="header-mode-badges" aria-live="polite">
       <span id="header-sync-mode" class="badge mode-pill" hidden></span>
       <span id="header-group-mode" class="badge mode-pill" hidden></span>
@@ -23,10 +23,11 @@
     <p class="nav-heading">ASSET MANAGEMENT</p>
     <nav>
       <a href="/"><span aria-hidden="true">01</span>Device inventory</a>
-      <a class="nav-current" href="/coverage.html" aria-current="page"><span aria-hidden="true">02</span>Cloud &amp; group report</a>
-      <div class="nav-sub" role="group" aria-label="Cloud and group report sections">
+      <a class="nav-current" href="/coverage.html" aria-current="page"><span aria-hidden="true">02</span>Reports</a>
+      <div class="nav-sub" role="group" aria-label="Reports sections">
+        <a class="nav-child" href="#coverage-mde-summary">Overview</a>
         <a class="nav-child" href="#coverage-accounts">By AWS / GCP / Subscription</a>
-        <a class="nav-child" href="#coverage-groups">Entra ID groups &amp; empty</a>
+        <a class="nav-child" href="#coverage-groups">Entra ID Group Summary</a>
         <a class="nav-child" href="#coverage-empty-scopes">Scopes with 0 servers</a>
       </div>
       <a href="/#device-status"><span aria-hidden="true">03</span>Status breakdowns</a>
@@ -49,22 +50,81 @@
   </aside>
   <main id="coverage-main" tabindex="-1">
     <div class="page-heading">
-      <p class="eyebrow">CLOUD &amp; ENTRA ID GROUP ROLLUP</p>
-      <h1 id="coverage-title">Cloud account, subscription &amp; Entra ID group report</h1>
-      <p class="muted">Server totals per AWS Account, GCP Project, and Azure Subscription (MDE onboarding, Entra ID correlation, Active/Passive antivirus mode, and Arc/VM status), member counts per Entra ID group, empty Entra ID groups, and cloud accounts/projects/subscriptions with 0 servers.</p>
+      <p class="eyebrow">REPORTS</p>
+      <h1 id="coverage-title">Reports</h1>
+      <p class="muted">Server counts by AWS Account, GCP Project, Azure Subscription, and Azure Management Group with MDE onboarding, Active/Passive mode, and onboarded-but-disconnected Arc summaries, plus Entra ID group coverage.</p>
     </div>
     <p id="error" role="alert" hidden></p>
     <section id="coverage-summary" class="cards summary-metrics" aria-label="Coverage rollup summary"></section>
-    <section id="coverage-accounts" class="panel function-panel" aria-labelledby="coverage-accounts-heading">
+    <nav id="coverage-section-tabs" class="section-card-tabs" role="tablist" aria-label="Report sections">
+      <button type="button" class="section-card-tab is-active" role="tab" aria-selected="true" data-section-tab="coverage-mde-summary">
+        <strong>Overview</strong>
+        <span>Servers by AWS Account, GCP Project, Subscription &amp; Management Group</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="coverage-accounts">
+        <strong>By AWS / GCP / Subscription</strong>
+        <span>Correlation &amp; Arc/VM connectivity breakdown per cloud scope</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="coverage-groups">
+        <strong>Entra ID Group Summary</strong>
+        <span>Active/Passive groups, mode mismatches &amp; group members</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="coverage-empty-scopes">
+        <strong>Scopes with 0 Servers</strong>
+        <span>Configured or discovered cloud scopes with no servers</span>
+      </button>
+    </nav>
+    <section id="coverage-mde-summary" class="panel function-panel" aria-labelledby="coverage-mde-summary-heading">
       <div class="function-header">
         <div>
-          <p class="eyebrow">CLOUD ACCOUNTS, PROJECTS &amp; SUBSCRIPTIONS</p>
-          <h2 id="coverage-accounts-heading">Servers per AWS Account, GCP Project &amp; Azure Subscription</h2>
-          <p class="muted">Breakdown of total servers, MDE onboarding, Entra ID correlation, Active/Passive mode, and Arc/VM connectivity per cloud scope.</p>
+          <p class="eyebrow">OVERVIEW</p>
+          <h2 id="coverage-mde-summary-heading">Overview — Servers by AWS Account, GCP Project, Azure Subscription &amp; Azure Management Group</h2>
+          <p class="muted">Summary of total servers, servers onboarded to MDE, MDE sensor health, Entra ID correlation, servers in Active and Passive mode, and servers onboarded to MDE that are disconnected from Azure Arc. Select any count to open the filtered Device Inventory.</p>
         </div>
         <div class="function-header-actions">
           <button id="refresh-coverage" class="secondary" type="button">Refresh report</button>
           <span id="updated" class="muted"></span>
+        </div>
+      </div>
+      <div id="mde-report-summary" class="cards summary-metrics" aria-label="Overview posture summary"></div>
+      <nav id="mde-report-tabs" class="inventory-tabs coverage-tabs" aria-label="Filter Overview report by scope type">
+        <button type="button" data-mde-filter="all" aria-pressed="true">All scopes</button>
+        <button type="button" data-mde-filter="AWS" aria-pressed="false">AWS Accounts</button>
+        <button type="button" data-mde-filter="GCP" aria-pressed="false">GCP Projects</button>
+        <button type="button" data-mde-filter="Azure" aria-pressed="false">Azure Subscriptions</button>
+        <button type="button" data-mde-filter="Azure Management Group" aria-pressed="false">Azure Management Groups</button>
+      </nav>
+      <div class="filters">
+        <label class="inventory-search">Search AWS Account, GCP Project, Azure Subscription, or Management Group<input id="mde-report-search" type="search" placeholder="Search by AWS Account, GCP Project, Azure Subscription, or Management Group..."></label>
+      </div>
+      <div class="table-caption"><p id="mde-report-count" aria-live="polite"></p></div>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Overview by AWS Account, GCP Project, Azure Subscription, and Azure Management Group">
+        <table id="mde-report-table">
+          <caption class="sr-only">Overview of servers by AWS Account, GCP Project, Azure Subscription, and Azure Management Group</caption>
+          <thead>
+            <tr>
+              <th scope="col">Scope Type</th>
+              <th scope="col">Scope Name</th>
+              <th scope="col">Total Servers</th>
+              <th scope="col">MDE Onboarded</th>
+              <th scope="col">MDE Sensor Health</th>
+              <th scope="col">Correlated</th>
+              <th scope="col">Not Correlated</th>
+              <th scope="col">Active Mode</th>
+              <th scope="col">Passive Mode</th>
+              <th scope="col">MDE Onboarded (Arc Disconnected)</th>
+            </tr>
+          </thead>
+          <tbody id="mde-report-body"></tbody>
+        </table>
+      </div>
+    </section>
+    <section id="coverage-accounts" class="panel function-panel" aria-labelledby="coverage-accounts-heading" hidden>
+      <div class="function-header">
+        <div>
+          <p class="eyebrow">CLOUD ACCOUNTS, PROJECTS &amp; SUBSCRIPTIONS</p>
+          <h2 id="coverage-accounts-heading">Correlation &amp; status breakdown per cloud scope</h2>
+          <p class="muted">Breakdown of total servers, MDE onboarding, Entra ID correlation, Active/Passive mode, and Arc/VM connectivity per cloud scope.</p>
         </div>
       </div>
       <nav id="coverage-cloud-tabs" class="inventory-tabs coverage-tabs" aria-label="Filter cloud scopes">
@@ -81,34 +141,36 @@
       </div>
       <div class="table-caption"><p id="coverage-accounts-count" aria-live="polite"></p></div>
       <div class="table-wrap" tabindex="0" role="region" aria-label="Servers per AWS Account, GCP Project, and Azure Subscription">
-        <table>
+        <table id="coverage-accounts-table">
           <caption class="sr-only">Server counts and MDE/Entra/Arc breakdown per AWS Account, GCP Project, and Azure Subscription</caption>
           <thead>
             <tr>
               <th scope="col">Cloud Platform</th>
-              <th scope="col">AWS Account / GCP Project / Azure Subscription</th>
+              <th scope="col">Scope Name</th>
               <th scope="col">Management Group</th>
               <th scope="col">Total Servers</th>
-              <th scope="col"># Onboarded to MDE</th>
-              <th scope="col"># Correlated to Entra ID</th>
-              <th scope="col"># Not Correlated</th>
-              <th scope="col"># in Active Mode</th>
-              <th scope="col"># in Passive Mode</th>
-              <th scope="col"># by Arc / VM Status</th>
+              <th scope="col">MDE Onboarded</th>
+              <th scope="col">Correlated</th>
+              <th scope="col">Not Correlated</th>
+              <th scope="col">Active Mode</th>
+              <th scope="col">Passive Mode</th>
+              <th scope="col">MDE Onboarded (Arc Disconnected)</th>
+              <th scope="col">Arc / VM Status</th>
             </tr>
           </thead>
           <tbody id="coverage-accounts-body"></tbody>
         </table>
       </div>
     </section>
-    <section id="coverage-groups" class="panel function-panel" aria-labelledby="coverage-groups-heading">
+    <section id="coverage-groups" class="panel function-panel" aria-labelledby="coverage-groups-heading" hidden>
       <div class="function-header">
         <div>
           <p class="eyebrow">ENTRA ID SECURITY GROUPS</p>
-          <h2 id="coverage-groups-heading">Servers per Entra ID group &amp; groups without members</h2>
-          <p class="muted">Observed device counts per Cloud &times; OS Entra ID security group and identification of empty Entra ID groups (0 members).</p>
+          <h2 id="coverage-groups-heading">Entra ID Group Summary</h2>
+          <p class="muted">Summary of servers in Active and Passive Entra ID groups, servers in both Active and Passive groups, MDE Active/Passive mode mismatches, and per-group member counts. Select any card or group row to filter and view its members below.</p>
         </div>
       </div>
+      <div id="coverage-groups-summary" class="cards summary-metrics" aria-label="Entra ID Group Summary metrics"></div>
       <nav id="coverage-group-tabs" class="inventory-tabs coverage-tabs" aria-label="Filter Entra ID groups">
         <button type="button" data-group-filter="all" aria-pressed="true">All Entra ID groups</button>
         <button type="button" data-group-filter="populated" aria-pressed="false">Groups with members</button>
@@ -117,10 +179,10 @@
       <div class="filters">
         <label class="inventory-search">Search Entra ID groups<input id="coverage-group-search" type="search" placeholder="Search group displayName, cloud, OS, mode, or account..."></label>
       </div>
-      <div class="table-caption"><p id="coverage-groups-count" aria-live="polite"></p></div>
-      <div class="table-wrap" tabindex="0" role="region" aria-label="Servers per Entra ID group">
-        <table>
-          <caption class="sr-only">Member counts per Entra ID security group including groups with zero members</caption>
+      <div class="table-caption"><p id="coverage-groups-count" aria-live="polite"></p><span class="muted">Click any group row or summary card to populate matching members below.</span></div>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Entra ID Group Summary">
+        <table id="coverage-groups-table">
+          <caption class="sr-only">Entra ID Group Summary including member counts and MDE mode mismatches</caption>
           <thead>
             <tr>
               <th scope="col">Entra ID Group</th>
@@ -128,15 +190,44 @@
               <th scope="col">Operating System</th>
               <th scope="col">Group Mode</th>
               <th scope="col">Account / Project / Subscription</th>
-              <th scope="col"># in Entra ID Group</th>
+              <th scope="col">Members</th>
+              <th scope="col">Both Active &amp; Passive</th>
+              <th scope="col">Passive Group (MDE Active)</th>
+              <th scope="col">Active Group (MDE Passive)</th>
               <th scope="col">Group Status</th>
             </tr>
           </thead>
           <tbody id="coverage-groups-body"></tbody>
         </table>
       </div>
+      <div id="coverage-group-members-panel" class="function-logs-section" aria-labelledby="coverage-group-members-heading">
+        <div class="table-caption">
+          <h3 id="coverage-group-members-heading">Selected Entra ID Group Members</h3>
+          <span id="coverage-group-members-count" class="muted" aria-live="polite">Select a group row above to view its server members.</span>
+        </div>
+        <div class="table-wrap" tabindex="0" role="region" aria-label="Selected Entra ID group members">
+          <table id="coverage-group-members-table">
+            <caption class="sr-only">Servers belonging to the selected Entra ID group</caption>
+            <thead>
+              <tr>
+                <th scope="col">Server Name</th>
+                <th scope="col">Cloud Platform</th>
+                <th scope="col">Account / Project / Subscription</th>
+                <th scope="col">Operating System</th>
+                <th scope="col">MDE Onboarded Status</th>
+                <th scope="col">MDE Sensor Health</th>
+                <th scope="col">MDE Antivirus Mode</th>
+                <th scope="col">Machine Status</th>
+                <th scope="col">Entra ID Group(s)</th>
+                <th scope="col">Group &amp; AV Flags</th>
+              </tr>
+            </thead>
+            <tbody id="coverage-group-members-body"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
-    <section id="coverage-empty-scopes" class="panel function-panel" aria-labelledby="coverage-empty-scopes-heading">
+    <section id="coverage-empty-scopes" class="panel function-panel" aria-labelledby="coverage-empty-scopes-heading" hidden>
       <div class="function-header">
         <div>
           <p class="eyebrow">EMPTY CLOUD SCOPES</p>
@@ -146,7 +237,7 @@
       </div>
       <div class="table-caption"><p id="coverage-empty-scopes-count" aria-live="polite"></p></div>
       <div class="table-wrap" tabindex="0" role="region" aria-label="Cloud scopes with zero servers">
-        <table>
+        <table id="coverage-empty-scopes-table">
           <caption class="sr-only">AWS Accounts, GCP Projects, and Azure Subscriptions with zero servers</caption>
           <thead>
             <tr>

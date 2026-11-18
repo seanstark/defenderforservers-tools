@@ -215,5 +215,148 @@ async function testLiveControls() {
   assert.match(elements.get("sync-error").textContent, /Live sync status failed \(HTTP 403\)/);
   assert.doesNotMatch(elements.get("sync-error").textContent, /Unexpected token/);
   console.log("PASS Sync handles plain-text/HTML rejection, malformed JSON, missing configuration, and persistent errors.");
+
+  for (const htmlFile of ["index.html", "coverage.html", "permissions.html", "docs.html"]) {
+    const html = fs.readFileSync(path.join(__dirname, "..", "report", "www", htmlFile), "utf8");
+    assert.match(html, />02<\/span>Reports<\/a>/, `${htmlFile} must use 'Reports' navigation label`);
+    assert.match(html, /#coverage-mde-summary">Overview<\/a>/, `${htmlFile} must use 'Overview' sub-navigation label`);
+    assert.match(html, /#coverage-groups">Entra ID Group Summary<\/a>/, `${htmlFile} must use 'Entra ID Group Summary' sub-navigation label`);
+    assert.match(html, /class="section-card-tabs"/, `${htmlFile} must have card tabs for its sections`);
+    assert.match(html, /class="section-card-tab is-active"[^>]*data-section-tab=/, `${htmlFile} must have an active default card tab`);
+    assert.doesNotMatch(html, /Cloud &amp; group report/i, `${htmlFile} must not use old 'Cloud & group report' label`);
+  }
+  const indexHtml = fs.readFileSync(path.join(__dirname, "..", "report", "www", "index.html"), "utf8");
+  assert.match(indexHtml, /<select id="aws-account"><option value="">All AWS accounts<\/option><\/select>/);
+  const awsHelpers = source.slice(source.indexOf("  function isNativeAzureMachine("), source.indexOf("  function awsIconNode("));
+  context.URLSearchParams = URLSearchParams;
+  context.Set = Set;
+  vm.runInContext(awsHelpers, context);
+  assert.equal(vm.runInContext('awsAccountFor({ ArcResourceId: "/subscriptions/1/resourceGroups/rg/providers/Microsoft.HybridCompute/machines/m1", AzureTags: { AccountId: "123456789012" } })', context), "123456789012");
+  assert.equal(vm.runInContext('awsAccountFor({ ArcResourceId: "/subscriptions/1/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm1", AzureTags: { AccountId: "123456789012" } })', context), "");
+  const drill = vm.runInContext('parseReportDrillFilter("?scopeType=AWS&scopeId=123456789012&mde=Onboarded&arc=Disconnected")', context);
+  assert.equal(drill.matches({ CloudGroupType: "AWS", CloudIdentifier: "123456789012", MdeOnboardingStatus: "Onboarded", ArcStatus: "Disconnected" }), true);
+  assert.equal(drill.matches({ CloudGroupType: "AWS", CloudIdentifier: "123456789012", MdeOnboardingStatus: "Onboarded", ArcStatus: "Connected" }), false);
+  const corrDrill = vm.runInContext('parseReportDrillFilter("?mg=mg-prod&corr=Correlated")', context);
+  assert.equal(corrDrill.matches({ ManagementGroup: "mg-prod", EntraObjectId: "obj-1", Status: "Verified" }), true);
+  assert.equal(corrDrill.matches({ ManagementGroup: "mg-prod", EntraObjectId: "", Status: "NoEntraDevice" }), false);
+  const bothGroupsDrill = vm.runInContext('parseReportDrillFilter("?groupFilter=BothActiveAndPassive")', context);
+  assert.equal(bothGroupsDrill.matches({ Membership: "Present", MemberGroups: [{ DisplayName: "dfs-aws-1-windows-active", GroupMode: "Active" }, { DisplayName: "dfs-aws-1-windows-passive", GroupMode: "Passive" }] }), true);
+  assert.equal(bothGroupsDrill.matches({ Membership: "Present", MemberGroups: [{ DisplayName: "dfs-aws-1-windows-active", GroupMode: "Active" }] }), false);
+  const passiveMdeActiveDrill = vm.runInContext('parseReportDrillFilter("?groupFilter=PassiveGroupMdeActive")', context);
+  assert.equal(passiveMdeActiveDrill.matches({ Membership: "Present", MemberGroups: [{ DisplayName: "dfs-aws-1-windows-passive", GroupMode: "Passive" }], MdeAntivirusMode: "Active" }), true);
+  assert.equal(passiveMdeActiveDrill.matches({ Membership: "Present", MemberGroups: [{ DisplayName: "dfs-aws-1-windows-passive", GroupMode: "Passive" }], MdeAntivirusMode: "Passive" }), false);
+  const activeMdePassiveDrill = vm.runInContext('parseReportDrillFilter("?groupFilter=ActiveGroupMdePassive")', context);
+  assert.equal(activeMdePassiveDrill.matches({ Membership: "Present", MemberGroups: [{ DisplayName: "dfs-aws-1-windows-active", GroupMode: "Active" }], MdeAntivirusMode: "Passive" }), true);
+
+  const coverageHtml = fs.readFileSync(path.join(__dirname, "..", "report", "www", "coverage.html"), "utf8");
+  assert.match(coverageHtml, /id="coverage-mde-summary"/);
+  assert.match(coverageHtml, /Overview — Servers by AWS Account, GCP Project, Azure Subscription &amp; Azure Management Group/);
+  assert.match(coverageHtml, /<th scope="col">MDE Onboarded<\/th>/);
+  assert.match(coverageHtml, /<th scope="col">MDE Sensor Health<\/th>/);
+  assert.match(coverageHtml, /<th scope="col">Correlated<\/th>/);
+  assert.match(coverageHtml, /<th scope="col">Not Correlated<\/th>/);
+  assert.match(coverageHtml, /<th scope="col">Active Mode<\/th>/);
+  assert.match(coverageHtml, /<th scope="col">Passive Mode<\/th>/);
+  assert.match(coverageHtml, /<th scope="col">MDE Onboarded \(Arc Disconnected\)<\/th>/);
+  assert.doesNotMatch(coverageHtml, /<th[^>]*>#/, "Overview and Report tables must not have '#' in column names");
+  assert.match(coverageHtml, /<h2 id="coverage-groups-heading">Entra ID Group Summary<\/h2>/);
+  assert.match(coverageHtml, /<th scope="col">Both Active &amp; Passive<\/th>/);
+  assert.match(coverageHtml, /<th scope="col">Passive Group \(MDE Active\)<\/th>/);
+  assert.match(coverageHtml, /<th scope="col">Active Group \(MDE Passive\)<\/th>/);
+  assert.match(coverageHtml, /id="coverage-group-members-body"/);
+  assert.match(source, /"MdeOnboardingStatus",\s*"MdeSensorHealth",\s*"MdeAntivirusMode"/);
+
+  const coverageSource = fs.readFileSync(path.join(__dirname, "..", "report", "www", "coverage.js"), "utf8");
+  assert.match(coverageSource, /inventoryLinkCell\(String\(r\.TotalServers\)/);
+  assert.match(coverageSource, /inventoryLinkCell\(String\(r\.Correlated\), \{ \.\.\.baseParams, corr: "Correlated" \}\)/);
+  assert.match(coverageSource, /inventoryLinkCell\(String\(r\.NotCorrelated\), \{ \.\.\.baseParams, corr: "NotCorrelated" \}\)/);
+  assert.match(coverageSource, /renderGroupMembersTable\(g\)/);
+  const buildSlice = coverageSource.slice(coverageSource.indexOf("  function resolveMachineCloudScope("), coverageSource.indexOf("  function renderGroupMembersTable("));
+  const covCtx = vm.createContext({
+    collator: new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }),
+    Map, Set, Array, String
+  });
+  vm.runInContext(buildSlice, covCtx);
+  covCtx.sampleItems = [
+    {
+      MachineName: "aws-srv-1", CloudGroupType: "AWS", CloudIdentifier: "123456789012", ManagementGroup: "mg-prod",
+      MdeOnboardingStatus: "Onboarded", MdeSensorHealth: "Active", MdeAntivirusMode: "Active", ArcStatus: "Connected",
+      MdeDeviceId: "m1", EntraDeviceId: "e1", Status: "Verified", Membership: "Present",
+      MemberGroups: [
+        { Id: "g-pass", DisplayName: "dfs-aws-123456789012-windows-passive", CloudType: "AWS", OSCategory: "Windows", GroupMode: "Passive", CloudIdentifier: "123456789012" },
+        { Id: "g-act", DisplayName: "dfs-aws-123456789012-windows-active", CloudType: "AWS", OSCategory: "Windows", GroupMode: "Active", CloudIdentifier: "123456789012" }
+      ]
+    },
+    {
+      MachineName: "aws-srv-2", CloudGroupType: "AWS", CloudIdentifier: "123456789012", ManagementGroup: "mg-prod",
+      MdeOnboardingStatus: "Onboarded", MdeSensorHealth: "Inactive", MdeAntivirusMode: "Passive", ArcStatus: "Disconnected",
+      MdeDeviceId: "m2", EntraDeviceId: "e2", Status: "Verified", Membership: "Present",
+      MemberGroups: [
+        { Id: "g-act", DisplayName: "dfs-aws-123456789012-windows-active", CloudType: "AWS", OSCategory: "Windows", GroupMode: "Active", CloudIdentifier: "123456789012" }
+      ]
+    },
+    { CloudGroupType: "GCP", CloudIdentifier: "gcp-proj-1", ManagementGroup: "mg-prod", MdeOnboardingStatus: "Onboarded", MdeSensorHealth: "Inactive", MdeAntivirusMode: "Active", ArcStatus: "Disconnected", MdeDeviceId: "m3", EntraDeviceId: "", Status: "NoEntraDevice" },
+    { CloudGroupType: "Azure", CloudIdentifier: "Prod Sub", SubscriptionId: "sub-1", ManagementGroup: "mg-prod", MdeOnboardingStatus: "CanBeOnboarded", MdeSensorHealth: "NoSensorData", MdeAntivirusMode: "", ArcStatus: "Disconnected" }
+  ];
+  const built = vm.runInContext("buildCoverageData(sampleItems, {})", covCtx);
+  assert.equal(built.groupSummary.inActiveGroups, 2);
+  assert.equal(built.groupSummary.inPassiveGroups, 1);
+  assert.equal(built.groupSummary.inBothActiveAndPassive, 1);
+  assert.equal(built.groupSummary.passiveGroupMdeActive, 1);
+  assert.equal(built.groupSummary.activeGroupMdePassive, 1);
+  const actGrp = built.groups.find(g => g.DisplayName === "dfs-aws-123456789012-windows-active");
+  assert.equal(actGrp.MemberCount, 2);
+  assert.equal(actGrp.Members.length, 2);
+  assert.equal(actGrp.BothActiveAndPassiveCount, 1);
+  assert.equal(actGrp.ActiveGroupMdePassiveCount, 1);
+  const passGrp = built.groups.find(g => g.DisplayName === "dfs-aws-123456789012-windows-passive");
+  assert.equal(passGrp.MemberCount, 1);
+  assert.equal(passGrp.Members.length, 1);
+  assert.equal(passGrp.BothActiveAndPassiveCount, 1);
+  assert.equal(passGrp.PassiveGroupMdeActiveCount, 1);
+  const awsScope = built.scopes.find(s => s.CloudType === "AWS" && s.CloudIdentifier === "123456789012");
+  assert.equal(awsScope.TotalServers, 2);
+  assert.equal(awsScope.OnboardedToMde, 2);
+  assert.equal(awsScope.SensorActive, 1);
+  assert.equal(awsScope.SensorInactive, 1);
+  assert.equal(awsScope.SensorOther, 0);
+  assert.equal(awsScope.Correlated, 2);
+  assert.equal(awsScope.NotCorrelated, 0);
+  assert.equal(awsScope.ActiveMode, 1);
+  assert.equal(awsScope.PassiveMode, 1);
+  assert.equal(awsScope.OnboardedArcDisconnected, 1);
+  const gcpScope = built.scopes.find(s => s.CloudType === "GCP" && s.CloudIdentifier === "gcp-proj-1");
+  assert.equal(gcpScope.OnboardedToMde, 1);
+  assert.equal(gcpScope.SensorInactive, 1);
+  assert.equal(gcpScope.Correlated, 0);
+  assert.equal(gcpScope.NotCorrelated, 1);
+  assert.equal(gcpScope.OnboardedArcDisconnected, 1);
+  const azScope = built.scopes.find(s => s.CloudType === "Azure" && s.CloudIdentifier === "Prod Sub");
+  assert.equal(azScope.OnboardedToMde, 0);
+  assert.equal(azScope.SensorOther, 1);
+  assert.equal(azScope.Correlated, 0);
+  assert.equal(azScope.NotCorrelated, 1);
+  assert.equal(azScope.OnboardedArcDisconnected, 0);
+  const mgRow = built.managementGroups.find(m => m.CloudIdentifier === "mg-prod");
+  assert.equal(mgRow.TotalServers, 4);
+  assert.equal(mgRow.OnboardedToMde, 3);
+  assert.equal(mgRow.SensorActive, 1);
+  assert.equal(mgRow.SensorInactive, 2);
+  assert.equal(mgRow.SensorOther, 1);
+  assert.equal(mgRow.Correlated, 2);
+  assert.equal(mgRow.NotCorrelated, 2);
+  assert.equal(mgRow.ActiveMode, 2);
+  assert.equal(mgRow.PassiveMode, 1);
+  assert.equal(mgRow.OnboardedArcDisconnected, 2);
+
+  const transcriptHelpers = source.slice(source.indexOf("  function classifyTranscriptLine("), source.indexOf("  function openScriptOutputModal("));
+  vm.runInContext(transcriptHelpers, context);
+  assert.equal(vm.runInContext('classifyTranscriptLine("[2026-11-18T00:00:00Z][Error] Sync failed: HTTP 403")', context), "error");
+  assert.equal(vm.runInContext('classifyTranscriptLine("[2026-11-18T00:00:00Z][Warning] Inventory enrichment failed")', context), "warn");
+  assert.equal(vm.runInContext('classifyTranscriptLine("[2026-11-18T00:00:00Z][Inventory] === PowerShell execution started ===")', context), "header");
+  const issues = vm.runInContext('summarizeTranscriptIssues("[Error] HTTP 500\\n[Warning] StaleEvidence\\nNormal line")', context);
+  assert.equal(issues.errors.length, 1);
+  assert.equal(issues.warnings.length, 1);
+  console.log("PASS AWS Account inventory filter, Reports rename, and MDE/Active/Passive/Arc-disconnected report summary.");
 }
 testLiveControls().catch(error => { console.error(error); process.exitCode = 1; });

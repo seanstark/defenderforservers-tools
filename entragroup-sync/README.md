@@ -233,7 +233,7 @@ az role assignment create --assignee-object-id $workerPrincipalId --assignee-pri
 1. **Open the Web Portal:** Navigate to **`https://<report-app-name>.azurewebsites.net/`**.
 2. **Verify Permissions (`05 Permissions & readiness`):**
    - Open **`https://<report-app-name>.azurewebsites.net/permissions.html`** to confirm all Azure RBAC, Microsoft Graph, and Administrative Unit checks show **Granted / Verified**.
-3. **Review Audit Results (`01 Device inventory` & `02 Cloud & group report`):**
+3. **Review Audit Results (`01 Device inventory` & `02 Reports`):**
    - Verify discovered servers, their **Correlation method** (`MDE AadDeviceId`, `Machine Configuration (intuneDeviceId)`, or `MicrosoftSense (Hostname & OS)`), and target Entra ID groups (`WouldAdd` / `WouldCreateGroupAndAdd`).
 4. **Enable Group Synchronization (`Enforce` Mode):**
    - When ready to automatically create missing Active/Passive groups in your Administrative Unit and add verified devices, set `SYNC_MODE=Enforce`:

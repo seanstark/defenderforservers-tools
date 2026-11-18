@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Documentation &amp; APIs — Cloud Server Correlation</title>
-  <script src="/theme.js"></script>
-  <link rel="stylesheet" href="/style.css">
-  <script src="/docs.js" defer></script>
+  <script src="/theme.js?v=20261118d"></script>
+  <link rel="stylesheet" href="/style.css?v=20261118d">
+  <script src="/docs.js?v=20261118d" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#docs-main">Skip to documentation</a>
@@ -19,10 +19,11 @@
     <p class="nav-heading">ASSET MANAGEMENT</p>
     <nav>
       <a href="/"><span aria-hidden="true">01</span>Device inventory</a>
-      <a href="/coverage.html"><span aria-hidden="true">02</span>Cloud &amp; group report</a>
-      <div class="nav-sub" role="group" aria-label="Cloud and group report sections">
+      <a href="/coverage.html"><span aria-hidden="true">02</span>Reports</a>
+      <div class="nav-sub" role="group" aria-label="Reports sections">
+        <a class="nav-child" href="/coverage.html#coverage-mde-summary">Overview</a>
         <a class="nav-child" href="/coverage.html#coverage-accounts">By AWS / GCP / Subscription</a>
-        <a class="nav-child" href="/coverage.html#coverage-groups">Entra ID groups &amp; empty</a>
+        <a class="nav-child" href="/coverage.html#coverage-groups">Entra ID Group Summary</a>
         <a class="nav-child" href="/coverage.html#coverage-empty-scopes">Scopes with 0 servers</a>
       </div>
       <a href="/#device-status"><span aria-hidden="true">03</span>Status breakdowns</a>
@@ -49,6 +50,44 @@
       <h1>Documentation &amp; APIs</h1>
       <p class="muted">Interactive architecture and evaluation workflow diagrams, KQL &amp; Azure Resource Graph queries, REST APIs, RBAC permissions, and Cloud account group routing rules.</p>
     </div>
+    <nav id="docs-section-tabs" class="section-card-tabs" role="tablist" aria-label="Documentation sections">
+      <button type="button" class="section-card-tab is-active" role="tab" aria-selected="true" data-section-tab="doc-archify">
+        <strong>Architecture</strong>
+        <span>System components &amp; synchronization data flow</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="doc-correlation">
+        <strong>3-Tier Correlation</strong>
+        <span>MDE AadDeviceId, Machine Config &amp; MicrosoftSense</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="doc-architecture">
+        <strong>Evaluation Workflow</strong>
+        <span>6-gate group membership decision flow</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="doc-queries">
+        <strong>KQL &amp; ARG Queries</strong>
+        <span>Resource Graph &amp; Defender Hunting queries</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="doc-apis">
+        <strong>REST APIs</strong>
+        <span>ARM, Graph, Storage &amp; Service Bus endpoints</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="doc-permissions">
+        <strong>Permissions &amp; RBAC</strong>
+        <span>Managed Identity roles &amp; app settings</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="doc-scopes">
+        <strong>Scope &amp; Group Routing</strong>
+        <span>AWS, GCP &amp; Azure naming &amp; scope rules</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="doc-cost">
+        <strong>Cost Estimate</strong>
+        <span>Monthly Azure infrastructure cost breakdown</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="doc-troubleshooting">
+        <strong>Troubleshooting</strong>
+        <span>Trace KQL queries &amp; status code remediation</span>
+      </button>
+    </nav>
     <section id="documentation" class="panel docs-panel" aria-label="Solution documentation, queries, APIs, and permissions">
       <div class="function-header">
         <div>

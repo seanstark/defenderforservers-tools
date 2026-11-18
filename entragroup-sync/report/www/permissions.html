@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Permissions &amp; readiness — Cloud Server Correlation</title>
-  <script src="/theme.js"></script>
-  <link rel="stylesheet" href="/style.css">
-  <script src="/permissions.js" defer></script>
+  <script src="/theme.js?v=20261118d"></script>
+  <link rel="stylesheet" href="/style.css?v=20261118d">
+  <script src="/permissions.js?v=20261118d" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#permissions-main">Skip to permissions validation</a>
@@ -23,10 +23,11 @@
     <p class="nav-heading">ASSET MANAGEMENT</p>
     <nav>
       <a href="/"><span aria-hidden="true">01</span>Device inventory</a>
-      <a href="/coverage.html"><span aria-hidden="true">02</span>Cloud &amp; group report</a>
-      <div class="nav-sub" role="group" aria-label="Cloud and group report sections">
+      <a href="/coverage.html"><span aria-hidden="true">02</span>Reports</a>
+      <div class="nav-sub" role="group" aria-label="Reports sections">
+        <a class="nav-child" href="/coverage.html#coverage-mde-summary">Overview</a>
         <a class="nav-child" href="/coverage.html#coverage-accounts">By AWS / GCP / Subscription</a>
-        <a class="nav-child" href="/coverage.html#coverage-groups">Entra ID groups &amp; empty</a>
+        <a class="nav-child" href="/coverage.html#coverage-groups">Entra ID Group Summary</a>
         <a class="nav-child" href="/coverage.html#coverage-empty-scopes">Scopes with 0 servers</a>
       </div>
       <a href="/#device-status"><span aria-hidden="true">03</span>Status breakdowns</a>
@@ -57,7 +58,18 @@
 
     <section id="perm-summary" class="cards summary-metrics" aria-label="Permissions summary"></section>
 
-    <section class="panel" aria-label="Managed Identity permission checks">
+    <nav id="perm-section-tabs" class="section-card-tabs" role="tablist" aria-label="Permissions page sections">
+      <button type="button" class="section-card-tab is-active" role="tab" aria-selected="true" data-section-tab="perm-checks-panel">
+        <strong>Permission &amp; Readiness Checks</strong>
+        <span>Azure RBAC, Microsoft Graph &amp; Entra ID validation results</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="perm-remediation-panel">
+        <strong>Remediation Scripts</strong>
+        <span>One-step Azure CLI &amp; PowerShell permission setup commands</span>
+      </button>
+    </nav>
+
+    <section id="perm-checks-panel" class="panel" aria-label="Managed Identity permission checks">
       <div class="function-header">
         <div>
           <p class="eyebrow">PERMISSION &amp; CONFIGURATION CHECKS</p>
@@ -108,7 +120,7 @@
       </div>
     </section>
 
-    <section class="panel function-panel" aria-label="Quick setup and remediation commands">
+    <section id="perm-remediation-panel" class="panel function-panel" aria-label="Quick setup and remediation commands" hidden>
       <div class="function-header">
         <div>
           <p class="eyebrow">ONE-STEP REMEDIATION SCRIPTS</p>

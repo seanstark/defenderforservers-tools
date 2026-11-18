@@ -2065,6 +2065,13 @@ try {
                 MachinesQueued = 2
             }
             Assert-Equal $script:TableOps.Count 3
+            $bigMiddle = (1..400 | ForEach-Object { "[2026-11-18T00:00:00Z][Inventory] Discovered machine $_`: /subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg/providers/Microsoft.HybridCompute/machines/srv-$_" }) -join "`n"
+            $rawTranscript = "[2026-11-18T00:00:00Z][Inventory] === PowerShell execution started ===`n$bigMiddle`n[2026-11-18T00:00:05Z][Warning] Inventory enrichment failed for srv-99: MDE antivirus mode: HTTP 403`n[2026-11-18T00:00:06Z][Error] Sync failed for srv-400: HTTP 500 from graph.microsoft.com`n[2026-11-18T00:00:07Z][Inventory] Inventory pass completed: queued 400 machine(s)."
+            $formatted = Format-RunTranscript -RawTranscript $rawTranscript -MaxLength 8000
+            Assert-True ($formatted.Contains('=== ERRORS & WARNINGS SUMMARY'))
+            Assert-True ($formatted.Contains('[Warning] Inventory enrichment failed for srv-99'))
+            Assert-True ($formatted.Contains('[Error] Sync failed for srv-400'))
+            Assert-True ($formatted.Contains('Inventory pass completed: queued 400 machine(s).'))
             Assert-Equal $script:TableOps[0].Method 'POST'
             Assert-True ($script:TableOps[0].Body.RowKey.StartsWith('log_'))
             Assert-Equal $script:TableOps[2].Method 'PUT'

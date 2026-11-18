@@ -20,11 +20,63 @@
     updateThemeButton();
   }
   byId("theme-toggle")?.addEventListener("click", () => setTheme(currentTheme() === "dark" ? "light" : "dark"));
+  const docSections = [...document.querySelectorAll("details.doc-section")];
+  function selectDocSection(targetId) {
+    const id = targetId && byId(targetId) ? targetId : (docSections[0]?.id || "doc-archify");
+    for (const sec of docSections) {
+      const active = sec.id === id;
+      sec.hidden = !active;
+      if (active) sec.open = true;
+    }
+    for (const btn of document.querySelectorAll("#docs-section-tabs button[data-section-tab]")) {
+      const active = btn.dataset.sectionTab === id;
+      btn.classList.toggle("is-active", active);
+      btn.setAttribute("aria-selected", String(active));
+    }
+  }
+  for (const btn of document.querySelectorAll("#docs-section-tabs button[data-section-tab]")) {
+    btn.addEventListener("click", () => selectDocSection(btn.dataset.sectionTab));
+  }
   for (const link of document.querySelectorAll("a[data-doc-target]")) {
-    link.addEventListener("click", () => {
-      const target = byId(link.dataset.docTarget);
-      if (target) target.open = true;
+    link.addEventListener("click", event => {
+      event.preventDefault();
+      selectDocSection(link.dataset.docTarget);
     });
+  }
+  window.addEventListener("hashchange", () => {
+    const hashId = String(window.location.hash || "").replace(/^#/, "");
+    if (hashId && byId(hashId)) selectDocSection(hashId);
+  });
+  const initialDocHash = String(window.location.hash || "").replace(/^#/, "");
+  selectDocSection(initialDocHash && byId(initialDocHash) ? initialDocHash : "doc-archify");
+  for (const table of document.querySelectorAll("table")) {
+    const thead = table.querySelector("thead");
+    const tbody = table.querySelector("tbody");
+    if (!thead || !tbody || thead.querySelector("tr.column-filters")) continue;
+    const headerRow = thead.querySelector("tr");
+    if (!headerRow) continue;
+    const filterRow = document.createElement("tr");
+    filterRow.className = "column-filters";
+    const apply = () => {
+      const inputs = [...filterRow.querySelectorAll("input")];
+      const active = inputs.map((inp, idx) => [idx, (inp.value || "").trim().toLowerCase()]).filter(([, val]) => val);
+      for (const row of tbody.rows) {
+        if (row.cells.length === 1 && row.cells[0].colSpan > 1) continue;
+        row.hidden = !active.every(([idx, val]) => String(row.cells[idx]?.textContent || "").toLowerCase().includes(val));
+      }
+    };
+    for (const th of headerRow.children) {
+      const label = (th.textContent || "").trim() || "column";
+      const td = document.createElement("td");
+      const input = document.createElement("input");
+      input.type = "search";
+      input.placeholder = `Filter ${label}`;
+      input.setAttribute("aria-label", `Filter ${label}`);
+      input.addEventListener("input", apply);
+      td.append(input);
+      filterRow.append(td);
+    }
+    thead.append(filterRow);
   }
   const archifyNodeDetails = {
     "work_item": "Criteria: Resource must be HybridCompute/machines, Compute/virtualMachines, ClassicCompute/virtualMachines, or VMSS virtualMachines (excluding Compute.AKS), and satisfy (Subscription in SYNC_SUBSCRIPTION_IDS OR SYNC_MANAGEMENT_GROUP_IDS) AND (SYNC_RESOURCE_GROUP_NAMES is empty OR matches resourceGroup).",

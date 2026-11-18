@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Cloud Server Correlation</title>
-  <script src="/theme.js"></script>
-  <link rel="stylesheet" href="/style.css">
-  <script src="/app.js" defer></script>
+  <script src="/theme.js?v=20261118e"></script>
+  <link rel="stylesheet" href="/style.css?v=20261118e">
+  <script src="/app.js?v=20261118e" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#inventory">Skip to inventory</a>
@@ -23,10 +23,11 @@
     <p class="nav-heading">ASSET MANAGEMENT</p>
     <nav>
       <a class="nav-current" href="#inventory" aria-current="page"><span aria-hidden="true">01</span>Device inventory</a>
-      <a id="coverage-navigation" href="/coverage.html"><span aria-hidden="true">02</span>Cloud &amp; group report</a>
-      <div class="nav-sub" role="group" aria-label="Cloud and group report sections">
+      <a id="coverage-navigation" href="/coverage.html"><span aria-hidden="true">02</span>Reports</a>
+      <div class="nav-sub" role="group" aria-label="Reports sections">
+        <a class="nav-child" href="/coverage.html#coverage-mde-summary">Overview</a>
         <a class="nav-child" href="/coverage.html#coverage-accounts">By AWS / GCP / Subscription</a>
-        <a class="nav-child" href="/coverage.html#coverage-groups">Entra ID groups &amp; empty</a>
+        <a class="nav-child" href="/coverage.html#coverage-groups">Entra ID Group Summary</a>
         <a class="nav-child" href="/coverage.html#coverage-empty-scopes">Scopes with 0 servers</a>
       </div>
       <a id="status-navigation" href="#device-status"><span aria-hidden="true">03</span>Status breakdowns</a>
@@ -52,6 +53,21 @@
       <p class="muted">Explore server identities, Defender inventory, and observed Entra group membership.</p>
     </div>
     <p id="error" role="alert" hidden></p>
+    <nav id="index-section-tabs" class="section-card-tabs" role="tablist" aria-label="Inventory page sections">
+      <button type="button" class="section-card-tab is-active" role="tab" aria-selected="true" data-section-tab="inventory-devices">
+        <strong>Device Inventory</strong>
+        <span>Server identities, Defender posture &amp; Entra group membership</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="device-status">
+        <strong>Status Breakdowns</strong>
+        <span>Arc connectivity, MDE onboarding, AV mode &amp; sensor health</span>
+      </button>
+      <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="processing-health">
+        <strong>Function App &amp; Logs</strong>
+        <span>Worker status, configured parameters &amp; execution transcripts</span>
+      </button>
+    </nav>
+    <div id="inventory-devices">
     <section class="panel sync-control" aria-label="Inventory synchronization">
       <div>
         <strong id="sync-status" role="status" aria-live="polite">Checking inventory job...</strong>
@@ -68,11 +84,6 @@
       <button type="button" data-card-target="not-in-group" aria-pressed="false" title="Devices without confirmed managed-group membership, including unknown membership.">Not in group</button>
     </nav>
     <section id="summary" class="cards summary-metrics" aria-label="Inventory summary"></section>
-    <details id="device-status" class="status-expander">
-      <summary>Status breakdowns <span class="muted">Arc connectivity / MDE onboarding / antivirus / operating systems / sensor health</span></summary>
-      <p class="muted">Counts cover the full inventory. Select any metric to filter; select it again to clear that metric. Table filters are retained.</p>
-      <div id="status-summary" class="status-groups"></div>
-    </details>
     <section class="panel" aria-label="Devices">
       <div class="table-toolbar">
         <button id="refresh" class="secondary" type="button">Refresh inventory</button>
@@ -93,6 +104,7 @@
         <label>Operating system<select id="os"><option value="">All operating systems</option></select></label>
         <label>Management group<select id="management-group"><option value="">All management groups</option></select></label>
         <label>Subscription<select id="subscription"><option value="">All subscriptions</option></select></label>
+        <label>AWS account<select id="aws-account"><option value="">All AWS accounts</option></select></label>
         <label>Entra membership<select id="membership"><option value="">All membership states</option><option>Present</option><option>Absent</option><option>Unknown</option></select></label>
       </div>
       <p id="table-notice" role="status" hidden></p>
@@ -104,7 +116,13 @@
       </table></div>
       <p class="table-footnote muted">Entra ID Group shows observed membership in managed security groups, not every Entra group. Not in group includes devices with unknown or unverified membership; it does not mean Graph confirmed absence. Membership is observed at its verification time, not a live directory assertion. MDE device groups are separate Defender RBAC groups.</p>
     </section>
-    <section id="processing-health" class="panel function-panel" aria-label="Azure Function App status and logs">
+    </div>
+    <details id="device-status" class="status-expander" open hidden>
+      <summary>Status breakdowns <span class="muted">Arc connectivity / MDE onboarding / antivirus / operating systems / sensor health</span></summary>
+      <p class="muted">Counts cover the full inventory. Select any metric to filter the Device Inventory tab; select it again to clear that metric.</p>
+      <div id="status-summary" class="status-groups"></div>
+    </details>
+    <section id="processing-health" class="panel function-panel" aria-label="Azure Function App status and logs" hidden>
       <div class="function-header">
         <div>
           <p class="eyebrow">AZURE FUNCTION APP TELEMETRY</p>
@@ -194,12 +212,14 @@
         <p id="script-modal-meta" class="muted"></p>
       </div>
       <div class="function-portal-links">
+        <button id="filter-script-errors" class="secondary" type="button" aria-pressed="false">Errors &amp; warnings only: Off</button>
         <button id="copy-script-modal" class="secondary" type="button">Copy output</button>
         <button id="wrap-script-modal" class="secondary" type="button" aria-pressed="true">Wrap lines: On</button>
         <button id="close-script-modal" class="secondary" type="button">Close</button>
       </div>
     </div>
     <div class="script-modal-body">
+      <div id="script-modal-errors" class="script-modal-errors" role="region" aria-label="Detected transcript errors and warnings" hidden></div>
       <pre id="script-modal-pre" class="script-modal-pre wrap-lines"><code id="script-modal-code"></code></pre>
     </div>
   </dialog>

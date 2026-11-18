@@ -16,6 +16,8 @@
   let logsCount = 0;
   let logsBusy = false;
   let cardFilter = null;
+  let reportDrillFilter = null;
+  let initialUrlFiltersApplied = false;
   const time = value => value ? new Date(value).toLocaleString() : "Not observed";
   const text = (tag, value, className) => {
     const element = document.createElement(tag);
@@ -78,9 +80,9 @@
     { id: "ComputerName", label: "Computer name" },
     { id: "Fqdn", label: "FQDN" },
     { id: "CloudProvider", label: "Cloud provider" },
-    { id: "MdeSensorHealth", label: "MDE sensor health" },
     { id: "ArcStatus", label: "Machine Status", value: m => isNativeAzureMachine(m) ? ((!m.ArcStatus || m.ArcStatus === "Connected") ? "VM running" : m.ArcStatus) : m.ArcStatus },
     { id: "MdeOnboardingStatus", label: "MDE onboarded status" },
+    { id: "MdeSensorHealth", label: "MDE sensor health" },
     { id: "MdeAntivirusMode", label: "MDE antivirus mode" },
     { id: "VirtualMachineId", label: "Virtual machine ID" },
     { id: "DefenderExtensionStatus", label: "Defender extension status", value: m => defenderExtensionFor(m) },
@@ -126,8 +128,9 @@
     { id: "Error", label: "Processing error", optional: true }
   ];
   const columnById = new Map(columns.map(column => [column.id, column]));
-  const preferenceKey = "arc-entra-table-v4";
+  const preferenceKey = "arc-entra-table-v5";
   const dataCacheKey = "arc-entra-data-cache-v1";
+  const drillFilterStorageKey = "arc-entra-drill-filter-v1";
   const themePreferenceKey = "arc-entra-theme-v2";
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   function currentTheme() {
@@ -149,7 +152,7 @@
   }
   const defaultColumns = [
     "MachineName", "MdeDeviceName", "EntraDeviceId", "EntraCorrelationPath", "Membership", "MdeOnboardingStatus",
-    "MdeAntivirusMode", "ArcStatus", "ComputerName", "Fqdn", "OS"
+    "MdeSensorHealth", "MdeAntivirusMode", "ArcStatus", "ComputerName", "Fqdn", "OS"
   ];
   const defaults = () => ({
     order: [...defaultColumns, ...columns.map(c => c.id).filter(id => !defaultColumns.includes(id))],
@@ -232,6 +235,172 @@
       }
     }
     return /\b(aws|amazon)\b/i.test(`${machine?.CloudProvider || ""} ${machine?.MdeCloudPlatforms || ""}`);
+  }
+  function awsAccountFor(machine) {
+    if (!isAwsMachine(machine)) return "";
+    if (machine?.AzureTags && typeof machine.AzureTags === "object") {
+      for (const k of Object.keys(machine.AzureTags)) {
+        if (k.toLowerCase() === "accountid" && String(machine.AzureTags[k] || "").trim()) {
+          return String(machine.AzureTags[k]).trim();
+        }
+      }
+    }
+    if (String(machine?.CloudGroupType || "").toUpperCase() === "AWS" && machine?.CloudIdentifier) {
+      return String(machine.CloudIdentifier).trim();
+    }
+    return "";
+  }
+  function resolveMachineCloudScope(machine) {
+    const type = machine.CloudGroupType || (machine.AzureTags?.AccountId || /\b(aws|amazon)\b/i.test(`${machine.CloudProvider || ""} ${machine.MdeCloudPlatforms || ""}`) ? "AWS" :
+      machine.AzureTags?.ProjectId || /\b(gcp|google)\b/i.test(`${machine.CloudProvider || ""} ${machine.MdeCloudPlatforms || ""}`) ? "GCP" : "Azure");
+    const identifier = machine.CloudIdentifier || (type === "AWS" ? (machine.AzureTags?.AccountId || "Missing AccountId tag") :
+      type === "GCP" ? (machine.AzureTags?.ProjectId || "Missing ProjectId tag") :
+      (machine.SubscriptionName || machine.SubscriptionId || "Unknown subscription"));
+    return {
+      CloudType: type,
+      CloudIdentifier: identifier,
+      SubscriptionId: type === "Azure" ? (machine.SubscriptionId || "") : "",
+      ManagementGroup: machine.ManagementGroup || ""
+    };
+  }
+  function isArcDisconnected(machine) {
+    const status = String(machine?.ArcStatus || "").trim();
+    return ["Disconnected", "Offline", "Expired"].includes(status) || /^vm (stopped|deallocated)$/i.test(status);
+  }
+  function inferGroupModeFromName(name, fallback = "") {
+    const raw = String(name || "");
+    if (/(?:^|[-_\s])active(?:[-_\s]|$)/i.test(raw)) return "Active";
+    if (/(?:^|[-_\s])passive(?:[-_\s]|$)/i.test(raw)) return "Passive";
+    return fallback;
+  }
+  function machinePresentGroupInfo(machine) {
+    const modes = new Set();
+    const present = machine?.Membership === "Present" ||
+      (Array.isArray(machine?.MemberGroups) && machine.MemberGroups.some(g => g?.DisplayName || g?.Id));
+    if (present) {
+      if (Array.isArray(machine?.MemberGroups) && machine.MemberGroups.length) {
+        for (const mg of machine.MemberGroups) {
+          const mode = mg?.GroupMode || inferGroupModeFromName(mg?.DisplayName, machine?.GroupAvMode || "Passive");
+          if (mode === "Active" || mode === "Passive") modes.add(mode);
+        }
+      } else if (machine?.GroupName) {
+        for (const part of String(machine.GroupName).split(";").map(s => s.trim()).filter(Boolean)) {
+          const mode = inferGroupModeFromName(part, machine?.GroupAvMode || "Passive");
+          if (mode === "Active" || mode === "Passive") modes.add(mode);
+        }
+      } else if (machine?.GroupAvMode === "Active" || machine?.GroupAvMode === "Passive") {
+        modes.add(machine.GroupAvMode);
+      }
+    }
+    const inActiveGroup = modes.has("Active");
+    const inPassiveGroup = modes.has("Passive");
+    const inBothActiveAndPassive = inActiveGroup && inPassiveGroup;
+    const isMdeActive = machine?.MdeAntivirusMode === "Active";
+    const isMdePassive = ["Passive", "PassiveAudit"].includes(machine?.MdeAntivirusMode);
+    return {
+      inActiveGroup,
+      inPassiveGroup,
+      inBothActiveAndPassive,
+      passiveGroupMdeActive: inPassiveGroup && isMdeActive,
+      activeGroupMdePassive: inActiveGroup && isMdePassive
+    };
+  }
+  function parseReportDrillFilter(searchString) {
+    const params = new URLSearchParams(String(searchString || ""));
+    if (params.get("all") === "1") {
+      return {
+        label: "All servers",
+        params: {},
+        matches() { return true; }
+      };
+    }
+    const scopeType = params.get("scopeType") || "";
+    const scopeId = params.get("scopeId") || "";
+    const subscriptionId = params.get("subscriptionId") || "";
+    const mg = params.get("mg") || "";
+    const group = params.get("group") || "";
+    const groupFilter = params.get("groupFilter") || "";
+    const membership = params.get("membership") || "";
+    const mde = params.get("mde") || "";
+    const sensor = params.get("sensor") || "";
+    const corr = params.get("corr") || "";
+    const av = params.get("av") || "";
+    const arc = params.get("arc") || "";
+    if (!scopeType && !scopeId && !subscriptionId && !mg && !group && !groupFilter && !membership && !mde && !sensor && !corr && !av && !arc) {
+      return null;
+    }
+    const labels = [];
+    if (mg) labels.push(`Management Group: ${mg}`);
+    if (scopeType && scopeId) labels.push(`${scopeType}: ${scopeId}`);
+    if (group) labels.push(`Group: ${group}`);
+    if (groupFilter) labels.push(`Group Filter: ${groupFilter}`);
+    if (mde) labels.push(`MDE: ${mde}`);
+    if (sensor) labels.push(`Sensor Health: ${sensor}`);
+    if (corr) labels.push(`Correlation: ${corr}`);
+    if (av) labels.push(`AV Mode: ${av}`);
+    if (arc) labels.push(`Arc/VM Status: ${arc}`);
+    return {
+      label: labels.join(" · "),
+      params: { scopeType, scopeId, subscriptionId, mg, group, groupFilter, membership, mde, sensor, corr, av, arc },
+      matches(machine) {
+        const resolved = resolveMachineCloudScope(machine);
+        const gInfo = machinePresentGroupInfo(machine);
+        if (mg) {
+          const mMg = String(resolved.ManagementGroup || "").toLowerCase();
+          const fMg = mg.toLowerCase();
+          if (mMg !== fMg && !mMg.endsWith(`(${fMg})`) && !fMg.endsWith(`(${mMg})`)) return false;
+        }
+        if (scopeType && String(resolved.CloudType || "").toLowerCase() !== scopeType.toLowerCase()) return false;
+        if (scopeId && String(resolved.CloudIdentifier || "").toLowerCase() !== scopeId.toLowerCase()) return false;
+        if (subscriptionId && !scopeType && String(machine.SubscriptionId || "").toLowerCase() !== subscriptionId.toLowerCase()) return false;
+        if (membership && String(machine.Membership || "") !== membership) return false;
+        if (group) {
+          const target = group.toLowerCase();
+          const inMemberGroups = Array.isArray(machine.MemberGroups) && machine.MemberGroups.some(g => String(g?.DisplayName || g?.Id || "").toLowerCase() === target);
+          const inGroupNames = Array.isArray(machine.GroupNames) && machine.GroupNames.some(n => String(n || "").toLowerCase() === target);
+          const matchesPrimary = String(machine.GroupName || "").toLowerCase() === target;
+          if (!inMemberGroups && !inGroupNames && !matchesPrimary) return false;
+        }
+        if (groupFilter === "ActiveGroup" && !gInfo.inActiveGroup) return false;
+        if (groupFilter === "PassiveGroup" && !gInfo.inPassiveGroup) return false;
+        if (groupFilter === "BothActiveAndPassive" && !gInfo.inBothActiveAndPassive) return false;
+        if (groupFilter === "PassiveGroupMdeActive" && !gInfo.passiveGroupMdeActive) return false;
+        if (groupFilter === "ActiveGroupMdePassive" && !gInfo.activeGroupMdePassive) return false;
+        if (mde === "Onboarded" && machine.MdeOnboardingStatus !== "Onboarded") return false;
+        if (sensor === "Active" && machine.MdeSensorHealth !== "Active") return false;
+        if (sensor === "Inactive" && machine.MdeSensorHealth !== "Inactive") return false;
+        if (sensor === "Other" && (!machine.MdeSensorHealth || ["Active", "Inactive"].includes(machine.MdeSensorHealth))) return false;
+        if (corr === "Correlated" && !hasEntraCorrelation(machine)) return false;
+        if (corr === "NotCorrelated" && hasEntraCorrelation(machine)) return false;
+        if (av === "Active" && machine.MdeAntivirusMode !== "Active") return false;
+        if (av === "Passive" && !["Passive", "PassiveAudit"].includes(machine.MdeAntivirusMode)) return false;
+        if (arc === "Connected" && !(machine.ArcStatus === "Connected" || /^vm running$/i.test(String(machine.ArcStatus || "")))) return false;
+        if (arc === "Disconnected" && !isArcDisconnected(machine)) return false;
+        if (arc === "Other" && (machine.ArcStatus === "Connected" || /^vm running$/i.test(String(machine.ArcStatus || "")) || isArcDisconnected(machine))) return false;
+        return true;
+      }
+    };
+  }
+  function applyUrlFilters() {
+    if (!initialUrlFiltersApplied) {
+      let queryStr = String(window.location?.search || "").replace(/^\?/, "");
+      try {
+        const stored = sessionStorage.getItem(drillFilterStorageKey) || "";
+        if (stored) {
+          sessionStorage.removeItem(drillFilterStorageKey);
+          queryStr = stored;
+        }
+      } catch {}
+      const drill = parseReportDrillFilter(queryStr);
+      initialUrlFiltersApplied = true;
+      if (drill) reportDrillFilter = drill;
+    }
+    if (!reportDrillFilter) return;
+    if (reportDrillFilter.label === "All servers") {
+      reportDrillFilter = null;
+      return;
+    }
+    tableNotice(`Filtered from Reports: ${reportDrillFilter.label} (Click "Clear all filters" to reset).`);
   }
   function machineKindLabel(machine) {
     const id = String(machine?.ArcResourceId || "").toLowerCase();
@@ -733,8 +902,19 @@
   }
   function clearFilters() {
     cardFilter = null;
+    reportDrillFilter = null;
+    tableNotice("");
     for (const key of Object.keys(filters)) delete filters[key];
-    for (const id of ["search", "status", "os", "management-group", "subscription", "membership"]) byId(id).value = "";
+    for (const id of ["search", "status", "os", "management-group", "subscription", "aws-account", "membership"]) {
+      const el = byId(id);
+      if (el) el.value = "";
+    }
+    try {
+      sessionStorage.removeItem(drillFilterStorageKey);
+      if (window.location?.search && window.history?.replaceState) {
+        window.history.replaceState(null, "", window.location.pathname + (window.location.hash || ""));
+      }
+    } catch {}
     renderColumnOptions();
     renderHeaders();
     render();
@@ -925,6 +1105,8 @@
     updateOptions("os", machines.map(m => m.OS), "All operating systems");
     updateOptions("management-group", machines.map(m => m.ManagementGroup), "All management groups");
     updateOptions("subscription", machines.map(m => m.SubscriptionId), "All subscriptions");
+    if (byId("aws-account")) updateOptions("aws-account", machines.map(awsAccountFor), "All AWS accounts");
+    applyUrlFilters();
     renderSummary();
     render();
   }
@@ -965,12 +1147,14 @@
     const activeFilters = Object.entries(filters).filter(([, value]) => value.trim());
     const filtered = machines.filter(machine =>
       (!cardFilter || cardFilter.matches(machine)) &&
+      (!reportDrillFilter || reportDrillFilter.matches(machine)) &&
       (!search || columns.some(column => searchFor(machine, column).toLowerCase().includes(search))) &&
       activeFilters.every(([id, value]) => searchFor(machine, columnById.get(id)).toLowerCase().includes(value.trim().toLowerCase())) &&
       (!byId("status").value || machine.Status === byId("status").value) &&
       (!byId("os").value || machine.OS === byId("os").value) &&
       (!byId("management-group").value || machine.ManagementGroup === byId("management-group").value) &&
       (!byId("subscription").value || machine.SubscriptionId === byId("subscription").value) &&
+      (!byId("aws-account")?.value || awsAccountFor(machine) === byId("aws-account").value) &&
       (!byId("membership").value || machine.Membership === byId("membership").value)
     );
     const sortColumn = columnById.get(layout.sort.id);
@@ -1034,7 +1218,7 @@
   function render() {
     const { filtered, activeFilters } = getFilteredMachines();
     const hiddenFilters = activeFilters.filter(([id]) => !layout.visible.includes(id)).length;
-    byId("count").textContent = `${filtered.length} of ${machines.length} machines. ${cardFilter ? `Card filter: ${cardFilter.label}. ` : ""}${activeFilters.length} column filters${hiddenFilters ? ` (${hiddenFilters} on hidden columns)` : ""}. Sorted by ${columnById.get(layout.sort.id).label} ${layout.sort.direction}.`;
+    byId("count").textContent = `${filtered.length} of ${machines.length} machines. ${cardFilter ? `Card filter: ${cardFilter.label}. ` : ""}${reportDrillFilter ? `Report filter: ${reportDrillFilter.label}. ` : ""}${activeFilters.length} column filters${hiddenFilters ? ` (${hiddenFilters} on hidden columns)` : ""}. Sorted by ${columnById.get(layout.sort.id).label} ${layout.sort.direction}.`;
     updateCardSelection();
     hideHoverPopover();
     const body = byId("machines");
@@ -1255,22 +1439,23 @@
     card.append(text("strong", count), text("span", filter.valueLabel || filter.label));
     bindHoverPopover(card, () => statusCardHoverSpec(filter, machines.filter(filter.matches).length));
     card.addEventListener("click", () => {
-      if (filter.key === "all") { clearFilters(); return; }
+      if (filter.key === "all") { clearFilters(); selectIndexSection("inventory-devices"); return; }
       cardFilter = cardFilter?.key === filter.key ? null : filter;
+      selectIndexSection("inventory-devices");
       render();
     });
     return card;
   }
   function updateCardSelection() {
-    const hasOtherFilters = Object.values(filters).some(value => value.trim()) ||
-      ["search", "status", "os", "management-group", "subscription", "membership"].some(id => byId(id).value);
+    const hasOtherFilters = Boolean(reportDrillFilter) || Object.values(filters).some(value => value.trim()) ||
+      ["search", "status", "os", "management-group", "subscription", "aws-account", "membership"].some(id => byId(id)?.value);
     for (const card of document.querySelectorAll("button[data-card]")) {
       const selected = card.dataset.card === "all" ? !cardFilter && !hasOtherFilters : card.dataset.card === cardFilter?.key;
       card.setAttribute("aria-pressed", String(selected));
       card.classList.toggle("is-active", selected);
     }
     for (const tab of document.querySelectorAll("button[data-card-target]")) {
-      const selected = tab.dataset.cardTarget === "all" ? !cardFilter : tab.dataset.cardTarget === cardFilter?.key;
+      const selected = tab.dataset.cardTarget === "all" ? !cardFilter && !hasOtherFilters : tab.dataset.cardTarget === cardFilter?.key;
       tab.setAttribute("aria-pressed", String(selected));
     }
   }
@@ -1421,7 +1606,9 @@
           runLogDetails.append(summary);
           const pre = document.createElement("pre");
           pre.className = "script-inline-pre";
-          pre.append(text("code", runOutput));
+          const codeEl = document.createElement("code");
+          renderHighlightedTranscript(codeEl, runOutput, false);
+          pre.append(codeEl);
           runLogDetails.append(pre);
           entry.append(runLogDetails);
         }
@@ -1582,13 +1769,112 @@
       row.append(nameCell, valCell, text("td", description, "muted"));
       body.append(row);
     }
+    applyStaticTableFilters(body.closest("table"));
+  }
+  function applyStaticTableFilters(table) {
+    if (!table) return;
+    const filterRow = table.querySelector("thead tr.column-filters");
+    const tbody = table.querySelector("tbody");
+    if (!filterRow || !tbody) return;
+    const inputs = [...filterRow.querySelectorAll("input")];
+    const active = inputs.map((inp, idx) => [idx, (inp.value || "").trim().toLowerCase()]).filter(([, val]) => val);
+    for (const row of tbody.rows) {
+      if (row.cells.length === 1 && row.cells[0].colSpan > 1) continue;
+      const visible = active.every(([idx, val]) => String(row.cells[idx]?.textContent || "").toLowerCase().includes(val));
+      row.hidden = !visible;
+    }
+  }
+  function initStaticTableColumnFilters() {
+    for (const table of document.querySelectorAll("table")) {
+      const thead = table.querySelector("thead");
+      if (!thead || thead.id === "machine-head" || thead.querySelector("tr.column-filters")) continue;
+      const headerRow = thead.querySelector("tr");
+      if (!headerRow) continue;
+      const filterRow = document.createElement("tr");
+      filterRow.className = "column-filters";
+      for (const th of headerRow.children) {
+        const label = (th.textContent || "").trim() || "column";
+        const td = document.createElement("td");
+        const input = document.createElement("input");
+        input.type = "search";
+        input.placeholder = `Filter ${label}`;
+        input.setAttribute("aria-label", `Filter ${label}`);
+        input.addEventListener("input", () => applyStaticTableFilters(table));
+        td.append(input);
+        filterRow.append(td);
+      }
+      thead.append(filterRow);
+    }
+  }
+  let currentModalEntry = null;
+  let scriptModalErrorsOnly = false;
+  function classifyTranscriptLine(line) {
+    const textLine = String(line || "");
+    if (!textLine.trim()) return "normal";
+    if (/^===.*ERRORS & WARNINGS SUMMARY/i.test(textLine) || /\[Error\]/i.test(textLine) ||
+        /\b(?:Upstream error HTTP [45]\d\d|HTTP [45]\d\d|Sync failed|Inventory sync failed|Exception|Unhealthy|status=Failed|ArcMissing|EntraDeviceDisabled|GroupNotFound)\b/i.test(textLine)) {
+      return "error";
+    }
+    if (/\[Warning\]/i.test(textLine) ||
+        /\b(?:Inventory enrichment failed|warning|Partial|StaleEvidence|PendingMde|Ambiguous|NoEntraDevice|EntraDeviceNotFound|MissingCloudIdentifier|no antivirus assessment)\b/i.test(textLine)) {
+      return "warn";
+    }
+    if (/===/.test(textLine) || /\bExecuting (?:ARG|bulk MDE|DeviceInfo)/i.test(textLine)) {
+      return "header";
+    }
+    return "normal";
+  }
+  function summarizeTranscriptIssues(rawText) {
+    const lines = String(rawText || "").split(/\r?\n/);
+    const errors = [];
+    const warnings = [];
+    for (const line of lines) {
+      const kind = classifyTranscriptLine(line);
+      if (kind === "error") errors.push(line);
+      else if (kind === "warn") warnings.push(line);
+    }
+    return { errors, warnings };
+  }
+  function renderHighlightedTranscript(codeEl, rawText, errorsOnly = false) {
+    if (!codeEl) return;
+    codeEl.replaceChildren();
+    const lines = String(rawText || "").split(/\r?\n/);
+    let shown = 0;
+    for (const line of lines) {
+      const kind = classifyTranscriptLine(line);
+      if (errorsOnly && kind !== "error" && kind !== "warn") continue;
+      shown++;
+      const span = text("span", line + "\n", `transcript-line${kind !== "normal" ? ` transcript-line-${kind}` : ""}`);
+      codeEl.append(span);
+    }
+    if (errorsOnly && shown === 0) {
+      codeEl.append(text("span", "No error or warning lines were detected in this execution transcript.\n", "transcript-line muted"));
+    }
   }
   function openScriptOutputModal(entry) {
     const modal = byId("script-output-modal");
     if (!modal) return;
+    currentModalEntry = entry;
     byId("script-modal-title").textContent = `${entry.FunctionName || "Function"} — ${entry.Status || "Completed"}`;
     byId("script-modal-meta").textContent = `${time(entry.Timestamp)} · Trigger: ${entry.TriggerReason || missing} · Run ID: ${entry.RunId || missing}`;
-    byId("script-modal-code").textContent = entry.ScriptOutput || "";
+    const rawOutput = entry.ScriptOutput || "";
+    const { errors, warnings } = summarizeTranscriptIssues(rawOutput);
+    const errBox = byId("script-modal-errors");
+    if (errBox) {
+      errBox.replaceChildren();
+      if (errors.length || warnings.length || entry.Status === "Failed") {
+        const heading = `${errors.length} error line(s) and ${warnings.length} warning/attention line(s) detected in this run`;
+        errBox.append(text("strong", heading));
+        for (const line of [...errors, ...warnings].slice(0, 12)) {
+          const kind = classifyTranscriptLine(line);
+          errBox.append(text("div", line, `transcript-line transcript-line-${kind}`));
+        }
+        errBox.hidden = false;
+      } else {
+        errBox.hidden = true;
+      }
+    }
+    renderHighlightedTranscript(byId("script-modal-code"), rawOutput, scriptModalErrorsOnly);
     byId("copy-script-modal").textContent = "Copy output";
     if (!modal.open) modal.showModal();
   }
@@ -1601,18 +1887,34 @@
       const health = entry.Health || "Healthy";
       const statusTone = ["Succeeded", "Verified", "WouldAdd", "Matched"].includes(status) ? "good" : status === "Failed" ? "bad" : "attention";
       const healthTone = health === "Healthy" ? "good" : health === "Unhealthy" ? "bad" : "attention";
+      const issues = summarizeTranscriptIssues(`${entry.Message || ""}\n${entry.ScriptOutput || ""}`);
+      if (status === "Failed" || health === "Unhealthy" || issues.errors.length > 0) {
+        row.classList.add("log-row-error");
+      } else if (health !== "Healthy" || statusTone === "attention" || issues.warnings.length > 0) {
+        row.classList.add("log-row-warn");
+      }
       const statusCell = document.createElement("td");
       statusCell.append(text("span", status, `status-value ${statusTone}`));
       const healthCell = document.createElement("td");
       healthCell.append(text("span", health, `badge ${healthTone}`));
       const msgCell = document.createElement("td");
       msgCell.className = "log-msg-cell";
-      msgCell.append(text("div", entry.Message || missing));
+      const msgClass = status === "Failed" || issues.errors.length > 0 ? "transcript-line transcript-line-error" :
+        (health !== "Healthy" || issues.warnings.length > 0 ? "transcript-line transcript-line-warn" : "");
+      msgCell.append(text("div", entry.Message || missing, msgClass));
       if (entry.ScriptOutput) {
         const details = document.createElement("details");
         details.className = "script-output-details";
         const summary = document.createElement("summary");
-        summary.append(text("span", "View full PowerShell script output & query results"));
+        const labelWrap = text("span", "View full PowerShell script output & query results");
+        summary.append(labelWrap);
+        const btnGroup = text("span", "", "function-portal-links");
+        if (issues.errors.length > 0) {
+          btnGroup.append(text("span", `${issues.errors.length} error${issues.errors.length === 1 ? "" : "s"}`, "badge bad"));
+        }
+        if (issues.warnings.length > 0) {
+          btnGroup.append(text("span", `${issues.warnings.length} warning${issues.warnings.length === 1 ? "" : "s"}`, "badge attention"));
+        }
         const expandBtn = text("button", "Expand window", "secondary script-expand-btn");
         expandBtn.type = "button";
         expandBtn.title = "Open full PowerShell script output and query results in an expanded window";
@@ -1621,11 +1923,14 @@
           event.stopPropagation();
           openScriptOutputModal(entry);
         });
-        summary.append(expandBtn);
+        btnGroup.append(expandBtn);
+        summary.append(btnGroup);
         details.append(summary);
         const pre = document.createElement("pre");
         pre.className = "script-inline-pre";
-        pre.append(text("code", entry.ScriptOutput));
+        const codeEl = document.createElement("code");
+        renderHighlightedTranscript(codeEl, entry.ScriptOutput, false);
+        pre.append(codeEl);
         details.append(pre);
         msgCell.append(details);
       }
@@ -1647,6 +1952,7 @@
       empty.append(cell);
       body.append(empty);
     }
+    applyStaticTableFilters(body.closest("table"));
   }
   async function loadMoreLogs() {
     if (logsBusy || !logsCursor) return;
@@ -1693,7 +1999,7 @@
       busy = false;
     }
   }
-  for (const id of ["search", "status", "os", "management-group", "subscription", "membership"]) byId(id).addEventListener("input", render);
+  for (const id of ["search", "status", "os", "management-group", "subscription", "aws-account", "membership"]) byId(id)?.addEventListener("input", render);
   byId("export-csv")?.addEventListener("click", exportInventoryCsv);
   byId("clear-filters").addEventListener("click", clearFilters);
   byId("reset-table").addEventListener("click", () => {
@@ -1718,8 +2024,18 @@
     btn.setAttribute("aria-pressed", String(expanded));
   });
   byId("close-script-modal")?.addEventListener("click", () => byId("script-output-modal")?.close());
+  byId("filter-script-errors")?.addEventListener("click", () => {
+    const btn = byId("filter-script-errors");
+    if (!btn) return;
+    scriptModalErrorsOnly = !scriptModalErrorsOnly;
+    btn.textContent = `Errors & warnings only: ${scriptModalErrorsOnly ? "On" : "Off"}`;
+    btn.setAttribute("aria-pressed", String(scriptModalErrorsOnly));
+    if (currentModalEntry) {
+      renderHighlightedTranscript(byId("script-modal-code"), currentModalEntry.ScriptOutput || "", scriptModalErrorsOnly);
+    }
+  });
   byId("copy-script-modal")?.addEventListener("click", async () => {
-    const content = byId("script-modal-code")?.textContent || "";
+    const content = currentModalEntry?.ScriptOutput || byId("script-modal-code")?.textContent || "";
     try {
       await navigator.clipboard.writeText(content);
       byId("copy-script-modal").textContent = "Copied!";
@@ -1764,7 +2080,40 @@
     if (activeHoverCell?.contains(event.relatedTarget)) return;
     scheduleHideHoverPopover();
   });
-  byId("status-navigation").addEventListener("click", () => { byId("device-status").open = true; });
+  function selectIndexSection(targetId) {
+    const normalized = targetId === "inventory" ? "inventory-devices" : targetId;
+    const ids = ["inventory-devices", "device-status", "processing-health"];
+    const activeId = ids.includes(normalized) ? normalized : "inventory-devices";
+    for (const id of ids) {
+      const el = byId(id);
+      if (!el) continue;
+      el.hidden = id !== activeId;
+      if (id === "device-status" && activeId === "device-status") el.open = true;
+    }
+    for (const btn of document.querySelectorAll("#index-section-tabs button[data-section-tab]")) {
+      const active = btn.dataset.sectionTab === activeId;
+      btn.classList.toggle("is-active", active);
+      btn.setAttribute("aria-selected", String(active));
+    }
+  }
+  for (const btn of document.querySelectorAll("#index-section-tabs button[data-section-tab]")) {
+    btn.addEventListener("click", () => selectIndexSection(btn.dataset.sectionTab));
+  }
+  for (const link of document.querySelectorAll('.sidebar a[href^="#"]')) {
+    link.addEventListener("click", event => {
+      const hash = (link.getAttribute("href") || "").replace(/^#/, "");
+      if (hash) {
+        event.preventDefault();
+        selectIndexSection(hash);
+      }
+    });
+  }
+  window.addEventListener("hashchange", () => {
+    const hash = String(window.location.hash || "").replace(/^#/, "");
+    if (hash) selectIndexSection(hash);
+  });
+  const initialIndexHash = String(window.location.hash || "").replace(/^#/, "");
+  selectIndexSection(initialIndexHash || "inventory-devices");
   for (const link of document.querySelectorAll("a[data-doc-target]")) {
     link.addEventListener("click", () => {
       const target = byId(link.dataset.docTarget);
@@ -1784,6 +2133,7 @@
   window.addEventListener("resize", () => { if (activeHoverCell) positionHoverPopover(activeHoverCell); });
   readLayout();
   updateThemeButton();
+  initStaticTableColumnFilters();
   renderColumnOptions();
   renderHeaders();
   const cachedAgeMs = Date.now() - loadCachedSnapshot();

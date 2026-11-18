@@ -82,12 +82,10 @@ try {
     }
     if ($content) {
         $fileName = $content.File
-        if (-not $global:ReportStaticCache.ContainsKey($fileName)) {
-            $global:ReportStaticCache[$fileName] = Get-Content -LiteralPath "$PSScriptRoot\..\www\$fileName" -Raw
-        }
+        $global:ReportStaticCache[$fileName] = Get-Content -LiteralPath "$PSScriptRoot\..\www\$fileName" -Raw
         $staticHeaders = @{}
         foreach ($k in $headers.Keys) { $staticHeaders[$k] = $headers[$k] }
-        $staticHeaders['Cache-Control'] = 'private, max-age=300, stale-while-revalidate=3600'
+        $staticHeaders['Cache-Control'] = 'no-cache'
         Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 200 -ContentType $content.Type -Body $global:ReportStaticCache[$fileName] -Headers $staticHeaders)
         return
     }

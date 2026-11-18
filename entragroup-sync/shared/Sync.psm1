@@ -23,7 +23,7 @@ function Write-SyncTrace {
     if ($null -ne $Data) {
         try {
             $json = if ($Data -is [string]) { $Data } else { ConvertTo-Json -InputObject $Data -Depth 15 -Compress }
-            if ($json.Length -gt 24000) { $json = $json.Substring(0, 24000) + '...(truncated)' }
+            if ($json.Length -gt 8000) { $json = $json.Substring(0, 8000) + '...(payload abbreviated)' }
             $suffix = "`n$json"
         }
         catch {}
@@ -33,6 +33,27 @@ function Write-SyncTrace {
         $script:CurrentRunTranscript.Add($line)
     }
     Write-Information "[SyncTrace] $line" -InformationAction Continue
+}
+
+function Format-RunTranscript {
+    param([string]$RawTranscript, [int]$MaxLength = 48000)
+    if ([string]::IsNullOrEmpty($RawTranscript) -or $RawTranscript.Length -le $MaxLength) {
+        return $RawTranscript
+    }
+    $lines = @($RawTranscript -split "\r?\n")
+    $errorPattern = '\[(?:Error|Warning)\]|(?i)\b(?:error|failed|failure|exception|unhealthy|http [45]\d\d|blocked|ambiguous|missing|staleevidence|pendingmde|noentradevice|entradevicenotfound|entradevicedisabled|groupnotfound)\b'
+    $errorLines = @($lines | Where-Object { $_ -match $errorPattern } | Select-Object -First 80)
+    $errorSection = if ($errorLines.Count -gt 0) {
+        "=== ERRORS & WARNINGS SUMMARY ($($errorLines.Count) line(s)) ===`n" + ($errorLines -join "`n") + "`n=== END ERRORS & WARNINGS SUMMARY ===`n`n"
+    } else { '' }
+    $remainingBudget = [math]::Max(4000, $MaxLength - $errorSection.Length - 160)
+    $headBudget = [int][math]::Floor($remainingBudget * 0.45)
+    $tailBudget = $remainingBudget - $headBudget
+    $head = $RawTranscript.Substring(0, [math]::Min($headBudget, $RawTranscript.Length))
+    $tailStart = [math]::Max($head.Length, $RawTranscript.Length - $tailBudget)
+    $tail = $RawTranscript.Substring($tailStart)
+    $omittedChars = $RawTranscript.Length - $head.Length - $tail.Length
+    return "${errorSection}${head}`n...($omittedChars chars of intermediate trace omitted; all errors/warnings and final output preserved)...`n${tail}"
 }
 
 function Get-OptionalSetting {
@@ -1535,11 +1556,8 @@ function Save-MachineState {
     }
     # Commit the current state and its historical snapshot atomically in one partition.
     $runTranscript = if ($null -ne $script:CurrentRunTranscript -and $script:CurrentRunTranscript.Count -gt 0) {
-        ($script:CurrentRunTranscript -join "`n")
+        Format-RunTranscript -RawTranscript ($script:CurrentRunTranscript -join "`n") -MaxLength 32000
     } else { '' }
-    if ($runTranscript.Length -gt 18000) {
-        $runTranscript = $runTranscript.Substring(0, 18000) + "`n...(transcript truncated to fit Table Storage entity limit)"
-    }
     $historyPayload = @{
         Timestamp = $State.LastChecked
         Action = 'StateChanged'
@@ -1980,15 +1998,12 @@ function Write-FunctionLog {
     param([hashtable]$Entry)
     $reverseTicks = [long]::MaxValue - [datetime]::UtcNow.Ticks
     $scriptOutput = if ($Entry['ScriptOutput']) {
-        [string]$Entry['ScriptOutput']
+        Format-RunTranscript -RawTranscript ([string]$Entry['ScriptOutput']) -MaxLength 48000
     }
     elseif ($null -ne $script:CurrentRunTranscript -and $script:CurrentRunTranscript.Count -gt 0) {
-        ($script:CurrentRunTranscript -join "`n")
+        Format-RunTranscript -RawTranscript ($script:CurrentRunTranscript -join "`n") -MaxLength 48000
     }
     else { '' }
-    if ($scriptOutput.Length -gt 26000) {
-        $scriptOutput = $scriptOutput.Substring(0, 26000) + "`n...(transcript truncated to fit Table Storage entity limit)"
-    }
     $log = @{
         Timestamp = if ($Entry['Timestamp']) { [string]$Entry['Timestamp'] } else { [datetimeoffset]::UtcNow.ToString('o') }
         FunctionName = [string]$Entry['FunctionName']
@@ -2706,7 +2721,8 @@ ${rgClause}| extend vmssId = tolower(id), vmssName = name, vmssTags = tags
                     Write-SyncTrace 'ResourceGraph' "ARG query [$queryLabel] page=$pageNumber returned $($returnedIds.Count) row(s) (totalRecords=$($result['totalRecords']), truncated=$($result['resultTruncated']))" @{
                         TotalRecords = $result['totalRecords']
                         ResultTruncated = $result['resultTruncated']
-                        Data = $rows
+                        ReturnedCount = $returnedIds.Count
+                        ResourceIds = @($returnedIds | Select-Object -First 25)
                     }
                     foreach ($row in $rows) {
                         $rowId = if ($row.ContainsKey('id1') -and $row.id1) { [string]$row.id1 } else { [string]$row.id }
@@ -2927,6 +2943,7 @@ function Invoke-InventoryStep {
         $message = "${Source}: $($_.Exception.Message)"
         $State.InventoryErrors += $message.Substring(0, [math]::Min(1000, $message.Length))
         $State.InventoryStatus = 'Partial'
+        Write-SyncTrace 'Warning' "Inventory enrichment failed for $($State.Key) ($($State['MachineName'])): $message"
         Write-Warning "Inventory enrichment failed for $($State.Key): $message"
     }
 }
@@ -3755,6 +3772,7 @@ function Invoke-MachineSync {
         $state.Status = 'Failed'
         $state.Membership = 'Unknown'
         $state.Error = $_.Exception.Message.Substring(0, [math]::Min(1000, $_.Exception.Message.Length))
+        Write-SyncTrace 'Error' "Sync failed for $($state.MachineName) (Key=$key, RunId=$($state.RunId)): $($state.Error)"
         Save-MachineState $state $previous
         try {
             $reason = switch ($state.Source) {
@@ -3827,4 +3845,4 @@ function Test-ReportSyncRequest {
     return [string]$Request.Headers['Origin'] -ieq "https://$hostname"
 }
 
-Export-ModuleMember -Function Get-*, Resolve-*, Format-CloudGroupName, ConvertFrom-CloudGroupDisplayName, New-AdminUnitSecurityGroup, New-ReportSyncRequest, Update-GroupComplianceFlags, Set-VerifiedMembership, ConvertTo-ArcId, Invoke-MdeExtensionEvent, Invoke-InventorySync, Invoke-MachineSync, Test-ReportReader, Test-ReportSyncRequest, Write-FunctionLog, Write-WorkerConfiguration
+Export-ModuleMember -Function Get-*, Resolve-*, Format-CloudGroupName, Format-RunTranscript, ConvertFrom-CloudGroupDisplayName, New-AdminUnitSecurityGroup, New-ReportSyncRequest, Update-GroupComplianceFlags, Set-VerifiedMembership, ConvertTo-ArcId, Invoke-MdeExtensionEvent, Invoke-InventorySync, Invoke-MachineSync, Test-ReportReader, Test-ReportSyncRequest, Write-FunctionLog, Write-WorkerConfiguration
