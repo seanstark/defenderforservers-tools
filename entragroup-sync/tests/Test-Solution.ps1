@@ -2348,6 +2348,18 @@ try {
             $null = Get-TablePage -Filter "RowKey eq 'state'" -Cursor $page.Cursor
             Assert-True ($script:TablePath.Contains('NextPartitionKey=next%20partition'))
             Assert-True ($script:TablePath.Contains('NextRowKey=next%20row'))
+            function script:Invoke-Table {
+                param($Path)
+                $script:TablePath = $Path
+                @{ Content = '{"value":[{"Data":"{\"Key\":\"srv1\",\"MachineName\":\"srv1\"}"},{"Data":"{\"Key\":\"srv2\",\"MachineName\":\"srv2\"}"}]}'; Headers = @{} }
+            }
+            $rawPage = Get-TablePage -Filter "RowKey eq 'state'" -Top 1000 -RawDataJson
+            Assert-True ($script:TablePath.Contains('&$top=1000&$select=Data'))
+            $parsedRaw = $rawPage | ConvertFrom-Json -AsHashtable
+            Assert-Equal $parsedRaw.Items.Count 2
+            Assert-Equal $parsedRaw.Items[0].MachineName 'srv1'
+            Assert-Equal $parsedRaw.Items[1].MachineName 'srv2'
+            Assert-Equal $parsedRaw.Cursor ''
         }
         Test-Case 'Malformed and unexpected continuation fields are rejected' {
             Assert-Throws { Get-TableContinuation 'not-base64' }

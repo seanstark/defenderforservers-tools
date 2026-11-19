@@ -108,7 +108,25 @@
         <label>Entra membership<select id="membership"><option value="">All membership states</option><option>Present</option><option>Absent</option><option>Unknown</option></select></label>
       </div>
       <p id="table-notice" role="status" hidden></p>
-      <div class="table-caption"><p id="count" aria-live="polite"></p><span class="muted">Hover or focus a device to view history.</span></div>
+      <div class="table-caption">
+        <p id="count" aria-live="polite"></p>
+        <div id="table-pagination" class="table-pagination" aria-label="Device table pagination">
+          <label class="page-size-label">Show
+            <select id="page-size" aria-label="Rows per page">
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+            </select>
+            per page
+          </label>
+          <span id="page-info" class="muted" aria-live="polite">Page 1 of 1</span>
+          <button id="page-first" class="secondary page-btn" type="button" title="First page" disabled>&laquo; First</button>
+          <button id="page-prev" class="secondary page-btn" type="button" title="Previous page" disabled>&lsaquo; Prev</button>
+          <button id="page-next" class="secondary page-btn" type="button" title="Next page" disabled>Next &rsaquo;</button>
+          <button id="page-last" class="secondary page-btn" type="button" title="Last page" disabled>Last &raquo;</button>
+        </div>
+      </div>
       <div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable machine inventory"><table>
         <caption class="sr-only">Current device correlation and observed group membership</caption>
         <thead id="machine-head"></thead>

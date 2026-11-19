@@ -227,6 +227,15 @@ async function testLiveControls() {
   }
   const indexHtml = fs.readFileSync(path.join(__dirname, "..", "report", "www", "index.html"), "utf8");
   assert.match(indexHtml, /<select id="aws-account"><option value="">All AWS accounts<\/option><\/select>/);
+  assert.match(indexHtml, /id="table-pagination"/);
+  assert.match(indexHtml, /id="page-size"/);
+  assert.match(indexHtml, /id="page-first"/);
+  assert.match(indexHtml, /id="page-prev"/);
+  assert.match(indexHtml, /id="page-next"/);
+  assert.match(indexHtml, /id="page-last"/);
+  assert.match(source, /top=100/);
+  assert.match(source, /top=1000/);
+  assert.match(source, /arc-entra-cache-db/);
   const awsHelpers = source.slice(source.indexOf("  function isNativeAzureMachine("), source.indexOf("  function awsIconNode("));
   context.URLSearchParams = URLSearchParams;
   context.Set = Set;

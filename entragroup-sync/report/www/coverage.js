@@ -5,6 +5,9 @@
   const missing = "Not available";
   const themePreferenceKey = "arc-entra-theme-v2";
   const dataCacheKey = "arc-entra-data-cache-v1";
+  const idbDatabaseName = "arc-entra-cache-db";
+  const idbStoreName = "snapshots";
+  const cacheFreshnessMs = 300000;
   const drillFilterStorageKey = "arc-entra-drill-filter-v1";
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   let machines = [];
@@ -255,6 +258,58 @@
       sessionStorage.removeItem(dataCacheKey);
       localStorage.removeItem(dataCacheKey);
     } catch {}
+    try {
+      if (typeof indexedDB !== "undefined") {
+        const req = indexedDB.open(idbDatabaseName, 1);
+        req.onsuccess = () => {
+          try {
+            const db = req.result;
+            if (db.objectStoreNames.contains(idbStoreName)) {
+              db.transaction(idbStoreName, "readwrite").objectStore(idbStoreName).delete(dataCacheKey);
+            }
+            db.close();
+          } catch {}
+        };
+      }
+    } catch {}
+  }
+  function openSnapshotCacheDb() {
+    return new Promise((resolve, reject) => {
+      if (typeof indexedDB === "undefined") { reject(new Error("IndexedDB unavailable")); return; }
+      const req = indexedDB.open(idbDatabaseName, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(idbStoreName)) {
+          db.createObjectStore(idbStoreName);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
+    });
+  }
+  async function readIdbSnapshot() {
+    try {
+      const db = await openSnapshotCacheDb();
+      return await new Promise(resolve => {
+        const tx = db.transaction(idbStoreName, "readonly");
+        const getReq = tx.objectStore(idbStoreName).get(dataCacheKey);
+        getReq.onsuccess = () => { db.close(); resolve(getReq.result || null); };
+        getReq.onerror = () => { db.close(); resolve(null); };
+      });
+    } catch {
+      return null;
+    }
+  }
+  async function writeIdbSnapshot(record) {
+    try {
+      const db = await openSnapshotCacheDb();
+      await new Promise(resolve => {
+        const tx = db.transaction(idbStoreName, "readwrite");
+        tx.objectStore(idbStoreName).put(record, dataCacheKey);
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { db.close(); resolve(); };
+      });
+    } catch {}
   }
   async function get(path, forceRefresh = false) {
     const sep = path.includes("?") ? "&" : "?";
@@ -279,7 +334,8 @@
     const cursors = new Set();
     let cursor = "";
     do {
-      const page = await get("data" + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""), forceRefresh);
+      const query = cursor ? `?top=1000&cursor=${encodeURIComponent(cursor)}` : "?top=1000";
+      const page = await get("data" + query, forceRefresh);
       if (!Array.isArray(page.Items) || typeof page.Cursor !== "string") throw new Error("Invalid inventory response.");
       items.push(...page.Items);
       cursor = page.Cursor;
@@ -304,13 +360,34 @@
       return 0;
     }
   }
+  async function loadCachedSnapshotAsync() {
+    const syncSavedAt = loadCachedSnapshot();
+    if (syncSavedAt > 0) return syncSavedAt;
+    const cached = await readIdbSnapshot();
+    if (!cached || !Array.isArray(cached.items)) return 0;
+    if (!machines.length) {
+      machines = cached.items;
+      latestHealth = cached.health || {};
+      renderCoverageReport();
+      byId("updated").textContent = `Cached snapshot: ${time(cached.timestamp || new Date().toISOString())}`;
+    }
+    return Number(cached.savedAt) || 0;
+  }
   function saveCachedSnapshot(items, health, timestamp) {
+    void (async () => {
+      const prevIdb = await readIdbSnapshot() || {};
+      await writeIdbSnapshot({ ...prevIdb, items, health, timestamp, savedAt: Date.now() });
+    })();
     try {
       localStorage.removeItem(dataCacheKey);
-      const raw = sessionStorage.getItem(dataCacheKey);
-      const prev = raw ? JSON.parse(raw) : {};
-      const payload = JSON.stringify({ ...prev, items, health, timestamp, savedAt: Date.now() });
-      sessionStorage.setItem(dataCacheKey, payload);
+      if (Array.isArray(items) && items.length <= 1500) {
+        const raw = sessionStorage.getItem(dataCacheKey);
+        const prev = raw ? JSON.parse(raw) : {};
+        const payload = JSON.stringify({ ...prev, items, health, timestamp, savedAt: Date.now() });
+        sessionStorage.setItem(dataCacheKey, payload);
+      } else {
+        sessionStorage.removeItem(dataCacheKey);
+      }
     } catch {}
   }
   function resolveMachineCloudScope(machine) {
@@ -1189,7 +1266,10 @@
   window.addEventListener("resize", () => { if (activeHoverCell) positionHoverPopover(activeHoverCell); });
   initTableColumnFilters();
   updateThemeButton();
-  const cachedAgeMs = Date.now() - loadCachedSnapshot();
-  if (cachedAgeMs > 30000) void refresh(false);
-  window.setInterval(() => { if (!document.hidden) void refresh(false); }, 60000);
+  void (async () => {
+    const savedAt = await loadCachedSnapshotAsync();
+    const cachedAgeMs = Date.now() - savedAt;
+    if (cachedAgeMs > cacheFreshnessMs) void refresh(false);
+  })();
+  window.setInterval(() => { if (!document.hidden) void refresh(false); }, cacheFreshnessMs);
 })();

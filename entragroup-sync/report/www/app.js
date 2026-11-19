@@ -18,6 +18,10 @@
   let cardFilter = null;
   let reportDrillFilter = null;
   let initialUrlFiltersApplied = false;
+  let currentPage = 1;
+  let pageSize = 50;
+  let filterDebounceTimer = 0;
+  let wasSyncRunning = false;
   const time = value => value ? new Date(value).toLocaleString() : "Not observed";
   const text = (tag, value, className) => {
     const element = document.createElement(tag);
@@ -134,7 +138,11 @@
   ];
   const columnById = new Map(columns.map(column => [column.id, column]));
   const preferenceKey = "arc-entra-table-v5";
+  const pageSizePreferenceKey = "arc-entra-page-size-v1";
   const dataCacheKey = "arc-entra-data-cache-v1";
+  const idbDatabaseName = "arc-entra-cache-db";
+  const idbStoreName = "snapshots";
+  const cacheFreshnessMs = 300000;
   const drillFilterStorageKey = "arc-entra-drill-filter-v1";
   const themePreferenceKey = "arc-entra-theme-v2";
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -193,7 +201,26 @@
     return joined(column.value ? column.value(machine) : machine[column.id]);
   }
   function searchFor(machine, column) {
+    if (machine && typeof machine === "object") {
+      if (!machine._colSearch) Object.defineProperty(machine, "_colSearch", { value: Object.create(null), enumerable: false, configurable: true });
+      const cached = machine._colSearch[column.id];
+      if (cached !== undefined) return cached;
+      const computed = `${valueFor(machine, column)} ${displayFor(machine, column)}${column.id === "Membership" ? ` ${machine.Membership || "Unknown"}` : ""}`.toLowerCase();
+      machine._colSearch[column.id] = computed;
+      return computed;
+    }
     return `${valueFor(machine, column)} ${displayFor(machine, column)}${column.id === "Membership" ? ` ${machine.Membership || "Unknown"}` : ""}`;
+  }
+  function fullSearchTextFor(machine) {
+    if (!machine || typeof machine !== "object") return "";
+    if (typeof machine._searchText === "string") return machine._searchText;
+    const parts = [];
+    for (const column of columns) {
+      parts.push(searchFor(machine, column));
+    }
+    const full = parts.join(" \n ");
+    Object.defineProperty(machine, "_searchText", { value: full, enumerable: false, configurable: true });
+    return full;
   }
   function displayFor(machine, column) {
     const value = valueFor(machine, column);
@@ -872,6 +899,14 @@
       header.querySelector(".sort-column").textContent = `${column.label}${active ? (layout.sort.direction === "asc" ? " [asc]" : " [desc]") : ""}`;
     }
   }
+  function scheduleRender(resetPage = true) {
+    if (resetPage) currentPage = 1;
+    if (filterDebounceTimer) window.clearTimeout(filterDebounceTimer);
+    filterDebounceTimer = window.setTimeout(() => {
+      filterDebounceTimer = 0;
+      render();
+    }, 120);
+  }
   function renderHeaders() {
     const heading = document.createElement("tr");
     const filterRow = text("tr", "", "column-filters");
@@ -884,6 +919,7 @@
       sort.setAttribute("aria-label", `Sort by ${column.label}`);
       sort.addEventListener("click", () => {
         layout.sort = { id: column.id, direction: layout.sort.id === column.id && layout.sort.direction === "asc" ? "desc" : "asc" };
+        currentPage = 1;
         saveLayout();
         updateSortHeaders();
         render();
@@ -900,7 +936,7 @@
       input.value = filters[column.id] || "";
       input.addEventListener("input", () => {
         filters[column.id] = input.value;
-        render();
+        scheduleRender(true);
       });
       filterCell.append(input);
       filterRow.append(filterCell);
@@ -911,6 +947,7 @@
   function clearFilters() {
     cardFilter = null;
     reportDrillFilter = null;
+    currentPage = 1;
     tableNotice("");
     for (const key of Object.keys(filters)) delete filters[key];
     for (const id of ["search", "status", "os", "management-group", "subscription", "aws-account", "membership"]) {
@@ -931,6 +968,20 @@
     try {
       sessionStorage.removeItem(dataCacheKey);
       localStorage.removeItem(dataCacheKey);
+    } catch {}
+    try {
+      if (typeof indexedDB !== "undefined") {
+        const req = indexedDB.open(idbDatabaseName, 1);
+        req.onsuccess = () => {
+          try {
+            const db = req.result;
+            if (db.objectStoreNames.contains(idbStoreName)) {
+              db.transaction(idbStoreName, "readwrite").objectStore(idbStoreName).delete(dataCacheKey);
+            }
+            db.close();
+          } catch {}
+        };
+      }
     } catch {}
   }
   let syncState = null;
@@ -1081,21 +1132,66 @@
     if (result.error) throw new Error(result.error);
     return result;
   }
-  async function allMachines(forceRefresh = false) {
+  async function allMachines(forceRefresh = false, onFirstPage = null) {
     const items = [];
     const cursors = new Set();
     let cursor = "";
+    let isFirst = true;
     do {
-      const page = await get("data" + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""), forceRefresh);
+      const topParam = isFirst ? "top=100" : "top=1000";
+      const query = cursor ? `?${topParam}&cursor=${encodeURIComponent(cursor)}` : `?${topParam}`;
+      const page = await get("data" + query, forceRefresh);
       if (!Array.isArray(page.Items) || typeof page.Cursor !== "string") throw new Error("Invalid inventory response.");
       items.push(...page.Items);
       cursor = page.Cursor;
+      if (isFirst && cursor && typeof onFirstPage === "function") {
+        onFirstPage([...items]);
+      }
+      isFirst = false;
       if (cursor && cursors.has(cursor)) throw new Error("Inventory pagination did not advance.");
       cursors.add(cursor);
     } while (cursor);
     return items;
   }
-  function applySnapshot(items, health, logsPage, timestampIso, isCached = false) {
+  function openSnapshotCacheDb() {
+    return new Promise((resolve, reject) => {
+      if (typeof indexedDB === "undefined") { reject(new Error("IndexedDB unavailable")); return; }
+      const req = indexedDB.open(idbDatabaseName, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(idbStoreName)) {
+          db.createObjectStore(idbStoreName);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
+    });
+  }
+  async function readIdbSnapshot() {
+    try {
+      const db = await openSnapshotCacheDb();
+      return await new Promise(resolve => {
+        const tx = db.transaction(idbStoreName, "readonly");
+        const getReq = tx.objectStore(idbStoreName).get(dataCacheKey);
+        getReq.onsuccess = () => { db.close(); resolve(getReq.result || null); };
+        getReq.onerror = () => { db.close(); resolve(null); };
+      });
+    } catch {
+      return null;
+    }
+  }
+  async function writeIdbSnapshot(record) {
+    try {
+      const db = await openSnapshotCacheDb();
+      await new Promise(resolve => {
+        const tx = db.transaction(idbStoreName, "readwrite");
+        tx.objectStore(idbStoreName).put(record, dataCacheKey);
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { db.close(); resolve(); };
+      });
+    } catch {}
+  }
+  function applySnapshot(items, health, logsPage, timestampIso, isCached = false, isPartial = false) {
     machines = Array.isArray(items) ? items : [];
     if (health && typeof health === "object") renderFunctionHealth(health);
     if (logsPage && typeof logsPage === "object") {
@@ -1108,7 +1204,8 @@
       byId("function-logs-error").hidden = true;
       byId("function-logs-status").textContent = logsCount ? `${logsCount} log entries loaded.` : "No logs recorded yet.";
     }
-    byId("updated").textContent = `${isCached ? "Cached snapshot" : "Report refreshed"}: ${time(timestampIso || new Date().toISOString())}`;
+    const prefix = isPartial ? `Loading full inventory (${machines.length} loaded so far)` : (isCached ? "Cached snapshot" : "Report refreshed");
+    byId("updated").textContent = `${prefix}: ${time(timestampIso || new Date().toISOString())}`;
     updateOptions("status", machines.map(m => m.Status), "All statuses");
     updateOptions("os", machines.map(m => m.OS), "All operating systems");
     updateOptions("management-group", machines.map(m => m.ManagementGroup), "All management groups");
@@ -1125,17 +1222,32 @@
       if (!raw) return 0;
       const cached = JSON.parse(raw);
       if (!Array.isArray(cached.items)) return 0;
-      applySnapshot(cached.items, cached.health, cached.logsPage, cached.timestamp, true);
+      applySnapshot(cached.items, cached.health, cached.logsPage, cached.timestamp, true, false);
       return Number(cached.savedAt) || 0;
     } catch {
       return 0;
     }
   }
+  async function loadCachedSnapshotAsync() {
+    const syncSavedAt = loadCachedSnapshot();
+    if (syncSavedAt > 0) return syncSavedAt;
+    const cached = await readIdbSnapshot();
+    if (!cached || !Array.isArray(cached.items)) return 0;
+    if (!machines.length) {
+      applySnapshot(cached.items, cached.health, cached.logsPage, cached.timestamp, true, false);
+    }
+    return Number(cached.savedAt) || 0;
+  }
   function saveCachedSnapshot(items, health, logsPage, timestamp) {
+    const record = { items, health, logsPage, timestamp, savedAt: Date.now() };
+    void writeIdbSnapshot(record);
     try {
       localStorage.removeItem(dataCacheKey);
-      const payload = JSON.stringify({ items, health, logsPage, timestamp, savedAt: Date.now() });
-      sessionStorage.setItem(dataCacheKey, payload);
+      if (Array.isArray(items) && items.length <= 1500) {
+        sessionStorage.setItem(dataCacheKey, JSON.stringify(record));
+      } else {
+        sessionStorage.removeItem(dataCacheKey);
+      }
     } catch {}
   }
   function updateOptions(id, values, label) {
@@ -1152,18 +1264,26 @@
   }
   function getFilteredMachines() {
     const search = byId("search").value.toLowerCase();
-    const activeFilters = Object.entries(filters).filter(([, value]) => value.trim());
+    const activeFilters = Object.entries(filters)
+      .filter(([, value]) => value.trim())
+      .map(([id, value]) => [id, value, value.trim().toLowerCase(), columnById.get(id)]);
+    const statusVal = byId("status").value;
+    const osVal = byId("os").value;
+    const mgVal = byId("management-group").value;
+    const subVal = byId("subscription").value;
+    const awsVal = byId("aws-account")?.value || "";
+    const memVal = byId("membership").value;
     const filtered = machines.filter(machine =>
       (!cardFilter || cardFilter.matches(machine)) &&
       (!reportDrillFilter || reportDrillFilter.matches(machine)) &&
-      (!search || columns.some(column => searchFor(machine, column).toLowerCase().includes(search))) &&
-      activeFilters.every(([id, value]) => searchFor(machine, columnById.get(id)).toLowerCase().includes(value.trim().toLowerCase())) &&
-      (!byId("status").value || machine.Status === byId("status").value) &&
-      (!byId("os").value || machine.OS === byId("os").value) &&
-      (!byId("management-group").value || machine.ManagementGroup === byId("management-group").value) &&
-      (!byId("subscription").value || machine.SubscriptionId === byId("subscription").value) &&
-      (!byId("aws-account")?.value || awsAccountFor(machine) === byId("aws-account").value) &&
-      (!byId("membership").value || machine.Membership === byId("membership").value)
+      (!search || fullSearchTextFor(machine).includes(search)) &&
+      activeFilters.every(([, , lowerVal, col]) => col && searchFor(machine, col).toLowerCase().includes(lowerVal)) &&
+      (!statusVal || machine.Status === statusVal) &&
+      (!osVal || machine.OS === osVal) &&
+      (!mgVal || machine.ManagementGroup === mgVal) &&
+      (!subVal || machine.SubscriptionId === subVal) &&
+      (!awsVal || awsAccountFor(machine) === awsVal) &&
+      (!memVal || machine.Membership === memVal)
     );
     const sortColumn = columnById.get(layout.sort.id);
     filtered.sort((a, b) => {
@@ -1226,7 +1346,20 @@
   function render() {
     const { filtered, activeFilters } = getFilteredMachines();
     const hiddenFilters = activeFilters.filter(([id]) => !layout.visible.includes(id)).length;
-    byId("count").textContent = `${filtered.length} of ${machines.length} machines. ${cardFilter ? `Card filter: ${cardFilter.label}. ` : ""}${reportDrillFilter ? `Report filter: ${reportDrillFilter.label}. ` : ""}${activeFilters.length} column filters${hiddenFilters ? ` (${hiddenFilters} on hidden columns)` : ""}. Sorted by ${columnById.get(layout.sort.id).label} ${layout.sort.direction}.`;
+    const totalFiltered = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+    if (currentPage > totalPages) currentPage = totalPages;
+    if (currentPage < 1) currentPage = 1;
+    const startIndex = (currentPage - 1) * pageSize;
+    const pageItems = filtered.slice(startIndex, startIndex + pageSize);
+    const rangePrefix = totalFiltered > pageItems.length ? `Showing ${startIndex + 1}–${startIndex + pageItems.length} of ` : "";
+    byId("count").textContent = `${rangePrefix}${totalFiltered} of ${machines.length} machines. ${cardFilter ? `Card filter: ${cardFilter.label}. ` : ""}${reportDrillFilter ? `Report filter: ${reportDrillFilter.label}. ` : ""}${activeFilters.length} column filters${hiddenFilters ? ` (${hiddenFilters} on hidden columns)` : ""}. Sorted by ${columnById.get(layout.sort.id).label} ${layout.sort.direction}.`;
+    const pageInfoEl = byId("page-info");
+    if (pageInfoEl) pageInfoEl.textContent = `Page ${currentPage} of ${totalPages}`;
+    if (byId("page-first")) byId("page-first").disabled = currentPage <= 1;
+    if (byId("page-prev")) byId("page-prev").disabled = currentPage <= 1;
+    if (byId("page-next")) byId("page-next").disabled = currentPage >= totalPages;
+    if (byId("page-last")) byId("page-last").disabled = currentPage >= totalPages;
     updateCardSelection();
     hideHoverPopover();
     const body = byId("machines");
@@ -1234,7 +1367,7 @@
     const visible = visibleColumns();
     const historyColumn = visible.find(c => c.id === "MachineName") ||
       visible.find(c => c.id === "MdeDeviceName") || visible[0];
-    for (const machine of filtered) {
+    for (const machine of pageItems) {
       const row = document.createElement("tr");
       row.dataset.key = machine.Key;
       row.classList.toggle("is-selected", machine.Key === selectedKey);
@@ -1449,6 +1582,7 @@
     card.addEventListener("click", () => {
       if (filter.key === "all") { clearFilters(); selectIndexSection("inventory-devices"); return; }
       cardFilter = cardFilter?.key === filter.key ? null : filter;
+      currentPage = 1;
       selectIndexSection("inventory-devices");
       render();
     });
@@ -2086,13 +2220,18 @@
     busy = true;
     byId("refresh").disabled = true;
     try {
+      const showProgressiveFirstPage = forceRefresh || machines.length === 0;
       const [items, health, logsPage] = await Promise.all([
-        allMachines(forceRefresh),
+        allMachines(forceRefresh, firstPageItems => {
+          if (showProgressiveFirstPage) {
+            applySnapshot(firstPageItems, null, null, new Date().toISOString(), false, true);
+          }
+        }),
         get("health", forceRefresh),
         get("logs", forceRefresh).catch(() => ({ Items: [], Cursor: "" }))
       ]);
       const nowIso = new Date().toISOString();
-      applySnapshot(items, health, logsPage, nowIso, false);
+      applySnapshot(items, health, logsPage, nowIso, false, false);
       saveCachedSnapshot(items, health, logsPage, nowIso);
       byId("error").hidden = true;
     } catch (error) {
@@ -2103,7 +2242,44 @@
       busy = false;
     }
   }
-  for (const id of ["search", "status", "os", "management-group", "subscription", "aws-account", "membership"]) byId(id)?.addEventListener("input", render);
+  byId("search")?.addEventListener("input", () => scheduleRender(true));
+  for (const id of ["status", "os", "management-group", "subscription", "aws-account", "membership"]) {
+    byId(id)?.addEventListener("input", () => {
+      currentPage = 1;
+      render();
+    });
+  }
+  try {
+    const savedPageSize = Number(localStorage.getItem(pageSizePreferenceKey));
+    if ([50, 100, 250, 500].includes(savedPageSize)) {
+      pageSize = savedPageSize;
+      if (byId("page-size")) byId("page-size").value = String(pageSize);
+    }
+  } catch {}
+  byId("page-size")?.addEventListener("change", () => {
+    const nextSize = Number(byId("page-size").value);
+    if ([50, 100, 250, 500].includes(nextSize)) {
+      pageSize = nextSize;
+      currentPage = 1;
+      try { localStorage.setItem(pageSizePreferenceKey, String(pageSize)); } catch {}
+      render();
+    }
+  });
+  byId("page-first")?.addEventListener("click", () => {
+    if (currentPage > 1) { currentPage = 1; render(); }
+  });
+  byId("page-prev")?.addEventListener("click", () => {
+    if (currentPage > 1) { currentPage--; render(); }
+  });
+  byId("page-next")?.addEventListener("click", () => {
+    currentPage++;
+    render();
+  });
+  byId("page-last")?.addEventListener("click", () => {
+    const { filtered } = getFilteredMachines();
+    currentPage = Math.max(1, Math.ceil(filtered.length / pageSize));
+    render();
+  });
   byId("export-csv")?.addEventListener("click", exportInventoryCsv);
   byId("clear-filters").addEventListener("click", clearFilters);
   byId("reset-table").addEventListener("click", () => {
@@ -2240,10 +2416,24 @@
   initStaticTableColumnFilters();
   renderColumnOptions();
   renderHeaders();
-  const cachedAgeMs = Date.now() - loadCachedSnapshot();
-  if (cachedAgeMs > 30000) void refresh(false);
+  void (async () => {
+    const savedAt = await loadCachedSnapshotAsync();
+    const cachedAgeMs = Date.now() - savedAt;
+    if (cachedAgeMs > cacheFreshnessMs) void refresh(false);
+  })();
   void pollInventorySync();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) void pollInventorySync(); });
-  window.setInterval(() => { if (!document.hidden) void pollInventorySync(); }, 15000);
-  window.setInterval(() => { if (!document.hidden && byId("hover-popover").hidden) void refresh(false); }, 60000);
+  window.setInterval(() => {
+    if (!document.hidden) {
+      void pollInventorySync().then(() => {
+        if (wasSyncRunning && syncState && !syncState.IsRunning) {
+          wasSyncRunning = false;
+          void refresh(true);
+        } else if (syncState?.IsRunning) {
+          wasSyncRunning = true;
+        }
+      });
+    }
+  }, 15000);
+  window.setInterval(() => { if (!document.hidden && byId("hover-popover").hidden) void refresh(false); }, cacheFreshnessMs);
 })();

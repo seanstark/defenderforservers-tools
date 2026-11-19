@@ -1530,9 +1530,10 @@ function Invoke-Table {
 }
 
 function Get-TablePage {
-    param([string]$Filter, [int]$Top = 100, [string]$Cursor = '')
-    if ($Top -lt 1 -or $Top -gt 100) { throw 'Page size must be between 1 and 100.' }
-    $path = "machines()?`$filter=$([uri]::EscapeDataString($Filter))&`$top=$Top"
+    param([string]$Filter, [int]$Top = 100, [string]$Cursor = '', [switch]$RawDataJson)
+    if ($Top -lt 1 -or $Top -gt 1000) { throw 'Page size must be between 1 and 1000.' }
+    $selectClause = if ($RawDataJson) { '&$select=Data' } else { '' }
+    $path = "machines()?`$filter=$([uri]::EscapeDataString($Filter))&`$top=$Top$selectClause"
     if ($Cursor) {
         $continuation = Get-TableContinuation $Cursor
         foreach ($name in @('NextPartitionKey', 'NextRowKey')) {
@@ -1550,9 +1551,15 @@ function Get-TablePage {
             $next[$name] = [string]($response.Headers[$header] | Select-Object -First 1)
         }
     }
+    $cursorStr = if ($next.Count) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($next | ConvertTo-Json -Compress))) } else { '' }
+    if ($RawDataJson) {
+        $rawItems = @($json.value | ForEach-Object { [string]$_['Data'] } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $escapedCursor = ConvertTo-Json -InputObject $cursorStr -Compress
+        return "{`"Items`":[$($rawItems -join ',')],`"Cursor`":$escapedCursor}"
+    }
     @{
         Items = @($json.value | ForEach-Object { ConvertFrom-Json -InputObject $_.Data -AsHashtable })
-        Cursor = if ($next.Count) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($next | ConvertTo-Json -Compress))) } else { '' }
+        Cursor = $cursorStr
     }
 }
 

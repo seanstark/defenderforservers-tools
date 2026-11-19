@@ -99,8 +99,16 @@ try {
         Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 400 -ContentType 'application/json; charset=utf-8' -Body '{"error":"Invalid continuation cursor."}' -Headers $headers)
         return
     }
+    $requestedTop = 1000
+    if ($path -eq 'data') {
+        $rawTop = [string]$Request.Query.top
+        $parsedTop = 0
+        if ($rawTop -and [int]::TryParse($rawTop, [ref]$parsedTop) -and $parsedTop -ge 1 -and $parsedTop -le 1000) {
+            $requestedTop = $parsedTop
+        }
+    }
     $cacheKey = switch ($path) {
-        'data' { "data:$cursor" }
+        'data' { "data:$requestedTop`:$cursor" }
         'logs' { "logs:$cursor" }
         'history' { "history:$([string]$Request.Query.key):$cursor" }
         default { $path }
@@ -109,12 +117,12 @@ try {
     if (-not $forceRefresh -and $global:ReportApiCache.ContainsKey($cacheKey) -and $global:ReportApiCache[$cacheKey].Expires -gt $now) {
         $cachedHeaders = @{}
         foreach ($k in $headers.Keys) { $cachedHeaders[$k] = $headers[$k] }
-        $cachedHeaders['Cache-Control'] = 'private, max-age=30, stale-while-revalidate=120'
+        $cachedHeaders['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=300'
         Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 200 -ContentType 'application/json; charset=utf-8' -Body $global:ReportApiCache[$cacheKey].Body -Headers $cachedHeaders)
         return
     }
     if ($path -eq 'data') {
-        $result = Get-TablePage -Filter "RowKey eq 'state'" -Cursor $cursor
+        $result = Get-TablePage -Filter "RowKey eq 'state'" -Top $requestedTop -Cursor $cursor -RawDataJson
     }
     elseif ($path -eq 'history' -and [string]$Request.Query.key -cmatch '^[a-f0-9]{64}$') {
         $result = Get-ReportHistoryPage -Key ([string]$Request.Query.key) -Cursor $cursor
@@ -132,15 +140,16 @@ try {
         Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 404 -ContentType 'application/json; charset=utf-8' -Body '{"error":"Route not found."}' -Headers $headers)
         return
     }
-    $serializedBody = ConvertTo-Json -InputObject $result -Depth 30 -Compress
+    $serializedBody = if ($result -is [string]) { $result } else { ConvertTo-Json -InputObject $result -Depth 30 -Compress }
+    $cacheTtlSec = if ($path -eq 'data') { 300 } else { 60 }
     $global:ReportApiCache[$cacheKey] = @{
         Body = $serializedBody
-        Expires = $now.AddSeconds(60)
+        Expires = $now.AddSeconds($cacheTtlSec)
     }
     $apiHeaders = @{}
     foreach ($k in $headers.Keys) { $apiHeaders[$k] = $headers[$k] }
     if (-not $forceRefresh) {
-        $apiHeaders['Cache-Control'] = 'private, max-age=30, stale-while-revalidate=120'
+        $apiHeaders['Cache-Control'] = 'private, max-age=60, stale-while-revalidate=300'
     }
     Push-OutputBinding -Name Response -Value (New-HttpResponse -StatusCode 200 -ContentType 'application/json; charset=utf-8' -Body $serializedBody -Headers $apiHeaders)
 }
