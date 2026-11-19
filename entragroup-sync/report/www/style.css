@@ -346,6 +346,12 @@ code { font-family: Consolas, "Courier New", Courier, monospace; }
 .skip-link { position: fixed; top: -80px; left: 8px; z-index: 60; padding: 10px; background: var(--cp-surface); }
 .skip-link:focus { top: 8px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.log-correlation-meta { display: grid; gap: 4px; margin: 6px 0; padding: 6px 8px; border: 1px solid var(--cp-border); border-left: 3px solid var(--cp-link); border-radius: 3px; background: var(--cp-bg-elevated); font-size: 11px; }
+.log-meta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.log-meta-endpoints { align-items: flex-start; }
+.log-meta-label { font-weight: 600; color: var(--cp-text-muted); white-space: nowrap; }
+.log-api-list { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.log-api-pill { display: inline-block; padding: 2px 6px; border: 1px solid var(--cp-border); border-radius: 3px; background: var(--cp-surface); color: var(--cp-text); font-size: 10.5px; word-break: break-all; }
 [hidden] { display: none !important; }
 @media (max-width: 1100px) {
   .sidebar { width: 176px; padding-inline: 8px; }

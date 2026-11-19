@@ -31,7 +31,7 @@ $env:SYNC_AZURE_WINDOWS_GROUP_PREFIX = 'MDfS-Azure-Windows-'
 $env:SYNC_AZURE_LINUX_GROUP_PREFIX = 'MDfS-Azure-Linux-'
 $env:SYNC_MODE = 'Audit'
 $env:SYNC_TENANT_ID = '33333333-3333-3333-3333-333333333333'
-$env:SYNC_FRESHNESS_HOURS = '2160'
+$env:SYNC_FRESHNESS_HOURS = '168'
 $module = Import-Module "$root\shared\Sync.psm1" -Force -PassThru
 try {
     & $module {
@@ -44,7 +44,8 @@ try {
             'Get-SubscriptionName', 'Get-ArcExtensions', 'Get-MdeNetworkAddresses', 'Get-MdeAntivirus', 'Get-ManagementGroupSubscriptions', 'Write-FunctionLog',
             'Get-SharedAdminUnitGroups', 'Save-SharedAdminUnitGroups', 'New-AdminUnitSecurityGroup', 'Initialize-InventoryGroups',
             'Start-InventoryJob', 'Complete-InventoryJob', 'Invoke-InventoryRun', 'Get-InventoryJobStatus', 'New-ReportSyncRequest',
-            'Get-GuestConfigurationRefreshBody', 'Request-GuestConfigurationRefresh', 'Get-TokenClaims')) {
+            'Get-GuestConfigurationRefreshBody', 'Request-GuestConfigurationRefresh', 'Get-TokenClaims',
+            'Get-MdeSyntheticDeviceId')) {
             $command = Get-Command $name -ErrorAction SilentlyContinue
             $originals[$name] = if ($command -and $command.CommandType -eq 'Function') { $command.ScriptBlock } else { $null }
         }
@@ -87,6 +88,7 @@ try {
                 $env:SYNC_GCP_LINUX_GROUP_PREFIX = 'MDfS-GCP-Linux-'
                 $env:SYNC_AZURE_WINDOWS_GROUP_PREFIX = 'MDfS-Azure-Windows-'
                 $env:SYNC_AZURE_LINUX_GROUP_PREFIX = 'MDfS-Azure-Linux-'
+                $env:SYNC_DISABLED_CORRELATION_TIERS = ''
                 $script:ManagementGroupSubscriptions = @{}
                 $script:ManagementGroupCacheExpires = [datetimeoffset]::MinValue
                 $script:GroupByNameCache = @{}
@@ -310,16 +312,16 @@ try {
             Assert-Equal (Get-Correlation @($linux) 24 $now).Status 'NoEntraDevice'
         }
         Test-Case 'Missing, stale, merged, ambiguous and invalid candidates are blocked' {
-            Assert-Equal (Get-Correlation @() 2160 $now).Status 'PendingMde'
-            $stale = $candidate.Clone(); $stale.Timestamp = $now.AddHours(-2161).ToString('o')
-            Assert-Equal (Get-Correlation @($stale) 2160 $now).Status 'StaleEvidence'
+            Assert-Equal (Get-Correlation @() 168 $now).Status 'PendingMde'
+            $stale = $candidate.Clone(); $stale.Timestamp = $now.AddHours(-169).ToString('o')
+            Assert-Equal (Get-Correlation @($stale) 168 $now).Status 'StaleEvidence'
             $merged = $candidate.Clone(); $merged.MergedToDeviceId = 'new-device'
-            Assert-Equal (Get-Correlation @($merged) 2160 $now).Status 'PendingMde'
-            Assert-Equal (Get-Correlation @($candidate, $candidate.Clone()) 2160 $now).Status 'Ambiguous'
+            Assert-Equal (Get-Correlation @($merged) 168 $now).Status 'PendingMde'
+            Assert-Equal (Get-Correlation @($candidate, $candidate.Clone()) 168 $now).Status 'Ambiguous'
             $invalid = $candidate.Clone(); $invalid.AadDeviceId = 'not-a-guid'
-            Assert-Equal (Get-Correlation @($invalid) 2160 $now).Status 'InvalidEntraIdentifier'
+            Assert-Equal (Get-Correlation @($invalid) 168 $now).Status 'InvalidEntraIdentifier'
             $future = $candidate.Clone(); $future.Timestamp = $now.AddHours(1).ToString('o')
-            Assert-Equal (Get-Correlation @($future) 2160 $now).Status 'StaleEvidence'
+            Assert-Equal (Get-Correlation @($future) 168 $now).Status 'StaleEvidence'
         }
         Test-Case 'Hunting query selects latest identity before matching resource and has bounded output' {
             function script:Invoke-Graph {
@@ -351,40 +353,40 @@ try {
             $old = $candidate.Clone(); $old.DeviceId = 'mde-old'
             $current = $candidate.Clone(); $current.DeviceId = 'mde-current'; $current.MergedDeviceIds = '["mde-old"]'
             $current.SensorHealthState = 'Inactive'
-            $result = Get-Correlation @($old, $current) 2160 $now
+            $result = Get-Correlation @($old, $current) 168 $now
             Assert-Equal $result.Status 'Matched'
             Assert-Equal $result.Candidate.DeviceId 'mde-current'
-            $current.SensorHealthState = 'Active'; $current.Timestamp = $now.AddHours(-2161).ToString('o')
-            Assert-Equal (Get-Correlation @($old, $current) 2160 $now).Status 'StaleEvidence'
+            $current.SensorHealthState = 'Active'; $current.Timestamp = $now.AddHours(-169).ToString('o')
+            Assert-Equal (Get-Correlation @($old, $current) 168 $now).Status 'StaleEvidence'
             $current.Timestamp = $now.ToString('o'); $current.OnboardingStatus = 'Offboarded'
-            Assert-True ((Get-Correlation @($old, $current) 2160 $now).Status -notin @('Matched', 'NoEntraDevice'))
+            Assert-True ((Get-Correlation @($old, $current) 168 $now).Status -notin @('Matched', 'NoEntraDevice'))
         }
         Test-Case 'Active sensor health is required and Timestamp does not break unrelated identity ties' {
             foreach ($health in @('Inactive', 'ImpairedCommunication', 'NoSensorData', '', $null)) {
                 $unhealthy = $candidate.Clone(); $unhealthy.SensorHealthState = $health
-                $result = Get-Correlation @($unhealthy) 2160 $now
+                $result = Get-Correlation @($unhealthy) 168 $now
                 Assert-Equal $result.Status 'Matched'
                 Assert-Equal $result.Candidate.DeviceId $candidate.DeviceId
             }
             $older = $candidate.Clone(); $older.DeviceId = 'unrelated'; $older.Timestamp = $now.AddHours(-1).ToString('o')
-            Assert-Equal (Get-Correlation @($older, $candidate) 2160 $now).Status 'Ambiguous'
+            Assert-Equal (Get-Correlation @($older, $candidate) 168 $now).Status 'Ambiguous'
             $older.SensorHealthState = 'Inactive'
-            Assert-Equal (Get-Correlation @($older, $candidate) 2160 $now).Candidate.DeviceId $candidate.DeviceId
+            Assert-Equal (Get-Correlation @($older, $candidate) 168 $now).Candidate.DeviceId $candidate.DeviceId
             $inactiveSecond = $candidate.Clone(); $inactiveSecond.DeviceId = 'unrelated-2'; $inactiveSecond.SensorHealthState = 'Inactive'
-            Assert-Equal (Get-Correlation @($older, $inactiveSecond) 2160 $now).Status 'Ambiguous'
+            Assert-Equal (Get-Correlation @($older, $inactiveSecond) 168 $now).Status 'Ambiguous'
             foreach ($value in @($now.ToString('o'), $now.AddMinutes(1).ToString('o'))) {
                 $older.Timestamp = $value
-                Assert-Equal (Get-Correlation @($older, $candidate) 2160 $now).Status 'Ambiguous'
+                Assert-Equal (Get-Correlation @($older, $candidate) 168 $now).Status 'Ambiguous'
             }
         }
         Test-Case 'Freshness and clock skew bounds are exact and invalid timestamps fail closed' {
-            foreach ($value in @($null, 'not-a-date', $now.AddHours(-2160).AddTicks(-1).ToString('o'), $now.AddMinutes(5).AddTicks(1).ToString('o'))) {
+            foreach ($value in @($null, 'not-a-date', $now.AddHours(-168).AddTicks(-1).ToString('o'), $now.AddMinutes(5).AddTicks(1).ToString('o'))) {
                 $row = $candidate.Clone(); $row.Timestamp = $value
-                Assert-Equal (Get-Correlation @($row) 2160 $now).Status 'StaleEvidence'
+                Assert-Equal (Get-Correlation @($row) 168 $now).Status 'StaleEvidence'
             }
-            foreach ($value in @($now.AddHours(-2160).ToString('o'), $now.AddMinutes(5).ToString('o'))) {
+            foreach ($value in @($now.AddHours(-168).ToString('o'), $now.AddMinutes(5).ToString('o'))) {
                 $row = $candidate.Clone(); $row.Timestamp = $value
-                Assert-Equal (Get-Correlation @($row) 2160 $now).Status 'Matched'
+                Assert-Equal (Get-Correlation @($row) 168 $now).Status 'Matched'
             }
         }
         Test-Case 'Cyclic, self-referencing and malformed merge history cannot select a device' {
@@ -418,6 +420,85 @@ try {
             $state.EntraDeviceId = ''
             $state.GuestConfigEntraDeviceId = '44444444-4444-4444-4444-444444444444'
             Assert-Equal (Resolve-EntraDeviceForMachine $state).CorrelationPath 'GuestConfigurationIntuneDeviceId'
+            $state.GuestConfigEntraDeviceId = ''
+            $state.MdeDeviceId = 'b50e4b64f05a5617d6708c87911e98dd834835ec'
+            function script:Invoke-Graph {
+                param($Path)
+                Assert-True ([uri]::UnescapeDataString($Path).Contains("deviceId eq 'ab7ad7df-4aeb-4468-a3d8-00c9503ebab5'"))
+                @{ Content = '{"value":[{"id":"dc81e6d9-2dcf-4cb4-8179-fa86bce567b2","deviceId":"ab7ad7df-4aeb-4468-a3d8-00c9503ebab5","accountEnabled":true}]}' }
+            }
+            Assert-Equal (Resolve-EntraDeviceForMachine $state).CorrelationPath 'MdeSyntheticDeviceId'
+        }
+        Test-Case 'Get-MdeSyntheticDeviceId derives exact SHA-256 XOR-folded Entra deviceId as Tier 3 correlation method' {
+            Assert-Equal (Get-MdeSyntheticDeviceId -MdeDeviceId 'b50e4b64f05a5617d6708c87911e98dd834835ec') 'ab7ad7df-4aeb-4468-a3d8-00c9503ebab5'
+            Assert-Equal (Get-MdeSyntheticDeviceId -MdeDeviceId 'B50E4B64F05A5617D6708C87911E98DD834835EC') 'ab7ad7df-4aeb-4468-a3d8-00c9503ebab5'
+            Assert-Equal (Get-MdeSyntheticDeviceId -MdeDeviceId 'c97c50f04d8252ca1a14d4340341f4d48879c406') '8d6e3dd1-4cc4-6d14-e0a3-4856e6059032'
+            Assert-Equal (Get-MdeSyntheticDeviceId -MdeDeviceId '4ea1d9dd95fd24d042f67a60f6e35c65c866d2c4') 'ffdc6770-30ff-b178-a2d4-bca41df1de47'
+            Assert-Equal (Get-MdeSyntheticDeviceId -MdeDeviceId 'not-a-40-hex-senseid') ''
+            Assert-Equal (Get-MdeSyntheticDeviceId -MdeDeviceId '') ''
+
+            function script:Invoke-Graph {
+                param($Path)
+                $unescaped = [uri]::UnescapeDataString($Path)
+                if ($unescaped.Contains("deviceId eq '8d6e3dd1-4cc4-6d14-e0a3-4856e6059032'")) {
+                    return @{ Content = '{"value":[{"id":"fedd9657-1b5e-413b-95e7-8ad8a228b221","deviceId":"8d6e3dd1-4cc4-6d14-e0a3-4856e6059032","accountEnabled":true}]}' }
+                }
+                return @{ Content = '{"value":[]}' }
+            }
+            $state = @{
+                MdeDeviceId = 'c97c50f04d8252ca1a14d4340341f4d48879c406'
+                EntraDeviceId = ''
+                GuestConfigEntraDeviceId = ''
+            }
+            $res = Resolve-EntraDeviceForMachine $state
+            Assert-Equal $res.Status 'Found'
+            Assert-Equal $res.CorrelationPath 'MdeSyntheticDeviceId'
+            Assert-Equal $res.Device.id 'fedd9657-1b5e-413b-95e7-8ad8a228b221'
+            Assert-Equal $state.MdeSyntheticDeviceId '8d6e3dd1-4cc4-6d14-e0a3-4856e6059032'
+        }
+        Test-Case 'SYNC_DISABLED_CORRELATION_TIERS disables specified correlation tiers and validates inputs' {
+            $env:SYNC_DISABLED_CORRELATION_TIERS = 'Tier1, GuestConfiguration'
+            $disabled = @(Get-DisabledCorrelationTiers)
+            Assert-Equal $disabled.Count 2
+            Assert-Equal $disabled[0] 'MdeAadDeviceId'
+            Assert-Equal $disabled[1] 'GuestConfigurationIntuneDeviceId'
+            Assert-Equal (Get-GuestConfigEntraDeviceId -ResourceId $id -SubscriptionId '11111111-1111-1111-1111-111111111111' -MachineResource @{ gcEntraDeviceId = '66666666-6666-6666-6666-666666666666' }) ''
+
+            function script:Invoke-Graph {
+                param($Path)
+                $unescaped = [uri]::UnescapeDataString($Path)
+                if ($unescaped.Contains("deviceId eq '8d6e3dd1-4cc4-6d14-e0a3-4856e6059032'")) {
+                    return @{ Content = '{"value":[{"id":"fedd9657-1b5e-413b-95e7-8ad8a228b221","deviceId":"8d6e3dd1-4cc4-6d14-e0a3-4856e6059032","accountEnabled":true}]}' }
+                }
+                if ($unescaped.Contains("displayName eq 'server01'")) {
+                    return @{ Content = '{"value":[{"id":"77777777-7777-7777-7777-777777777777","deviceId":"99999999-9999-9999-9999-999999999999","displayName":"server01","operatingSystem":"Linux","managementType":"MicrosoftSense","accountEnabled":true}]}' }
+                }
+                throw "Unexpected Graph path when tiers are disabled: $unescaped"
+            }
+            $state = @{
+                MdeDeviceId = 'c97c50f04d8252ca1a14d4340341f4d48879c406'
+                EntraDeviceId = '44444444-4444-4444-4444-444444444444'
+                GuestConfigEntraDeviceId = '66666666-6666-6666-6666-666666666666'
+                ComputerName = 'server01'
+                OS = 'Linux'
+            }
+            # Tiers 1 & 2 are disabled, so it skips EntraDeviceId and GuestConfigEntraDeviceId and resolves via Tier 3 (MdeSyntheticDeviceId)
+            $r1 = Resolve-EntraDeviceForMachine $state
+            Assert-Equal $r1.CorrelationPath 'MdeSyntheticDeviceId'
+
+            # Disable Tiers 1, 2, and 3 -> falls through to Tier 4 (MicrosoftSenseHostnameAndOS)
+            $env:SYNC_DISABLED_CORRELATION_TIERS = 'Tier1,Tier2,Tier3'
+            Assert-Equal (Get-MdeSyntheticDeviceId -MdeDeviceId 'c97c50f04d8252ca1a14d4340341f4d48879c406') ''
+            $r2 = Resolve-EntraDeviceForMachine $state
+            Assert-Equal $r2.CorrelationPath 'MicrosoftSenseHostnameAndOS'
+
+            # Disable Tier 4 as well -> throws validation error because all 4 tiers cannot be disabled simultaneously
+            $env:SYNC_DISABLED_CORRELATION_TIERS = 'Tier1,Tier2,Tier3,Tier4'
+            Assert-Throws { Get-DisabledCorrelationTiers }
+
+            # Unknown tier name throws validation error
+            $env:SYNC_DISABLED_CORRELATION_TIERS = 'InvalidTierName'
+            Assert-Throws { Get-DisabledCorrelationTiers }
         }
         Test-Case 'Hostname fallback considers all aliases and never uses enabled status to resolve duplicates' {
             $state = @{ ComputerName = 'server01'; MdeDeviceName = 'server01.example.com'; OS = 'Linux' }
@@ -920,7 +1001,7 @@ try {
             Assert-Equal $script:Saved.InventoryStatus 'Collected'
             $script:Candidates = @($candidate.Clone())
             $script:Candidates[0].SensorHealthState = 'Inactive'
-            $script:Candidates[0].Timestamp = $now.AddDays(-30).ToString('o')
+            $script:Candidates[0].Timestamp = $now.AddDays(-5).ToString('o')
             Invoke-MachineSync @{
                 ResourceId = $id; RunId = [guid]::NewGuid().ToString(); Source = 'Schedule'
                 ResourceData = @{
@@ -1934,7 +2015,7 @@ try {
             Assert-Equal $script:Saved.MdeOnboardingStatus 'CanBeOnboarded'
             Assert-Equal $script:Saved.MdeDeviceId 'mde1'
             $script:ReportingCandidate.OnboardingStatus = 'Onboarded'
-            $script:ReportingCandidate.Timestamp = $now.AddHours(-2161).ToString('o')
+            $script:ReportingCandidate.Timestamp = $now.AddHours(-169).ToString('o')
             Invoke-MachineSync @{ ResourceId = $id; RunId = [guid]::NewGuid().ToString(); Source = 'Test' }
             Assert-Equal $script:Saved.Status 'StaleEvidence'
             Assert-Equal $script:Saved.MdeDeviceId 'mde1'
@@ -2675,7 +2756,10 @@ try {
                 throw "Unexpected Graph call: $Path"
             }
             function script:Get-MachineState { $null }
-            function script:Invoke-CloudRequest { @{ Status = 200; Content = '{"properties":{"status":"Connected","osType":"Windows"}}' } }
+            function script:Invoke-CloudRequest {
+                param($Uri)
+                throw "Preloaded ResourceData must not call ARM or Resource Graph ($Uri)"
+            }
             function script:Resolve-GroupByDisplayName { @{ Id = '22222222-2222-2222-2222-222222222222'; DisplayName = 'MDfS-AWS-Windows-Passive-123456789012' } }
             function script:Test-DirectMembership { $false }
             function script:Save-MachineState { param($State) $script:SavedBulkState = $State }
@@ -2701,6 +2785,8 @@ try {
             Assert-True ('192.0.2.1' -notin $script:SavedBulkState.IPAddresses)
             Assert-Equal $script:SavedBulkState.MdeMergedDeviceIds[0] 'mde-old'
             Assert-Equal $script:SavedBulkState.MdeReonboardingDetected $true
+            Assert-Equal @(Get-ArcExtensions -ResourceId $id -MachineResource @{ argExtensions = $null }).Count 0
+            Assert-Equal (Get-GuestConfigEntraDeviceId -ResourceId $id -SubscriptionId '11111111-1111-1111-1111-111111111111' -MachineResource @{ gcEntraDeviceId = '' }) ''
         }
         Write-Host "`n$script:Passed passed; $script:Failed failed."
         if ($script:Failed) { throw 'Solution tests failed.' }

@@ -32,7 +32,7 @@
       <a class="nav-current" href="/docs.html" aria-current="page"><span aria-hidden="true">06</span>Documentation &amp; APIs</a>
       <div class="nav-sub" role="group" aria-label="Documentation sections">
         <a class="nav-child" href="#doc-archify" data-doc-target="doc-archify">Architecture</a>
-        <a class="nav-child" href="#doc-correlation" data-doc-target="doc-correlation">3-Tier Correlation</a>
+        <a class="nav-child" href="#doc-correlation" data-doc-target="doc-correlation">4-Tier Correlation</a>
         <a class="nav-child" href="#doc-architecture" data-doc-target="doc-architecture">Workflow</a>
         <a class="nav-child" href="#doc-queries" data-doc-target="doc-queries">KQL &amp; ARG queries</a>
         <a class="nav-child" href="#doc-apis" data-doc-target="doc-apis">REST APIs</a>
@@ -56,8 +56,8 @@
         <span>System components &amp; synchronization data flow</span>
       </button>
       <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="doc-correlation">
-        <strong>3-Tier Correlation</strong>
-        <span>MDE AadDeviceId, Machine Config &amp; MicrosoftSense</span>
+        <strong>4-Tier Correlation</strong>
+        <span>MDE AadDeviceId, Machine Config, MDE Synthetic ID &amp; Hostname</span>
       </button>
       <button type="button" class="section-card-tab" role="tab" aria-selected="false" data-section-tab="doc-architecture">
         <strong>Evaluation Workflow</strong>
@@ -407,13 +407,13 @@
           </div>
         </details>
         <details id="doc-correlation" class="doc-section" open>
-          <summary>3-Tier Microsoft Entra ID device correlation chain</summary>
+          <summary>4-Tier Microsoft Entra ID device correlation chain</summary>
           <div class="doc-body">
-            <p class="muted">How the Machine Sync Worker resolves an MDE-onboarded server to its Microsoft Entra ID device object across Entra-joined, Machine Configuration-enrolled, and <code>MicrosoftSense</code>-managed servers:</p>
+            <p class="muted">How the Machine Sync Worker resolves an MDE-onboarded server to its Microsoft Entra ID device object across Entra-joined, Machine Configuration-enrolled, MDE synthetic SHA-256 device ID, and <code>MicrosoftSense</code>-managed servers:</p>
             <div class="archify-canvas-wrap">
               <svg class="archify-svg" viewBox="0 0 1245 330" role="img" lang="en" aria-labelledby="archify-corr-title archify-corr-desc">
-                <title id="archify-corr-title">3-Tier Microsoft Entra ID Device Correlation Chain</title>
-                <desc id="archify-corr-desc">Tier 1: MDE AadDeviceId -&gt; Tier 2: Azure Machine Configuration intuneDeviceId (GuestConfigurationResources) -&gt; Tier 3: MicrosoftSense Hostname and OS Fallback</desc>
+                <title id="archify-corr-title">4-Tier Microsoft Entra ID Device Correlation Chain</title>
+                <desc id="archify-corr-desc">Tier 1: MDE AadDeviceId -&gt; Tier 2: Azure Machine Configuration intuneDeviceId (GuestConfigurationResources) -&gt; Tier 3: MDE Synthetic Device ID (SHA-256 folded SenseId) -&gt; Tier 4: MicrosoftSense Hostname and OS Fallback</desc>
                 <defs>
                   <marker id="corr-arrow-default" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
                     <polygon points="0 0, 10 3.5, 0 7" class="m-default" />
@@ -430,7 +430,7 @@
                 </defs>
                 <rect width="100%" height="100%" fill="url(#corr-grid)" />
                 <rect x="305" y="14" width="315" height="298" rx="12" class="c-region" stroke-width="1.2"/>
-                <text x="462.5" y="304" class="t-muted" font-size="9" font-weight="600" text-anchor="middle">Evaluated in Priority Order (Tier 1 -&gt; Tier 2 -&gt; Tier 3)</text>
+                <text x="462.5" y="304" class="t-muted" font-size="9" font-weight="600" text-anchor="middle">Evaluated in Priority Order (Tier 1 -&gt; Tier 2 -&gt; Tier 3 -&gt; Tier 4)</text>
 
                 <path d="M 235 163 L 268 163 Q 278 163 278 153 L 278 75 Q 278 65 288 65 L 330 65" class="a-emphasis" stroke-width="1.8" marker-end="url(#corr-arrow-emphasis)"/>
                 <path d="M 235 163 L 330 163" class="a-default" stroke-width="1.8" marker-end="url(#corr-arrow-default)"/>
@@ -508,10 +508,10 @@
                 </thead>
                 <tbody>
                   <tr>
-                    <td><strong>Tier 1</strong></td>
+                    <td><strong>Tier 1 (Primary)</strong></td>
                     <td><strong><code>MDE AadDeviceId</code></strong> (<code>MdeAadDeviceId</code>)</td>
                     <td>Reads <code>AadDeviceId</code> from MDE Advanced Hunting (<code>DeviceInfo</code>) and queries <code>GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'</code>.</td>
-                    <td>Primary method for Microsoft Entra joined or hybrid joined servers where MDE directly reports <code>AadDeviceId</code>.</td>
+                    <td>Primary method for Microsoft Entra joined or hybrid joined servers where MDE directly reports <code>AadDeviceId</code> in <code>DeviceInfo</code>.</td>
                   </tr>
                   <tr>
                     <td><strong>Tier 2</strong></td>
@@ -521,12 +521,19 @@
                   </tr>
                   <tr>
                     <td><strong>Tier 3</strong></td>
+                    <td><strong><code>MDE Synthetic Device ID (SHA-256)</code></strong> (<code>MdeSyntheticDeviceId</code>)</td>
+                    <td>Computes the deterministic synthetic Entra ID <code>deviceId</code> directly from the 40-hex MDE <code>DeviceId</code> (<code>senseid</code>) by hashing <code>UTF8(MdeDeviceId)</code> with SHA-256, XOR-folding the two 16-byte halves (<code>$folded[$i] = $hash[$i] -bxor $hash[$i + 16]</code>), converting to <code>[Guid]::new($folded)</code>, and querying <code>GET /v1.0/devices?$filter=deviceId eq '{syntheticDeviceId}'</code>.</td>
+                    <td>Used for <code>MicrosoftSense</code> / Security Settings Management servers when <code>DeviceInfo.AadDeviceId</code> is empty and Azure Machine Configuration has not reported yet (requires zero extra MDE API calls or guest agents).</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Tier 4</strong></td>
                     <td><strong><code>MicrosoftSense (Hostname &amp; OS)</code></strong> (<code>MicrosoftSenseHostnameAndOS</code>)</td>
                     <td>Queries <code>GET /v1.0/devices?$filter=displayName eq '{hostname}'</code> across candidate hostnames and requires one distinct object across all aliases matching OS and <code>MicrosoftSense</code>. Pagination or multiple objects is ambiguous, even if only one is enabled.</td>
-                    <td>Fallback after selecting one fresh Active MDE record, only when neither ID-based path resolves and no MDE re-onboarding/merge history is known.</td>
+                    <td>Fallback after selecting one fresh Active MDE record, only when none of the ID-based paths resolve and no MDE re-onboarding/merge history is known.</td>
                   </tr>
                 </tbody>
               </table>
+              <p class="muted" style="margin-top:8px;"><strong>Disabling specific correlation tiers:</strong> Set the Worker Function App setting <code>SYNC_DISABLED_CORRELATION_TIERS</code> to a comma-separated list of tier names or aliases (<code>Tier1</code> / <code>MdeAadDeviceId</code>, <code>Tier2</code> / <code>GuestConfigurationIntuneDeviceId</code>, <code>Tier3</code> / <code>MdeSyntheticDeviceId</code>, <code>Tier4</code> / <code>MicrosoftSenseHostnameAndOS</code>) to skip specific tiers during device correlation.</p>
             </div>
           </div>
         </details>
@@ -808,12 +815,13 @@
                 </ul>
               </div>
               <div class="doc-card">
-                <h3>Gates 3–4: MDE &amp; 3-Tier Entra Identity Correlation</h3>
+                <h3>Gates 3–4: MDE &amp; 4-Tier Entra Identity Correlation</h3>
                 <ul class="doc-list">
-                  <li><strong>MDE <code>DeviceInfo</code> criteria:</strong> Latest row per <code>DeviceId</code> over 90 days, matched by <code>AzureResourceId</code> or <code>AzureVmId</code>. Excludes <code>MergedToDeviceId</code> records and predecessors listed in <code>MergedDeviceIds</code> before checking freshness. Requires a unique <code>Onboarded</code> record with valid <code>Timestamp</code> within <code>SYNC_FRESHNESS_HOURS</code> (2160h / 90 days), allowing at most 5 minutes future skew (or a single <code>Active</code> sensor when multiple unmerged records exist). Bulk network/antivirus enrichment follows the selected MDE ID.</li>
-                  <li><strong>Tier 1 — MDE <code>AadDeviceId</code> (<code>MdeAadDeviceId</code>):</strong> Queries <code>GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'</code> when MDE reports a valid GUID.</li>
+                  <li><strong>MDE <code>DeviceInfo</code> criteria:</strong> Latest row per <code>DeviceId</code> over 7 days, matched by <code>AzureResourceId</code> or <code>AzureVmId</code>. Excludes <code>MergedToDeviceId</code> records and predecessors listed in <code>MergedDeviceIds</code> before checking freshness. Requires a unique <code>Onboarded</code> record with valid <code>Timestamp</code> within <code>SYNC_FRESHNESS_HOURS</code> (168h / 7 days), allowing at most 5 minutes future skew (or a single <code>Active</code> sensor when multiple unmerged records exist). Bulk network/antivirus enrichment follows the selected MDE ID.</li>
+                  <li><strong>Tier 1 (Primary) — MDE <code>AadDeviceId</code> (<code>MdeAadDeviceId</code>):</strong> Queries <code>GET /v1.0/devices?$filter=deviceId eq '{AadDeviceId}'</code> when MDE reports a valid GUID in <code>DeviceInfo.AadDeviceId</code>.</li>
                   <li><strong>Tier 2 — Azure Machine Configuration <code>intuneDeviceId</code> (<code>GuestConfigurationIntuneDeviceId</code>):</strong> Joins <code>GuestConfigurationResources</code> (<code>entraiddeviceid</code> on Windows reading <code>HKLM\SOFTWARE\Microsoft\SenseCM\EnrollmentPayload</code>; the <code>entraiddeviceidlinux</code> family on Linux reading wdavstate with a newest-enrollment SenseCM log fallback) to extract <code>intuneDeviceId=&lt;guid&gt;</code> and queries <code>GET /v1.0/devices?$filter=deviceId eq '{intuneDeviceId}'</code>. Linux policy 2.0.0 uses the distinct configuration <code>entraiddeviceidlinux_1.0.2</code> with package version 1.0.2. Publish the exact built ZIP and update its policy/assignment name, URI, hash, and version; retain legacy assignments and history.</li>
-                  <li><strong>Tier 3 — <code>MicrosoftSense</code> Hostname + OS Fallback (<code>MicrosoftSenseHostnameAndOS</code>):</strong> Requires one distinct matching Entra object across all candidate hostnames and OS, with no unexamined pages. A single enabled object does not resolve duplicates. Known merge history or a changed previously tracked MDE ID sets durable <code>MdeReonboardingDetected</code>; hostname-only matching is then blocked until an ID-based path resolves. MDE merge IDs are not Entra IDs. <code>MdeLastKnownDeviceId</code> survives missing telemetry; diagnostics explain blocked matches. No old group memberships are removed.</li>
+                  <li><strong>Tier 3 — MDE Synthetic Device ID (<code>MdeSyntheticDeviceId</code>):</strong> Computes the synthetic Entra <code>deviceId</code> GUID by XOR-folding the two 16-byte halves of <code>SHA256(UTF8(MdeDeviceId))</code> (<code>Get-MdeSyntheticDeviceId</code>) and queries <code>GET /v1.0/devices?$filter=deviceId eq '{syntheticDeviceId}'</code>.</li>
+                  <li><strong>Tier 4 — <code>MicrosoftSense</code> Hostname + OS Fallback (<code>MicrosoftSenseHostnameAndOS</code>):</strong> Requires one distinct matching Entra object across all candidate hostnames and OS, with no unexamined pages. A single enabled object does not resolve duplicates. Known merge history or a changed previously tracked MDE ID sets durable <code>MdeReonboardingDetected</code>; hostname-only matching is then blocked until an ID-based path resolves. MDE merge IDs are not Entra IDs. <code>MdeLastKnownDeviceId</code> survives missing telemetry; diagnostics explain blocked matches. No old group memberships are removed.</li>
                   <li><strong>Event Grid Trigger (<code>ArcEvent</code>):</strong> Handles <code>Microsoft.Resources.ResourceWriteSuccess</code> events. For an <code>entraiddeviceid*</code> <code>guestConfigurationAssignment</code>, the worker reads the current resource and queues synchronization only if <code>properties.complianceStatus</code> is <code>Compliant</code>; other or missing statuses are logged and skipped. <code>MDE.Windows</code> / <code>MDE.Linux</code> extension events still require successful provisioning. Scheduled and manual inventory are unchanged. A compliance transition alone does not guarantee a resource-write event.</li>
                   <li><strong>MDE-triggered audit refresh:</strong> In <code>Enforce</code> mode, successful MDE extension events also request fresh processing of matching existing Entra-ID <code>Audit</code> assignments. For Linux, the newest version-named configuration is preferred; legacy configurations are refreshed only when no version-named configuration exists. Package hash, version, parameters, and Audit mode are preserved; hidden package URIs are resolved only from hash-matched deployed policies. Requests are deduplicated by event and assignment ID, and pending/uncertain writes are not blindly repeated. Missing assignments require Azure Policy deployment/remediation. The agent reports asynchronously, so request acceptance does not mean the audit has completed. No server commands or assignment deletion/recreation are used.</li>
                 </ul>
@@ -906,7 +914,7 @@
                 <h3>Defender Advanced Hunting — MDE device correlation &amp; tags</h3>
                 <p class="muted">Selects latest state per <code>DeviceId</code> before matching <code>AzureResourceId</code> (also matches <code>AzureVmId</code> when available). Merge-lineage, sensor-health, freshness, and ambiguity checks run afterward in PowerShell (<code>POST /v1.0/security/runHuntingQuery</code>):</p>
                 <pre><code>DeviceInfo
-| where Timestamp &gt;= ago(90d)
+| where Timestamp &gt;= ago(7d)
 | summarize arg_max(Timestamp, *) by DeviceId
 | where AzureResourceId =~ "&lt;arc-resource-id&gt;"
 | project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId, MergedDeviceIds,
@@ -918,7 +926,7 @@
                 <h3>Defender Advanced Hunting — Network adapter IP addresses</h3>
                 <p class="muted">Collects latest IPv4/IPv6 addresses per adapter for the correlated MDE <code>DeviceId</code>:</p>
                 <pre><code>DeviceNetworkInfo
-| where Timestamp &gt;= ago(90d) and DeviceId == "&lt;mde-device-id&gt;"
+| where Timestamp &gt;= ago(7d) and DeviceId == "&lt;mde-device-id&gt;"
 | summarize arg_max(Timestamp, *) by DeviceId, NetworkAdapterName, MacAddress
 | project IPAddresses
 | take 101</code></pre>
@@ -927,7 +935,7 @@
                 <h3>Defender Advanced Hunting — Antivirus mode (<code>scid-2010</code>)</h3>
                 <p class="muted">Extracts AV mode from TVM configuration assessment (<code>0=Active</code>, <code>1=Passive</code>, <code>2=Disabled</code>, <code>3=Other</code>, <code>4=EDRBlocked</code>, <code>5=PassiveAudit</code>):</p>
                 <pre><code>DeviceTvmSecureConfigurationAssessment
-| where Timestamp &gt;= ago(90d) and DeviceId == "&lt;mde-device-id&gt;" and ConfigurationId == 'scid-2010'
+| where Timestamp &gt;= ago(7d) and DeviceId == "&lt;mde-device-id&gt;" and ConfigurationId == 'scid-2010'
 | summarize arg_max(Timestamp, *) by DeviceId
 | project DeviceId, Timestamp, AvMode = tostring(parse_json(Context)[0][0])
 | take 2</code></pre>
@@ -974,9 +982,9 @@
                     <td>Run KQL queries against <code>DeviceInfo</code>, <code>DeviceNetworkInfo</code>, and <code>DeviceTvmSecureConfigurationAssessment</code>.</td>
                   </tr>
                   <tr>
-                    <td>Microsoft Graph (Entra Devices — 3-Tier Lookup)</td>
-                    <td><code>GET /v1.0/devices?$filter=deviceId eq '{aadOrGcIntuneDeviceId}'&amp;$select=id,deviceId,accountEnabled&amp;$top=2</code><br><code>GET /v1.0/devices?$filter=displayName eq '{hostname}'&amp;$select=id,deviceId,displayName,operatingSystem,managementType,accountEnabled&amp;$top=25</code></td>
-                    <td>Resolve Entra device object <code>id</code> via: (1) MDE <code>AadDeviceId</code>, (2) Azure Machine Configuration <code>intuneDeviceId</code> from <code>GuestConfigurationResources</code> (<code>entraiddeviceid</code> / <code>entraiddeviceidlinux</code>), or (3) <code>MicrosoftSense</code> hostname + OS fallback.</td>
+                    <td>Microsoft Graph (Entra Devices — 4-Tier Lookup)</td>
+                    <td><code>GET /v1.0/devices?$filter=deviceId eq '{aadOrGcOrSyntheticDeviceId}'&amp;$select=id,deviceId,accountEnabled&amp;$top=2</code><br><code>GET /v1.0/devices?$filter=displayName eq '{hostname}'&amp;$select=id,deviceId,displayName,operatingSystem,managementType,accountEnabled&amp;$top=25</code></td>
+                    <td>Resolve Entra device object <code>id</code> via: (1) MDE <code>DeviceInfo.AadDeviceId</code>, (2) Azure Machine Configuration <code>intuneDeviceId</code> from <code>GuestConfigurationResources</code> (<code>entraiddeviceid</code> / <code>entraiddeviceidlinux</code>), (3) MDE Synthetic Device ID (SHA-256 folded from MDE <code>DeviceId</code> via <code>Get-MdeSyntheticDeviceId</code>), or (4) <code>MicrosoftSense</code> hostname + OS fallback.</td>
                   </tr>
                   <tr>
                     <td>Microsoft Graph (Entra Groups &amp; Administrative Units)</td>

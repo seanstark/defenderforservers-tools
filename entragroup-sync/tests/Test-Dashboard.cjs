@@ -16,7 +16,7 @@ const context = vm.createContext({
 });
 vm.runInContext(`${prefix}\n${hover}`, context);
 
-for (const method of ["MdeAadDeviceId", "GuestConfigurationIntuneDeviceId", "MicrosoftSenseHostnameAndOS"]) {
+for (const method of ["MdeAadDeviceId", "GuestConfigurationIntuneDeviceId", "MdeSyntheticDeviceId", "MicrosoftSenseHostnameAndOS"]) {
   context.machine = {
     EntraObjectId: "55555555-5555-5555-5555-555555555555",
     EntraDeviceId: "349bf055-2d6c-6d05-3522-c4ee05018601",

@@ -9,11 +9,41 @@ $script:AdminUnitGroupsCache = @{}
 $script:AdminUnitGroupsExpires = @{}
 $script:SharedAdminUnitGroups = @{}
 $script:CurrentRunTranscript = [Collections.Generic.List[string]]::new()
+$script:CurrentRunApiCalls = [Collections.Generic.List[string]]::new()
 
 function Start-SyncTranscript {
     param([string]$Context)
     $script:CurrentRunTranscript = [Collections.Generic.List[string]]::new()
+    $script:CurrentRunApiCalls = [Collections.Generic.List[string]]::new()
     Write-SyncTrace $Context "=== PowerShell execution started at $([datetimeoffset]::UtcNow.ToString('o')) ==="
+}
+
+function Add-SyncApiEndpoint {
+    param([string]$Method = 'GET', [string]$Uri, [string]$Purpose = '', $Status = '')
+    if ([string]::IsNullOrWhiteSpace($Uri)) { return }
+    $cleanMethod = $Method.Trim().ToUpperInvariant()
+    $statusSuffix = if ($null -ne $Status -and "$Status" -ne '') { " (HTTP $Status)" } else { '' }
+    $purposeSuffix = if ($Purpose) { " — $Purpose" } else { '' }
+    $entry = "$cleanMethod $Uri$statusSuffix$purposeSuffix"
+    if ($null -ne $script:CurrentRunApiCalls -and $entry -notin $script:CurrentRunApiCalls) {
+        $script:CurrentRunApiCalls.Add($entry)
+    }
+    Write-SyncTrace 'API' $entry
+}
+
+function Format-CorrelationMethodLabel {
+    param([string]$CorrelationPath)
+    switch ($CorrelationPath) {
+        'MdeAadDeviceId' { 'Tier 1: MDE AadDeviceId (MdeAadDeviceId)' }
+        'GuestConfigurationIntuneDeviceId' { 'Tier 2: Machine Configuration intuneDeviceId (GuestConfigurationIntuneDeviceId)' }
+        'MdeSyntheticDeviceId' { 'Tier 3: MDE Synthetic Device ID (MdeSyntheticDeviceId)' }
+        'MicrosoftSenseHostnameAndOS' { 'Tier 4: MicrosoftSense Hostname & OS (MicrosoftSenseHostnameAndOS)' }
+        'AadDeviceIdAmbiguous' { 'Ambiguous (Tier 1: MDE AadDeviceId)' }
+        'GuestConfigIntuneDeviceIdAmbiguous' { 'Ambiguous (Tier 2: Machine Configuration intuneDeviceId)' }
+        'MdeSyntheticDeviceIdAmbiguous' { 'Ambiguous (Tier 3: MDE Synthetic Device ID)' }
+        'MicrosoftSenseAmbiguous' { 'Ambiguous (Tier 4: MicrosoftSense)' }
+        default { if ($CorrelationPath) { $CorrelationPath } else { 'None' } }
+    }
 }
 
 function Write-SyncTrace {
@@ -86,6 +116,54 @@ function ConvertTo-CleanList {
     })
 }
 
+function Get-DisabledCorrelationTiers {
+    param([string]$Raw = (Get-OptionalSetting 'SYNC_DISABLED_CORRELATION_TIERS'))
+    if ([string]::IsNullOrWhiteSpace($Raw)) { return @() }
+    $tierMap = @{
+        '1'                                = 'MdeAadDeviceId'
+        'tier1'                            = 'MdeAadDeviceId'
+        'tier-1'                           = 'MdeAadDeviceId'
+        'mdeaaddeviceid'                   = 'MdeAadDeviceId'
+        'aaddeviceid'                      = 'MdeAadDeviceId'
+        '2'                                = 'GuestConfigurationIntuneDeviceId'
+        'tier2'                            = 'GuestConfigurationIntuneDeviceId'
+        'tier-2'                           = 'GuestConfigurationIntuneDeviceId'
+        'guestconfigurationintunedeviceid' = 'GuestConfigurationIntuneDeviceId'
+        'guestconfiguration'               = 'GuestConfigurationIntuneDeviceId'
+        'machineconfiguration'             = 'GuestConfigurationIntuneDeviceId'
+        'intunedeviceid'                   = 'GuestConfigurationIntuneDeviceId'
+        '3'                                = 'MdeSyntheticDeviceId'
+        'tier3'                            = 'MdeSyntheticDeviceId'
+        'tier-3'                           = 'MdeSyntheticDeviceId'
+        'mdesyntheticdeviceid'             = 'MdeSyntheticDeviceId'
+        'syntheticdeviceid'                = 'MdeSyntheticDeviceId'
+        'synthetic'                        = 'MdeSyntheticDeviceId'
+        'mdesensesynthetic'                = 'MdeSyntheticDeviceId'
+        '4'                                = 'MicrosoftSenseHostnameAndOS'
+        'tier4'                            = 'MicrosoftSenseHostnameAndOS'
+        'tier-4'                           = 'MicrosoftSenseHostnameAndOS'
+        'microsoftsensehostnameandos'      = 'MicrosoftSenseHostnameAndOS'
+        'microsoftsense'                   = 'MicrosoftSenseHostnameAndOS'
+        'hostname'                         = 'MicrosoftSenseHostnameAndOS'
+        'hostnamefallback'                 = 'MicrosoftSenseHostnameAndOS'
+    }
+    $resolved = [Collections.Generic.List[string]]::new()
+    foreach ($token in @(ConvertTo-CleanList ($Raw -replace ';', ','))) {
+        $key = $token.Trim().ToLowerInvariant()
+        if (-not $tierMap.ContainsKey($key)) {
+            throw "Invalid correlation tier '$token' in SYNC_DISABLED_CORRELATION_TIERS. Valid values: Tier1/MdeAadDeviceId, Tier2/GuestConfigurationIntuneDeviceId, Tier3/MdeSyntheticDeviceId, Tier4/MicrosoftSenseHostnameAndOS."
+        }
+        $canonical = $tierMap[$key]
+        if ($canonical -notin $resolved) {
+            $resolved.Add($canonical)
+        }
+    }
+    if ($resolved.Count -ge 4) {
+        throw 'SYNC_DISABLED_CORRELATION_TIERS cannot disable all four correlation tiers at once.'
+    }
+    return @($resolved)
+}
+
 function Get-SyncConfig {
     $rawSubscriptions = Get-OptionalSetting 'SYNC_SUBSCRIPTION_IDS'
     $subscriptions = @()
@@ -144,8 +222,9 @@ function Get-SyncConfig {
     }
     $mode = Get-Setting 'SYNC_MODE' 'Audit'
     if ($mode -notin @('Audit', 'Enforce')) { throw 'SYNC_MODE must be Audit or Enforce.' }
-    $hours = [int](Get-Setting 'SYNC_FRESHNESS_HOURS' '2160')
-    if ($hours -lt 1 -or $hours -gt 2160) { throw 'SYNC_FRESHNESS_HOURS must be between 1 and 2160.' }
+    $hours = [int](Get-Setting 'SYNC_FRESHNESS_HOURS' '168')
+    if ($hours -lt 1 -or $hours -gt 168) { throw 'SYNC_FRESHNESS_HOURS must be between 1 and 168.' }
+    $disabledCorrelationTiers = @(Get-DisabledCorrelationTiers)
     @{
         Subscriptions = $subscriptions
         ManagementGroups = $managementGroups
@@ -161,6 +240,7 @@ function Get-SyncConfig {
         AutoCreateGroups = $autoCreateGroups
         Mode = $mode
         FreshnessHours = $hours
+        DisabledCorrelationTiers = $disabledCorrelationTiers
     }
 }
 
@@ -852,7 +932,11 @@ function Get-FunctionParametersSummary {
         SYNC_ADMIN_UNIT_ID = if ($adminUnitId) { $adminUnitId } else { 'Not configured (pre-created groups only)' }
         SYNC_AUTO_CREATE_GROUPS = $autoCreate
         SYNC_SCHEDULE = Get-Setting 'SYNC_SCHEDULE' '0 0 */6 * * *'
-        SYNC_FRESHNESS_HOURS = Get-Setting 'SYNC_FRESHNESS_HOURS' '2160'
+        SYNC_FRESHNESS_HOURS = Get-Setting 'SYNC_FRESHNESS_HOURS' '168'
+        SYNC_DISABLED_CORRELATION_TIERS = $(
+            $disabledTiers = @(try { Get-DisabledCorrelationTiers } catch { ConvertTo-CleanList (Get-OptionalSetting 'SYNC_DISABLED_CORRELATION_TIERS') })
+            if ($disabledTiers.Count) { $disabledTiers -join ', ' } else { 'None (all 4 tiers enabled)' }
+        )
         SYNC_AWS_WINDOWS_GROUP_PREFIX = if ($awsWin) { "$awsWin (default: $(Format-CloudGroupName $awsWin $defaultGroupMode '<AccountId>'))" } else { 'Not configured' }
         SYNC_AWS_LINUX_GROUP_PREFIX = if ($awsLin) { "$awsLin (default: $(Format-CloudGroupName $awsLin $defaultGroupMode '<AccountId>'))" } else { 'Not configured' }
         SYNC_GCP_WINDOWS_GROUP_PREFIX = if ($gcpWin) { "$gcpWin (default: $(Format-CloudGroupName $gcpWin $defaultGroupMode '<ProjectId>'))" } else { 'Not configured' }
@@ -1360,12 +1444,15 @@ function Invoke-CloudRequest {
         }
         $response = Invoke-WebRequest @parameters
         $status = [int]$response.StatusCode
+        if ($Resource -ne 'https://storage.azure.com/' -and $Uri -notmatch '\.servicebus\.windows\.net') {
+            Add-SyncApiEndpoint -Method $Method -Uri $Uri -Status $status
+        }
         if ($status -ge 200 -and $status -lt 300 -or $status -in $AllowStatus) {
             return @{
                 Status = $status; Headers = $response.Headers; Content = $response.Content
             }
         }
-        if (-not $DisableRetry -and $status -in @(408, 429, 500, 502, 503, 504) -and $attempt -lt 3) {
+        if (-not $DisableRetry -and $status -in @(408, 429, 500, 502, 503, 504) -and $attempt -lt 5) {
             $delay = [math]::Pow(2, $attempt + 1)
             if ($response.Headers.ContainsKey('Retry-After')) {
                 $retryAfter = [string]($response.Headers['Retry-After'] | Select-Object -First 1)
@@ -1378,7 +1465,8 @@ function Invoke-CloudRequest {
                     }
                 }
             }
-            if ($delay -gt 60) { throw "HTTP $status requires a delayed retry; returning work to the queue." }
+            if ($delay -gt 120) { throw "HTTP $status requires a delayed retry; returning work to the queue." }
+            Write-SyncTrace 'Warning' "HTTP $status from $(([uri]$Uri).Host) ($Method $(([uri]$Uri).AbsolutePath)); retrying in $delay seconds (attempt $($attempt + 1)/5)."
             Write-Warning "HTTP $status; retrying request in $delay seconds."
             Start-Sleep -Seconds $delay
             continue
@@ -1704,6 +1792,8 @@ function Get-ReportHistoryPage {
                     if (-not $h['TriggerReason'] -and $matchedLog['TriggerReason']) { $h['TriggerReason'] = [string]$matchedLog['TriggerReason'] }
                     if (-not $h['FunctionName'] -and $matchedLog['FunctionName']) { $h['FunctionName'] = [string]$matchedLog['FunctionName'] }
                     if (-not $h['ScriptOutput'] -and $matchedLog['ScriptOutput']) { $h['ScriptOutput'] = [string]$matchedLog['ScriptOutput'] }
+                    if (-not $h['CorrelationMethod'] -and $matchedLog['CorrelationMethod']) { $h['CorrelationMethod'] = [string]$matchedLog['CorrelationMethod'] }
+                    if (-not $h['ApiEndpoints'] -and $matchedLog['ApiEndpoints']) { $h['ApiEndpoints'] = @($matchedLog['ApiEndpoints']) }
                 }
             }
         }
@@ -1720,6 +1810,8 @@ function Get-ReportHistoryPage {
                             FunctionName = [string]$log['FunctionName']
                             TriggerReason = [string]$log['TriggerReason']
                             LogMessage = [string]$log['Message']
+                            CorrelationMethod = [string]$log['CorrelationMethod']
+                            ApiEndpoints = @(if ($log['ApiEndpoints']) { $log['ApiEndpoints'] })
                             ScriptOutput = [string]$log['ScriptOutput']
                         })
                     }
@@ -2004,6 +2096,13 @@ function Write-FunctionLog {
         Format-RunTranscript -RawTranscript ($script:CurrentRunTranscript -join "`n") -MaxLength 48000
     }
     else { '' }
+    $apiEndpoints = @(
+        if ($Entry.ContainsKey('ApiEndpoints') -and $null -ne $Entry['ApiEndpoints']) {
+            $Entry['ApiEndpoints']
+        } elseif ($null -ne $script:CurrentRunApiCalls -and $script:CurrentRunApiCalls.Count -gt 0) {
+            $script:CurrentRunApiCalls | Select-Object -First 40
+        }
+    )
     $log = @{
         Timestamp = if ($Entry['Timestamp']) { [string]$Entry['Timestamp'] } else { [datetimeoffset]::UtcNow.ToString('o') }
         FunctionName = [string]$Entry['FunctionName']
@@ -2013,6 +2112,13 @@ function Write-FunctionLog {
         Message = [string]$Entry['Message']
         RunId = [string]$Entry['RunId']
         ResourceId = [string]$Entry['ResourceId']
+        MachineName = [string]$Entry['MachineName']
+        CorrelationMethod = [string]$Entry['CorrelationMethod']
+        MdeDeviceId = [string]$Entry['MdeDeviceId']
+        EntraDeviceId = [string]$Entry['EntraDeviceId']
+        EntraObjectId = [string]$Entry['EntraObjectId']
+        GroupName = [string]$Entry['GroupName']
+        ApiEndpoints = $apiEndpoints
         ScriptOutput = $scriptOutput
     }
     $entity = @{
@@ -2384,8 +2490,11 @@ function Get-BulkMdeTelemetry {
     $byResourceId = @{}
     if (-not $DiscoveredMachines.Count) { return $byResourceId }
     $modes = @{ '0' = 'Active'; '1' = 'Passive'; '2' = 'Disabled'; '3' = 'Other'; '4' = 'EDRBlocked'; '5' = 'PassiveAudit' }
-    $batchSize = 200
+    $batchSize = 500
     for ($offset = 0; $offset -lt $DiscoveredMachines.Count; $offset += $batchSize) {
+        if ($offset -gt 0 -and (Get-OptionalSetting 'IDENTITY_ENDPOINT')) {
+            Start-Sleep -Milliseconds 1500
+        }
         $batch = @($DiscoveredMachines | Select-Object -Skip $offset -First $batchSize)
         $resIds = [Collections.Generic.List[string]]::new()
         $vmIds = [Collections.Generic.List[string]]::new()
@@ -2394,12 +2503,15 @@ function Get-BulkMdeTelemetry {
             $rid = ([string]$item.ResourceId).ToLowerInvariant()
             if ($rid -and $rid -notin $resIds) { $resIds.Add($rid) }
             $row = $item.Row
-            $vid = if ($null -ne $row) { ([string](Get-InventoryValue $row @('properties', 'vmId'))).Trim().ToLowerInvariant() } else { '' }
+            $vid = if ($null -ne $row) { ([string](Get-InventoryValue $row @('properties', 'vmId'))).Trim().ToLowerInvariant() }
+                elseif ($item.ContainsKey('VirtualMachineId') -and $item['VirtualMachineId']) { ([string]$item['VirtualMachineId']).Trim().ToLowerInvariant() }
+                else { '' }
             if ($vid) {
                 if ($vid -notin $vmIds) { $vmIds.Add($vid) }
                 $vmIdToResId[$vid] = $rid
             }
             $byResourceId[$rid] = @{
+                BulkEvaluated = $true
                 Candidates = [Collections.Generic.List[hashtable]]::new()
                 DeviceTelemetry = @{}
                 NetworkAddresses = @()
@@ -2415,19 +2527,19 @@ function Get-BulkMdeTelemetry {
         }
         $bulkQuery = @"
 let MatchedDevices = DeviceInfo
-| where Timestamp >= ago(90d)
+| where Timestamp >= ago(7d)
 | summarize arg_max(Timestamp, *) by DeviceId
 | where tolower(AzureResourceId) in ($resLiterals)${vmClause}
 | project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId, MergedDeviceIds,
     SensorHealthState, CloudPlatforms, AzureVmId, AzureResourceId, PublicIP,
     DeviceManualTags, DeviceDynamicTags, RegistryDeviceTag, MachineGroup;
 let NetInfo = DeviceNetworkInfo
-| where Timestamp >= ago(90d)
+| where Timestamp >= ago(7d)
 | where DeviceId in ((MatchedDevices | project DeviceId))
 | summarize arg_max(Timestamp, *) by DeviceId, NetworkAdapterName, MacAddress
 | summarize NetIPs = make_list(IPAddresses) by DeviceId;
 let AvInfo = DeviceTvmSecureConfigurationAssessment
-| where Timestamp >= ago(90d) and ConfigurationId == 'scid-2010'
+| where Timestamp >= ago(7d) and ConfigurationId == 'scid-2010'
 | where DeviceId in ((MatchedDevices | project DeviceId))
 | summarize arg_max(Timestamp, *) by DeviceId
 | project DeviceId, AvTimestamp = Timestamp, AvMode = tostring(parse_json(Context)[0][0]);
@@ -2437,7 +2549,7 @@ MatchedDevices
 "@
         try {
             Write-SyncTrace 'MDEHunting' "Executing bulk MDE hunting query for $($resIds.Count) machine(s)"
-            $huntResult = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $bulkQuery; Timespan = 'P90D' })
+            $huntResult = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $bulkQuery; Timespan = 'P7D' })
             if (-not $huntResult.ContainsKey('results')) { continue }
             $rows = @($huntResult.results)
             Write-SyncTrace 'MDEHunting' "Bulk MDE hunting query returned $($rows.Count) device row(s) for $($resIds.Count) machine(s)"
@@ -2499,6 +2611,7 @@ MatchedDevices
         $netList = [Collections.Generic.List[string]]::new()
         foreach ($ip in $byResourceId[$k].NetworkAddresses) { $netList.Add([string]$ip) }
         $finalMap[$k] = @{
+            BulkEvaluated = $true
             Candidates = $candList
             DeviceTelemetry = $byResourceId[$k].DeviceTelemetry
             NetworkAddresses = $netList
@@ -2744,7 +2857,7 @@ ${rgClause}| extend vmssId = tolower(id), vmssName = name, vmssTags = tags
                 if ((Test-ResourceScope -Config $config -SubscriptionId $item.SubscriptionId -ResourceGroup $item.ResourceGroup) -and $discovered.Add($item.ArcResourceId)) {
                     $revisitedRows++
                     Write-SyncTrace 'Inventory' "Discovered previously tracked machine from Table storage: $($item.ArcResourceId)"
-                    $pendingQueue.Add(@{ ResourceId = [string]$item.ArcResourceId; Row = $null })
+                    $pendingQueue.Add(@{ ResourceId = [string]$item.ArcResourceId; Row = $null; VirtualMachineId = [string]$item['VirtualMachineId'] })
                 }
             }
             $cursor = $page.Cursor
@@ -2895,7 +3008,7 @@ function Get-MdeCandidates {
     }
     $query = @"
 DeviceInfo
-| where Timestamp >= ago(90d)
+| where Timestamp >= ago(7d)
 | summarize arg_max(Timestamp, *) by DeviceId
 | where AzureResourceId =~ ${literal}${vmClause}
 | project Timestamp, DeviceId, DeviceName, AadDeviceId, OnboardingStatus, MergedToDeviceId, MergedDeviceIds,
@@ -2904,7 +3017,7 @@ DeviceInfo
 | take 101
 "@
     Write-SyncTrace 'MDEHunting' "Executing DeviceInfo hunting query for ResourceId=$ResourceId" @{ Query = $query }
-    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P90D' })
+    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P7D' })
     if (-not $result.ContainsKey('results')) { throw 'Hunting response is missing results.' }
     $rows = @($result.results)
     Write-SyncTrace 'MDEHunting' "DeviceInfo query for ResourceId=$ResourceId returned $($rows.Count) row(s)" @{
@@ -3027,7 +3140,8 @@ function Get-ArcExtensions {
     $kind = Get-ResourceKind $ResourceId
     if ($kind -eq 'ClassicVm') { return @() }
     if ($null -ne $MachineResource) {
-        if ($MachineResource.ContainsKey('argExtensions') -and $null -ne $MachineResource['argExtensions']) {
+        if ($MachineResource.ContainsKey('argExtensions')) {
+            if ($null -eq $MachineResource['argExtensions']) { return @() }
             return @($MachineResource['argExtensions'] | Where-Object { $_ } | ForEach-Object { [string]$_ } | Sort-Object -Unique)
         }
         if ($kind -in @('AzureVm', 'VmssVm')) {
@@ -3186,12 +3300,12 @@ function Get-MdeNetworkAddresses {
     $literal = ConvertTo-Json -InputObject $DeviceId -Compress
     $query = @"
 DeviceNetworkInfo
-| where Timestamp >= ago(90d) and DeviceId == $literal
+| where Timestamp >= ago(7d) and DeviceId == $literal
 | summarize arg_max(Timestamp, *) by DeviceId, NetworkAdapterName, MacAddress
 | project IPAddresses
 | take 101
 "@
-    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P90D' })
+    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P7D' })
     if (-not $result.ContainsKey('results') -or @($result.results).Count -gt 100) {
         throw 'Network inventory is missing results or exceeded its safety limit.'
     }
@@ -3210,12 +3324,12 @@ function Get-MdeAntivirus {
     $literal = ConvertTo-Json -InputObject $DeviceId -Compress
     $query = @"
 DeviceTvmSecureConfigurationAssessment
-| where Timestamp >= ago(90d) and DeviceId == $literal and ConfigurationId == 'scid-2010'
+| where Timestamp >= ago(7d) and DeviceId == $literal and ConfigurationId == 'scid-2010'
 | summarize arg_max(Timestamp, *) by DeviceId
 | project DeviceId, Timestamp, AvMode = tostring(parse_json(Context)[0][0])
 | take 2
 "@
-    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P90D' })
+    $result = Read-JsonResponse (Invoke-Graph -Path '/security/runHuntingQuery' -Method POST -Body @{ Query = $query; Timespan = 'P7D' })
     if (-not $result.ContainsKey('results')) { throw 'Antivirus hunting response is missing results.' }
     if (@($result.results).Count -gt 1) {
         throw 'Antivirus inventory returned multiple records for one device.'
@@ -3383,11 +3497,17 @@ function Set-VerifiedMembership {
 
 function Get-GuestConfigEntraDeviceId {
     param([string]$ResourceId, [string]$SubscriptionId, [hashtable]$MachineResource = $null)
-    if ($null -ne $MachineResource -and $MachineResource.ContainsKey('gcEntraDeviceId') -and $MachineResource['gcEntraDeviceId']) {
-        $preloadedGuid = [guid]::Empty
-        if ([guid]::TryParse(([string]$MachineResource['gcEntraDeviceId']).Trim(), [ref]$preloadedGuid) -and $preloadedGuid -ne [guid]::Empty) {
-            return $preloadedGuid.ToString()
+    if ('GuestConfigurationIntuneDeviceId' -in @(Get-DisabledCorrelationTiers)) {
+        return ''
+    }
+    if ($null -ne $MachineResource -and $MachineResource.ContainsKey('gcEntraDeviceId')) {
+        if ($MachineResource['gcEntraDeviceId']) {
+            $preloadedGuid = [guid]::Empty
+            if ([guid]::TryParse(([string]$MachineResource['gcEntraDeviceId']).Trim(), [ref]$preloadedGuid) -and $preloadedGuid -ne [guid]::Empty) {
+                return $preloadedGuid.ToString()
+            }
         }
+        return ''
     }
     if (-not $ResourceId -or -not $SubscriptionId) { return '' }
     try {
@@ -3420,17 +3540,69 @@ GuestConfigurationResources
     return ''
 }
 
+function Get-MdeSyntheticDeviceId {
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string] $MdeDeviceId
+    )
+    if ('MdeSyntheticDeviceId' -in @(Get-DisabledCorrelationTiers)) {
+        return ''
+    }
+    if ([string]::IsNullOrWhiteSpace($MdeDeviceId)) {
+        return ''
+    }
+    $normalized = $MdeDeviceId.Trim().ToLowerInvariant()
+    if ($normalized -notmatch '^[0-9a-f]{40}$') {
+        return ''
+    }
+    $inputBytes = [System.Text.Encoding]::UTF8.GetBytes($normalized)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $sha256.ComputeHash($inputBytes)
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    $folded = [byte[]]::new(16)
+    for ($i = 0; $i -lt 16; $i++) {
+        $folded[$i] = $hash[$i] -bxor $hash[$i + 16]
+    }
+    return ([Guid]::new($folded)).ToString('D')
+}
+
 function Resolve-EntraDeviceForMachine {
     param([hashtable]$State)
-    $primaryNote = 'MDE DeviceInfo.AadDeviceId was empty (machine is not Entra joined / hybrid joined).'
-    # 1. Primary path: MDE AadDeviceId -> Entra deviceId
-    if (-not [string]::IsNullOrWhiteSpace([string]$State['EntraDeviceId'])) {
+    $checkedDeviceIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $disabledTiers = @(
+        if ($State.ContainsKey('DisabledCorrelationTiers') -and $null -ne $State['DisabledCorrelationTiers']) {
+            $State['DisabledCorrelationTiers']
+        } else {
+            Get-DisabledCorrelationTiers
+        }
+    )
+    $tier1Disabled = 'MdeAadDeviceId' -in $disabledTiers
+    $tier2Disabled = 'GuestConfigurationIntuneDeviceId' -in $disabledTiers
+    $tier3Disabled = 'MdeSyntheticDeviceId' -in $disabledTiers
+    $tier4Disabled = 'MicrosoftSenseHostnameAndOS' -in $disabledTiers
+
+    # 1. Tier 1: MDE DeviceInfo.AadDeviceId -> Entra deviceId
+    $primaryNote = if ($tier1Disabled) {
+        Write-SyncTrace 'Correlation' 'Tier 1 (MdeAadDeviceId): Skipped (disabled via SYNC_DISABLED_CORRELATION_TIERS)'
+        'Tier 1 (MdeAadDeviceId) is disabled via SYNC_DISABLED_CORRELATION_TIERS.'
+    } else {
+        'MDE DeviceInfo.AadDeviceId was empty (machine is not Entra joined / hybrid joined).'
+    }
+    if (-not $tier1Disabled -and -not [string]::IsNullOrWhiteSpace([string]$State['EntraDeviceId'])) {
         $parsedGuid = [guid]::Empty
         if ([guid]::TryParse([string]$State['EntraDeviceId'], [ref]$parsedGuid) -and $parsedGuid -ne [guid]::Empty) {
             $deviceId = $parsedGuid.ToString()
+            $null = $checkedDeviceIds.Add($deviceId)
             $filter = [uri]::EscapeDataString("deviceId eq '$deviceId'")
-            $devices = Read-JsonResponse (Invoke-Graph -Path "/devices?`$filter=$filter&`$select=id,deviceId,accountEnabled&`$top=2")
-            Write-SyncTrace 'MachineSync' "Entra /devices lookup for deviceId=$deviceId returned $(@($devices.value).Count) object(s)"
+            $tier1GraphPath = "/devices?`$filter=$filter&`$select=id,deviceId,accountEnabled&`$top=2"
+            Add-SyncApiEndpoint -Method 'GET' -Uri "https://graph.microsoft.com/v1.0$tier1GraphPath" -Purpose "Tier 1 (MdeAadDeviceId): Resolve deviceId '$deviceId'"
+            $devices = Read-JsonResponse (Invoke-Graph -Path $tier1GraphPath)
+            Write-SyncTrace 'Correlation' "Tier 1 (MdeAadDeviceId): GET https://graph.microsoft.com/v1.0/devices?`$filter=deviceId eq '$deviceId' returned $(@($devices.value).Count) object(s)"
             if ($devices.ContainsKey('@odata.nextLink') -or @($devices.value).Count -gt 1) {
                 return @{
                     Status = 'Ambiguous'
@@ -3449,126 +3621,207 @@ function Resolve-EntraDeviceForMachine {
             }
             $primaryNote = "MDE reported AadDeviceId '$deviceId', but GET /v1.0/devices?`$filter=deviceId eq '$deviceId' returned 0 objects in this Entra tenant."
         }
+    } elseif (-not $tier1Disabled) {
+        Write-SyncTrace 'Correlation' 'Tier 1 (MdeAadDeviceId): DeviceInfo.AadDeviceId is empty'
     }
 
-    # 2. Machine Configuration (GuestConfigurationResources) intuneDeviceId path:
+    # 2. Tier 2: Machine Configuration (GuestConfigurationResources) intuneDeviceId path
     # Reads intuneDeviceId reported by entraiddeviceid / entraiddeviceidlinux DSC package (EnrollmentPayload / wdavstate) -> Entra deviceId
-    $gcDeviceId = ([string]$State['GuestConfigEntraDeviceId']).Trim()
-    $gcNote = 'Machine Configuration assignment (entraiddeviceid / entraiddeviceidlinux) has not reported an intuneDeviceId yet.'
-    if (-not [string]::IsNullOrWhiteSpace($gcDeviceId)) {
+    $gcDeviceId = if (-not $tier2Disabled) { ([string]$State['GuestConfigEntraDeviceId']).Trim() } else { '' }
+    $gcNote = if ($tier2Disabled) {
+        Write-SyncTrace 'Correlation' 'Tier 2 (GuestConfigurationIntuneDeviceId): Skipped (disabled via SYNC_DISABLED_CORRELATION_TIERS)'
+        'Tier 2 (GuestConfigurationIntuneDeviceId) is disabled via SYNC_DISABLED_CORRELATION_TIERS.'
+    } else {
+        'Machine Configuration assignment (entraiddeviceid / entraiddeviceidlinux) has not reported an intuneDeviceId yet.'
+    }
+    if (-not $tier2Disabled -and -not [string]::IsNullOrWhiteSpace($gcDeviceId)) {
         $gcGuid = [guid]::Empty
         if ([guid]::TryParse($gcDeviceId, [ref]$gcGuid) -and $gcGuid -ne [guid]::Empty) {
             $gcIdStr = $gcGuid.ToString()
-            $filter = [uri]::EscapeDataString("deviceId eq '$gcIdStr'")
-            $gcDevices = Read-JsonResponse (Invoke-Graph -Path "/devices?`$filter=$filter&`$select=id,deviceId,displayName,operatingSystem,managementType,accountEnabled&`$top=2")
-            Write-SyncTrace 'MachineSync' "Entra /devices lookup for Machine Configuration intuneDeviceId=$gcIdStr returned $(@($gcDevices.value).Count) object(s)"
-            if ($gcDevices.ContainsKey('@odata.nextLink') -or @($gcDevices.value).Count -gt 1) {
-                return @{
-                    Status = 'Ambiguous'
-                    Device = $null
-                    CorrelationPath = 'GuestConfigIntuneDeviceIdAmbiguous'
-                    Diagnostic = "Multiple Entra ID device objects matched Machine Configuration intuneDeviceId '$gcIdStr'. Sync failed closed."
+            if (-not $checkedDeviceIds.Add($gcIdStr)) {
+                $gcNote = "Machine Configuration reported intuneDeviceId '$gcIdStr', which already returned 0 objects in Entra ID."
+            }
+            else {
+                $filter = [uri]::EscapeDataString("deviceId eq '$gcIdStr'")
+                $tier2GraphPath = "/devices?`$filter=$filter&`$select=id,deviceId,displayName,operatingSystem,managementType,accountEnabled&`$top=2"
+                Add-SyncApiEndpoint -Method 'GET' -Uri "https://graph.microsoft.com/v1.0$tier2GraphPath" -Purpose "Tier 2 (GuestConfigurationIntuneDeviceId): Resolve intuneDeviceId '$gcIdStr'"
+                $gcDevices = Read-JsonResponse (Invoke-Graph -Path $tier2GraphPath)
+                Write-SyncTrace 'Correlation' "Tier 2 (GuestConfigurationIntuneDeviceId): GET https://graph.microsoft.com/v1.0/devices?`$filter=deviceId eq '$gcIdStr' returned $(@($gcDevices.value).Count) object(s)"
+                if ($gcDevices.ContainsKey('@odata.nextLink') -or @($gcDevices.value).Count -gt 1) {
+                    return @{
+                        Status = 'Ambiguous'
+                        Device = $null
+                        CorrelationPath = 'GuestConfigIntuneDeviceIdAmbiguous'
+                        Diagnostic = "Multiple Entra ID device objects matched Machine Configuration intuneDeviceId '$gcIdStr'. Sync failed closed."
+                    }
+                }
+                if (@($gcDevices.value).Count -eq 1) {
+                    return @{
+                        Status = 'Found'
+                        Device = $gcDevices.value[0]
+                        CorrelationPath = 'GuestConfigurationIntuneDeviceId'
+                        Diagnostic = "Correlated via Azure Machine Configuration intuneDeviceId ($gcIdStr) matching Entra ID deviceId."
+                    }
+                }
+                $gcNote = "Machine Configuration reported intuneDeviceId '$gcIdStr', but GET /v1.0/devices?`$filter=deviceId eq '$gcIdStr' returned 0 objects in Entra ID."
+            }
+        }
+    } elseif (-not $tier2Disabled) {
+        Write-SyncTrace 'Correlation' 'Tier 2 (GuestConfigurationIntuneDeviceId): No intuneDeviceId reported in GuestConfigurationResources'
+    }
+
+    # 3. Tier 3: MDE Synthetic Device ID (SHA-256 folded from 40-hex MDE DeviceId)
+    $syntheticDeviceId = ''
+    $syntheticNote = if ($tier3Disabled) {
+        Write-SyncTrace 'Correlation' 'Tier 3 (MdeSyntheticDeviceId): Skipped (disabled via SYNC_DISABLED_CORRELATION_TIERS)'
+        'Tier 3 (MdeSyntheticDeviceId) is disabled via SYNC_DISABLED_CORRELATION_TIERS.'
+    } else {
+        'MDE DeviceId was not a 40-hex SenseId for synthetic Entra deviceId derivation.'
+    }
+    if (-not $tier3Disabled) {
+        $syntheticDeviceId = if ($State.ContainsKey('MdeSyntheticDeviceId') -and -not [string]::IsNullOrWhiteSpace([string]$State['MdeSyntheticDeviceId'])) {
+            ([string]$State['MdeSyntheticDeviceId']).Trim()
+        } elseif (-not [string]::IsNullOrWhiteSpace([string]$State['MdeDeviceId'])) {
+            Get-MdeSyntheticDeviceId -MdeDeviceId ([string]$State['MdeDeviceId'])
+        } else {
+            ''
+        }
+        if ($syntheticDeviceId) {
+            $State['MdeSyntheticDeviceId'] = $syntheticDeviceId
+        }
+        if (-not [string]::IsNullOrWhiteSpace($syntheticDeviceId)) {
+            $synGuid = [guid]::Empty
+            if ([guid]::TryParse($syntheticDeviceId, [ref]$synGuid) -and $synGuid -ne [guid]::Empty) {
+                $synIdStr = $synGuid.ToString()
+                if (-not $checkedDeviceIds.Add($synIdStr)) {
+                    $syntheticNote = "MDE synthetic Entra deviceId '$synIdStr' (from SenseId '$($State['MdeDeviceId'])') already returned 0 objects in Entra ID."
+                }
+                else {
+                    $filter = [uri]::EscapeDataString("deviceId eq '$synIdStr'")
+                    $tier3GraphPath = "/devices?`$filter=$filter&`$select=id,deviceId,displayName,operatingSystem,managementType,accountEnabled&`$top=2"
+                    Add-SyncApiEndpoint -Method 'GET' -Uri "https://graph.microsoft.com/v1.0$tier3GraphPath" -Purpose "Tier 3 (MdeSyntheticDeviceId): Resolve synthetic deviceId '$synIdStr' from SenseId '$($State['MdeDeviceId'])'"
+                    $synDevices = Read-JsonResponse (Invoke-Graph -Path $tier3GraphPath)
+                    Write-SyncTrace 'Correlation' "Tier 3 (MdeSyntheticDeviceId): GET https://graph.microsoft.com/v1.0/devices?`$filter=deviceId eq '$synIdStr' (derived from SenseId '$($State['MdeDeviceId'])') returned $(@($synDevices.value).Count) object(s)"
+                    if ($synDevices.ContainsKey('@odata.nextLink') -or @($synDevices.value).Count -gt 1) {
+                        return @{
+                            Status = 'Ambiguous'
+                            Device = $null
+                            CorrelationPath = 'MdeSyntheticDeviceIdAmbiguous'
+                            Diagnostic = "Multiple Entra ID device objects matched MDE synthetic deviceId '$synIdStr'. Sync failed closed to avoid ambiguity."
+                        }
+                    }
+                    if (@($synDevices.value).Count -eq 1) {
+                        return @{
+                            Status = 'Found'
+                            Device = $synDevices.value[0]
+                            CorrelationPath = 'MdeSyntheticDeviceId'
+                            Diagnostic = "Correlated via MDE synthetic Entra deviceId ($synIdStr, SHA-256 derived from SenseId '$($State['MdeDeviceId'])') matching Entra ID deviceId."
+                        }
+                    }
+                    $syntheticNote = "MDE synthetic Entra deviceId '$synIdStr' (derived from SenseId '$($State['MdeDeviceId'])') returned 0 objects in Entra ID."
                 }
             }
-            if (@($gcDevices.value).Count -eq 1) {
-                return @{
-                    Status = 'Found'
-                    Device = $gcDevices.value[0]
-                    CorrelationPath = 'GuestConfigurationIntuneDeviceId'
-                    Diagnostic = "Correlated via Azure Machine Configuration intuneDeviceId ($gcIdStr) matching Entra ID deviceId."
-                }
-            }
-            $gcNote = "Machine Configuration reported intuneDeviceId '$gcIdStr', but GET /v1.0/devices?`$filter=deviceId eq '$gcIdStr' returned 0 objects in Entra ID."
+        } else {
+            Write-SyncTrace 'Correlation' "Tier 3 (MdeSyntheticDeviceId): SenseId '$($State['MdeDeviceId'])' is not a 40-hex MDE DeviceId"
         }
     }
 
     if ($State['MdeReonboardingDetected'] -or @($State['MdeMergedDeviceIds'] | Where-Object { $_ }).Count) {
+        Write-SyncTrace 'Correlation' "Tier 4 (MicrosoftSenseHostnameAndOS): Blocked due to detected MDE re-onboarding / merge history for SenseId '$($State['MdeDeviceId'])'"
         return @{
             Status = 'Ambiguous'
             Device = $null
             CorrelationPath = 'MicrosoftSenseAmbiguous'
-            Diagnostic = "MDE re-onboarding or merged identity history was detected for '$($State['MdeDeviceId'])'. Hostname-only matching cannot distinguish old Entra objects; require a current MDE AadDeviceId or Machine Configuration intuneDeviceId. 1. $primaryNote 2. $gcNote"
+            Diagnostic = "MDE re-onboarding or merged identity history was detected for '$($State['MdeDeviceId'])'. Hostname-only matching cannot distinguish old Entra objects; require a current MDE AadDeviceId, Machine Configuration intuneDeviceId, or MDE synthetic deviceId. 1. $primaryNote 2. $gcNote 3. $syntheticNote"
         }
     }
 
-    # 3. Fallback path (when both MDE AadDeviceId and Machine Configuration intuneDeviceId are empty or not found in Entra):
+    # 4. Tier 4: Fallback path (when MDE AadDeviceId, Machine Configuration intuneDeviceId, and MDE Synthetic DeviceId are empty or not found in Entra):
     # Query Entra /devices by candidate hostnames and match OS + managementType == 'MicrosoftSense'
-    $candidateNames = [Collections.Generic.List[string]]::new()
-    foreach ($rawName in @($State['ComputerName'], $State['MdeDeviceName'], $State['Fqdn'], $State['MachineName'])) {
-        $clean = ([string]$rawName).Trim()
-        if (-not [string]::IsNullOrWhiteSpace($clean)) {
-            if ($clean -notin $candidateNames) { $candidateNames.Add($clean) }
-            if ($clean.Contains('.')) {
-                $short = ($clean -split '\.')[0].Trim()
-                if ($short -and $short -notin $candidateNames) { $candidateNames.Add($short) }
-            }
-        }
-    }
-    $expectedOs = ([string]$State['OS']).Trim()
-    $fallbackSelect = 'id,deviceId,displayName,operatingSystem,managementType,accountEnabled'
     $fallbackNotes = [Collections.Generic.List[string]]::new()
     $senseDevices = @{}
-    foreach ($hostname in $candidateNames) {
-        $escapedHost = $hostname.Replace("'", "''")
-        $filter = [uri]::EscapeDataString("displayName eq '$escapedHost'")
-        $response = Read-JsonResponse (Invoke-Graph -Path "/devices?`$filter=$filter&`$select=$fallbackSelect&`$top=25")
-        if (-not $response.ContainsKey('value')) { continue }
-        $matches = @($response.value)
-        Write-SyncTrace 'MachineSync' "Entra MicrosoftSense fallback lookup for displayName='$hostname' (OS='$expectedOs') returned $($matches.Count) candidate(s)"
-        if ($response.ContainsKey('@odata.nextLink')) {
-            return @{
-                Status = 'Ambiguous'; Device = $null; CorrelationPath = 'MicrosoftSenseAmbiguous'
-                Diagnostic = "MicrosoftSense hostname lookup for '$hostname' exceeded its bounded result page; uniqueness cannot be established."
+    $expectedOs = ([string]$State['OS']).Trim()
+    if ($tier4Disabled) {
+        Write-SyncTrace 'Correlation' 'Tier 4 (MicrosoftSenseHostnameAndOS): Skipped (disabled via SYNC_DISABLED_CORRELATION_TIERS)'
+    } else {
+        $candidateNames = [Collections.Generic.List[string]]::new()
+        foreach ($rawName in @($State['ComputerName'], $State['MdeDeviceName'], $State['Fqdn'], $State['MachineName'])) {
+            $clean = ([string]$rawName).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($clean)) {
+                if ($clean -notin $candidateNames) { $candidateNames.Add($clean) }
+                if ($clean.Contains('.')) {
+                    $short = ($clean -split '\.')[0].Trim()
+                    if ($short -and $short -notin $candidateNames) { $candidateNames.Add($short) }
+                }
             }
         }
-        if (-not $matches.Count) {
-            $fallbackNotes.Add("displayName='$hostname' (0 matches)")
-            continue
-        }
+        $fallbackSelect = 'id,deviceId,displayName,operatingSystem,managementType,accountEnabled'
+        foreach ($hostname in $candidateNames) {
+            $escapedHost = $hostname.Replace("'", "''")
+            $filter = [uri]::EscapeDataString("displayName eq '$escapedHost'")
+            $tier4GraphPath = "/devices?`$filter=$filter&`$select=$fallbackSelect&`$top=25"
+            Add-SyncApiEndpoint -Method 'GET' -Uri "https://graph.microsoft.com/v1.0$tier4GraphPath" -Purpose "Tier 4 (MicrosoftSenseHostnameAndOS): Lookup displayName '$hostname'"
+            $response = Read-JsonResponse (Invoke-Graph -Path $tier4GraphPath)
+            if (-not $response.ContainsKey('value')) { continue }
+            $matches = @($response.value)
+            Write-SyncTrace 'Correlation' "Tier 4 (MicrosoftSenseHostnameAndOS): GET https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$hostname' (OS='$expectedOs') returned $($matches.Count) candidate(s)"
+            if ($response.ContainsKey('@odata.nextLink')) {
+                return @{
+                    Status = 'Ambiguous'; Device = $null; CorrelationPath = 'MicrosoftSenseAmbiguous'
+                    Diagnostic = "MicrosoftSense hostname lookup for '$hostname' exceeded its bounded result page; uniqueness cannot be established."
+                }
+            }
+            if (-not $matches.Count) {
+                $fallbackNotes.Add("displayName='$hostname' (0 matches)")
+                continue
+            }
 
-        $senseMatches = @($matches | Where-Object {
-            [string]$_['displayName'] -ieq $hostname -and
-            (-not $expectedOs -or [string]$_['operatingSystem'] -ieq $expectedOs -or ([string]$_['operatingSystem']).StartsWith($expectedOs, [StringComparison]::OrdinalIgnoreCase)) -and
-            [string]$_['managementType'] -ieq 'MicrosoftSense'
-        })
-        foreach ($sense in $senseMatches) { $senseDevices[[string]$sense['id']] = $sense }
-        if ($senseDevices.Count -gt 1) {
+            $senseMatches = @($matches | Where-Object {
+                [string]$_['displayName'] -ieq $hostname -and
+                (-not $expectedOs -or [string]$_['operatingSystem'] -ieq $expectedOs -or ([string]$_['operatingSystem']).StartsWith($expectedOs, [StringComparison]::OrdinalIgnoreCase)) -and
+                [string]$_['managementType'] -ieq 'MicrosoftSense'
+            })
+            foreach ($sense in $senseMatches) { $senseDevices[[string]$sense['id']] = $sense }
+            if ($senseDevices.Count -gt 1) {
+                return @{
+                    Status = 'Ambiguous'
+                    Device = $null
+                    CorrelationPath = 'MicrosoftSenseAmbiguous'
+                    Diagnostic = "Multiple MicrosoftSense Entra objects matched candidate hostnames and operatingSystem='$expectedOs'. Enabled status does not establish the current MDE identity; sync failed closed."
+                }
+            }
+            $foundSummary = @($matches | ForEach-Object { "OS=$([string]$_['operatingSystem'])/mgmt=$([string]$_['managementType'])" }) -join ', '
+            $fallbackNotes.Add("displayName='$hostname' ($($matches.Count) found [$foundSummary], none matched OS='$expectedOs' + managementType='MicrosoftSense')")
+        }
+        if ($senseDevices.Count -eq 1) {
             return @{
-                Status = 'Ambiguous'
-                Device = $null
-                CorrelationPath = 'MicrosoftSenseAmbiguous'
-                Diagnostic = "Multiple MicrosoftSense Entra objects matched candidate hostnames and operatingSystem='$expectedOs'. Enabled status does not establish the current MDE identity; sync failed closed."
+                Status = 'Found'; Device = @($senseDevices.Values)[0]; CorrelationPath = 'MicrosoftSenseHostnameAndOS'
+                Diagnostic = "Correlated via one MicrosoftSense Entra object across candidate hostnames (operatingSystem='$expectedOs'), after MDE merge, Active sensor, and timestamp checks."
             }
         }
-        $foundSummary = @($matches | ForEach-Object { "OS=$([string]$_['operatingSystem'])/mgmt=$([string]$_['managementType'])" }) -join ', '
-        $fallbackNotes.Add("displayName='$hostname' ($($matches.Count) found [$foundSummary], none matched OS='$expectedOs' + managementType='MicrosoftSense')")
-    }
-    if ($senseDevices.Count -eq 1) {
-        return @{
-            Status = 'Found'; Device = @($senseDevices.Values)[0]; CorrelationPath = 'MicrosoftSenseHostnameAndOS'
-            Diagnostic = "Correlated via one MicrosoftSense Entra object across candidate hostnames (operatingSystem='$expectedOs'), after MDE merge, Active sensor, and timestamp checks."
-        }
     }
 
-    $fallbackDetail = if ($fallbackNotes.Count) {
+    $fallbackDetail = if ($tier4Disabled) {
+        'Tier 4 (MicrosoftSenseHostnameAndOS) is disabled via SYNC_DISABLED_CORRELATION_TIERS.'
+    } elseif ($fallbackNotes.Count) {
         "MicrosoftSense fallback checked $($fallbackNotes -join '; ')."
-    }
-    else {
+    } else {
         'No candidate hostnames were available for MicrosoftSense fallback lookup.'
     }
-    if (-not [string]::IsNullOrWhiteSpace([string]$State['EntraDeviceId']) -or -not [string]::IsNullOrWhiteSpace($gcDeviceId)) {
+    $hasAttemptedIdLookup = $checkedDeviceIds.Count -gt 0
+    if ($hasAttemptedIdLookup) {
         return @{
             Status = 'EntraDeviceNotFound'
             Device = $null
             CorrelationPath = 'None'
-            Diagnostic = "1. $primaryNote 2. $gcNote 3. $fallbackDetail"
+            Diagnostic = "1. $primaryNote 2. $gcNote 3. $syntheticNote 4. $fallbackDetail"
         }
     }
     return @{
         Status = 'NoEntraDevice'
         Device = $null
         CorrelationPath = 'None'
-        Diagnostic = "1. $primaryNote 2. $gcNote 3. $fallbackDetail"
+        Diagnostic = "1. $primaryNote 2. $gcNote 3. $syntheticNote 4. $fallbackDetail"
     }
 }
 
@@ -3593,7 +3846,7 @@ function Invoke-MachineSync {
         Status = 'PendingMde'; Membership = 'Unknown'; MembershipVerifiedAt = ''
         MdeDeviceId = ''; MdeDeviceName = ''; MdeLastSeen = ''; EntraDeviceId = ''; EntraObjectId = ''
         MdeLastKnownDeviceId = ''; MdeMergedDeviceIds = @(); MdeReonboardingDetected = $false
-        GuestConfigEntraDeviceId = ''; EntraCorrelationPath = ''; EntraDiagnostic = ''
+        MdeSyntheticDeviceId = ''; GuestConfigEntraDeviceId = ''; EntraCorrelationPath = ''; EntraDiagnostic = ''
         SubscriptionName = ''; ManagementGroup = ''; ComputerName = ''; Fqdn = ''; CloudProvider = ''; VirtualMachineId = ''
         ArcExtensions = @(); DefenderExtensionStatus = ''; IPAddresses = @(); MdeSensorHealth = ''; MdeOnboardingStatus = ''
         MdeAntivirusMode = ''; MdeAntivirusTimestamp = ''; MdeAntivirusStatus = 'NotCollected'
@@ -3614,8 +3867,10 @@ function Invoke-MachineSync {
             [hashtable]$Work['ResourceData']
         } else { $null }
         $arcResponse = if ($null -ne $preloadedArc) {
+            Add-SyncApiEndpoint -Method 'POST' -Uri 'https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01' -Status 200 -Purpose 'Preloaded ARM, Extensions & GuestConfigurationResources'
             @{ Status = 200; Preloaded = $true }
         } else {
+            Add-SyncApiEndpoint -Method 'GET' -Uri $armUri -Purpose 'Read Azure Machine / Arc Resource'
             Invoke-CloudRequest -Uri $armUri -Resource 'https://management.azure.com/' -AllowStatus @(404)
         }
         if ($arcResponse.Status -eq 404) {
@@ -3670,8 +3925,10 @@ function Invoke-MachineSync {
             } else { $null }
             $candidates = @(
                 if ($null -ne $preloadedMde) {
+                    Add-SyncApiEndpoint -Method 'POST' -Uri 'https://graph.microsoft.com/v1.0/security/runHuntingQuery' -Status 200 -Purpose 'Preloaded Bulk MDE Hunting (DeviceInfo + NetworkInfo + scid-2010)'
                     $preloadedMde['Candidates']
                 } else {
+                    Add-SyncApiEndpoint -Method 'POST' -Uri 'https://graph.microsoft.com/v1.0/security/runHuntingQuery' -Purpose 'MDE Advanced Hunting (DeviceInfo)'
                     Get-MdeCandidates -ResourceId $id -VirtualMachineId $state.VirtualMachineId
                 }
             ) | Where-Object { $null -ne $_ -and $_ -is [Collections.IDictionary] }
@@ -3727,7 +3984,14 @@ function Invoke-MachineSync {
             elseif (-not $cloudTarget.GroupName) {
                 $state.Membership = 'MissingIdentifier'
             }
+            if ($state.MdeDeviceId) {
+                $state.MdeSyntheticDeviceId = Get-MdeSyntheticDeviceId -MdeDeviceId $state.MdeDeviceId
+            }
             $state.Status = $correlation.Status
+            if ($state.Status -eq 'InvalidEntraIdentifier' -and ('MdeAadDeviceId' -in $config.DisabledCorrelationTiers -or $state.MdeSyntheticDeviceId -or $state.GuestConfigEntraDeviceId)) {
+                $state.EntraDeviceId = ''
+                $state.Status = 'NoEntraDevice'
+            }
             if ($state.Status -eq 'PendingMde') {
                 $state.EntraDiagnostic = $correlation.Diagnostic
             }
@@ -3772,6 +4036,7 @@ function Invoke-MachineSync {
         $state.Status = 'Failed'
         $state.Membership = 'Unknown'
         $state.Error = $_.Exception.Message.Substring(0, [math]::Min(1000, $_.Exception.Message.Length))
+        $state.ApiEndpoints = @($script:CurrentRunApiCalls)
         Write-SyncTrace 'Error' "Sync failed for $($state.MachineName) (Key=$key, RunId=$($state.RunId)): $($state.Error)"
         Save-MachineState $state $previous
         try {
@@ -3789,6 +4054,13 @@ function Invoke-MachineSync {
                 Message = "$($state.MachineName): $($state.Error)"
                 RunId = $state.RunId
                 ResourceId = $state.ArcResourceId
+                MachineName = $state.MachineName
+                CorrelationMethod = $state.EntraCorrelationPath
+                MdeDeviceId = $state.MdeDeviceId
+                EntraDeviceId = $state.EntraDeviceId
+                EntraObjectId = $state.EntraObjectId
+                GroupName = $state.GroupName
+                ApiEndpoints = $state.ApiEndpoints
             }
         }
         catch {
@@ -3796,6 +4068,24 @@ function Invoke-MachineSync {
         }
         Write-Error "Sync failed for $key, run $($state.RunId): $($state.Error)" -ErrorAction Continue
         throw
+    }
+    $state.ApiEndpoints = @($script:CurrentRunApiCalls)
+    $corrMethodLabel = Format-CorrelationMethodLabel $state.EntraCorrelationPath
+    Write-SyncTrace 'Summary' "=== CORRELATION & API ENDPOINTS SUMMARY ===" @{
+        MachineName = $state.MachineName
+        ResourceId = $state.ArcResourceId
+        SyncStatus = $state.Status
+        CorrelationMethod = $corrMethodLabel
+        CorrelationPath = $state.EntraCorrelationPath
+        CorrelationDiagnostic = $state.EntraDiagnostic
+        MdeDeviceId = $state.MdeDeviceId
+        MdeSyntheticDeviceId = $state.MdeSyntheticDeviceId
+        GuestConfigEntraDeviceId = $state.GuestConfigEntraDeviceId
+        EntraDeviceId = $state.EntraDeviceId
+        EntraObjectId = $state.EntraObjectId
+        TargetGroup = $state.GroupName
+        Membership = $state.Membership
+        ApiEndpointsUsed = $state.ApiEndpoints
     }
     Save-MachineState $state $previous
     try {
@@ -3806,15 +4096,23 @@ function Invoke-MachineSync {
         }
         $healthState = if ($state.InventoryStatus -eq 'Partial') { 'Degraded' } else { 'Healthy' }
         $detail = if ($state.InventoryErrors.Count) { " ($($state.InventoryErrors -join '; '))" } else { '' }
+        $corrSuffix = if ($state.EntraCorrelationPath -and $state.EntraCorrelationPath -ne 'None') { ", correlation=$($state.EntraCorrelationPath)" } else { '' }
         Write-FunctionLog @{
             Timestamp = $state.LastChecked
             FunctionName = 'Machine'
             TriggerReason = $reason
             Status = $state.Status
             Health = $healthState
-            Message = "$($state.MachineName): status=$($state.Status), membership=$($state.Membership)$detail"
+            Message = "$($state.MachineName): status=$($state.Status)$corrSuffix, membership=$($state.Membership)$detail"
             RunId = $state.RunId
             ResourceId = $state.ArcResourceId
+            MachineName = $state.MachineName
+            CorrelationMethod = $state.EntraCorrelationPath
+            MdeDeviceId = $state.MdeDeviceId
+            EntraDeviceId = $state.EntraDeviceId
+            EntraObjectId = $state.EntraObjectId
+            GroupName = $state.GroupName
+            ApiEndpoints = $state.ApiEndpoints
         }
     }
     catch {

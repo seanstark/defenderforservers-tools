@@ -18,7 +18,8 @@ param(
     [Parameter(Mandatory)][guid]$ReportClientId,
     [ValidateSet('Audit', 'Enforce')][string]$SyncMode = 'Audit',
     [string]$Schedule = '0 0 */6 * * *',
-    [ValidateRange(1, 2160)][int]$FreshnessHours = 2160,
+    [ValidateRange(1, 168)][int]$FreshnessHours = 168,
+    [string[]]$DisabledCorrelationTiers = @(),
     [ValidateSet('B1', 'S1', 'P1v3')][string]$PlanSku = 'B1',
     [string[]]$AlertActionGroupIds = @()
 )
@@ -90,7 +91,9 @@ $parameters = @{
     autoCreateGroups = @{ value = [bool]($AutoCreateGroups -or ($AdminUnitId -ne [guid]::Empty)) }
     reportClientId = @{ value = $ReportClientId.ToString() }
     syncMode = @{ value = $SyncMode }; schedule = @{ value = $Schedule }
-    freshnessHours = @{ value = $FreshnessHours }; planSku = @{ value = $PlanSku }
+    freshnessHours = @{ value = $FreshnessHours }
+    disabledCorrelationTiers = @{ value = ($DisabledCorrelationTiers -join ',') }
+    planSku = @{ value = $PlanSku }
     alertActionGroupIds = @{ value = $AlertActionGroupIds }
 }
 $outputs = Invoke-Deployment -Scope $group.id -Name "$NamePrefix-infra" -Template $template -Parameters $parameters

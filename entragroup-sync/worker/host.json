@@ -20,8 +20,8 @@
   },
   "extensions": {
     "serviceBus": {
-      "prefetchCount": 16,
-      "maxConcurrentCalls": 8,
+      "prefetchCount": 8,
+      "maxConcurrentCalls": 4,
       "maxAutoLockRenewalDuration": "01:00:00"
     }
   }

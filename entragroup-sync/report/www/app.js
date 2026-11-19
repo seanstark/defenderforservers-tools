@@ -56,13 +56,18 @@
     const path = String(machine?.EntraCorrelationPath || "").trim();
     if (path === "MdeAadDeviceId") return "MDE AadDeviceId";
     if (path === "GuestConfigurationIntuneDeviceId") return "Machine Configuration (intuneDeviceId)";
+    if (path === "MdeSyntheticDeviceId") return "MDE Synthetic Device ID (SHA-256)";
     if (path === "MicrosoftSenseHostnameAndOS") return "MicrosoftSense (Hostname & OS)";
     if (path === "AadDeviceIdAmbiguous") return "Ambiguous (MDE AadDeviceId)";
     if (path === "GuestConfigIntuneDeviceIdAmbiguous") return "Ambiguous (Machine Configuration)";
+    if (path === "MdeSyntheticDeviceIdAmbiguous") return "Ambiguous (MDE Synthetic Device ID)";
     if (path === "MicrosoftSenseAmbiguous") return "Ambiguous (MicrosoftSense)";
     if (hasEntraCorrelation(machine)) {
       if (machine?.GuestConfigEntraDeviceId && String(machine.GuestConfigEntraDeviceId).toLowerCase() === String(machine.EntraDeviceId || "").toLowerCase()) {
         return "Machine Configuration (intuneDeviceId)";
+      }
+      if (machine?.MdeSyntheticDeviceId && String(machine.MdeSyntheticDeviceId).toLowerCase() === String(machine.EntraDeviceId || "").toLowerCase()) {
+        return "MDE Synthetic Device ID (SHA-256)";
       }
       return "MDE AadDeviceId";
     }
@@ -705,19 +710,21 @@
       if (isFound) {
         reason = machine.EntraCorrelationPath === "GuestConfigurationIntuneDeviceId" ?
           `Correlated via Azure Machine Configuration intuneDeviceId (${machine.GuestConfigEntraDeviceId || machine.EntraDeviceId || missing}) matching Entra ID deviceId.` :
+          machine.EntraCorrelationPath === "MdeSyntheticDeviceId" ?
+          `Correlated via MDE synthetic Entra deviceId (${machine.MdeSyntheticDeviceId || machine.EntraDeviceId || missing}, SHA-256 derived from SenseId '${machine.MdeDeviceId || missing}') matching Entra ID deviceId.` :
           machine.EntraCorrelationPath === "MicrosoftSenseHostnameAndOS" ?
           `Correlated via MicrosoftSense synthetic Entra device matching hostname (${hostListText}) and OS (${machine.OS || missing}).` :
           `Correlated via MDE DeviceInfo.AadDeviceId (${machine.EntraDeviceId || missing}) matching Entra ID deviceId.`;
       } else if (machine.MdeReonboardingDetected && machine.Status === "Ambiguous") {
-        reason = "MDE re-onboarding or merged identity history was detected. Hostname-only matching cannot distinguish old Entra objects; a current MDE AadDeviceId or Machine Configuration intuneDeviceId is required.";
+        reason = "MDE re-onboarding or merged identity history was detected. Hostname-only matching cannot distinguish old Entra objects; a current MDE AadDeviceId, Machine Configuration intuneDeviceId, or MDE synthetic deviceId is required.";
       } else if (machine.Status === "PendingMde" || !machine.MdeDeviceId) {
-        reason = `Blocked at Step 1 (MDE Hunting): No onboarded MDE DeviceInfo record matched Resource ID '${machine.ArcResourceId || missing}'${machine.VirtualMachineId ? ` or VM ID '${machine.VirtualMachineId}'` : ""} within the 90-day hunting window. Entra ID lookup cannot run until the server is onboarded to MDE.`;
+        reason = `Blocked at Step 1 (MDE Hunting): No onboarded MDE DeviceInfo record matched Resource ID '${machine.ArcResourceId || missing}'${machine.VirtualMachineId ? ` or VM ID '${machine.VirtualMachineId}'` : ""} within the 7-day hunting window. Entra ID lookup cannot run until the server is onboarded to MDE.`;
       } else if (machine.Status === "StaleEvidence") {
         reason = `Blocked at Step 1 (Stale MDE Telemetry): MDE DeviceInfo matched '${machine.MdeDeviceName || machine.MdeDeviceId}', but its last check-in (${time(machine.MdeLastSeen)}) is older than the configured freshness window (SYNC_FRESHNESS_HOURS).`;
       } else if (machine.Status === "NoEntraDevice") {
-        reason = `1. MDE AadDeviceId check: MDE DeviceInfo for '${machine.MdeDeviceName || machine.MdeDeviceId}' reported an empty AadDeviceId. 2. Machine Configuration check: ${machine.GuestConfigEntraDeviceId ? `intuneDeviceId '${machine.GuestConfigEntraDeviceId}' did not match an Entra device` : "No entraiddeviceid / entraiddeviceidlinux Guest Configuration intuneDeviceId reported yet"}. 3. MicrosoftSense fallback check: Queried Entra ID (/v1.0/devices) for displayName in [${hostListText}] with operatingSystem='${machine.OS || missing}' and managementType='MicrosoftSense', and 0 Entra device objects matched.`;
+        reason = `1. MDE AadDeviceId check: MDE DeviceInfo for '${machine.MdeDeviceName || machine.MdeDeviceId}' reported an empty AadDeviceId. 2. Machine Configuration check: ${machine.GuestConfigEntraDeviceId ? `intuneDeviceId '${machine.GuestConfigEntraDeviceId}' did not match an Entra device` : "No entraiddeviceid / entraiddeviceidlinux Guest Configuration intuneDeviceId reported yet"}. 3. MDE Synthetic Device ID check: ${machine.MdeSyntheticDeviceId ? `synthetic deviceId '${machine.MdeSyntheticDeviceId}' did not match an Entra device` : "No 40-hex SenseId available"}. 4. MicrosoftSense fallback check: Queried Entra ID (/v1.0/devices) for displayName in [${hostListText}] with operatingSystem='${machine.OS || missing}' and managementType='MicrosoftSense', and 0 Entra device objects matched.`;
       } else if (machine.Status === "EntraDeviceNotFound") {
-        reason = `1. MDE AadDeviceId check: '${machine.EntraDeviceId || missing}' returned 0 objects in Entra ID. 2. Machine Configuration check: '${machine.GuestConfigEntraDeviceId || "Not reported"}' returned 0 objects in Entra ID. 3. MicrosoftSense fallback check: No MicrosoftSense Entra device matched displayName in [${hostListText}] with OS '${machine.OS || missing}'.`;
+        reason = `1. MDE AadDeviceId check: '${machine.EntraDeviceId || missing}' returned 0 objects in Entra ID. 2. Machine Configuration check: '${machine.GuestConfigEntraDeviceId || "Not reported"}' returned 0 objects in Entra ID. 3. MDE Synthetic Device ID check: '${machine.MdeSyntheticDeviceId || "Not derived"}' returned 0 objects in Entra ID. 4. MicrosoftSense fallback check: No MicrosoftSense Entra device matched displayName in [${hostListText}] with OS '${machine.OS || missing}'.`;
       } else if (machine.Status === "EntraDeviceDisabled") {
         reason = `Entra ID device object (${machine.EntraObjectId || machine.EntraDeviceId || missing}) was found, but accountEnabled is false in Microsoft Entra ID.`;
       } else if (machine.Status === "Ambiguous") {
@@ -727,7 +734,7 @@
       } else if (machine.Status === "Failed") {
         reason = machine.Error || "Worker encountered an error while querying Microsoft Graph /v1.0/devices.";
       } else {
-        reason = "No matching Microsoft Entra ID device object was found via MDE AadDeviceId, Machine Configuration intuneDeviceId, or MicrosoftSense hostname/OS fallback.";
+        reason = "No matching Microsoft Entra ID device object was found via MDE AadDeviceId, Machine Configuration intuneDeviceId, MDE Synthetic Device ID, or MicrosoftSense hostname/OS fallback.";
       }
     }
     const devIdWrap = document.createElement("span");
@@ -739,6 +746,7 @@
       ["Sync Error", machine.Error || "None"],
       ["Entra Device ID", devIdWrap],
       ["Entra Object ID", machine.EntraObjectId || "Not resolved"],
+      ["MDE Synthetic Device ID", machine.MdeSyntheticDeviceId || "Not derived"],
       ["Machine Config intuneDeviceId", machine.GuestConfigEntraDeviceId || "Not reported"],
       ["Correlation Method", correlationMethodFor(machine)],
       ["Hostnames Checked", hostListText],
@@ -1557,6 +1565,15 @@
         entry.append(text("strong", `${time(item.Timestamp)} - ${item.Action}`));
         if (item.TriggerReason) entry.append(text("p", `Trigger: ${item.TriggerReason}`, "muted"));
         if (item.LogMessage) entry.append(text("p", item.LogMessage));
+        const historyCorrMethod = item.CorrelationMethod || item.State?.EntraCorrelationPath || "";
+        const historyEndpoints = Array.isArray(item.ApiEndpoints) && item.ApiEndpoints.length ? item.ApiEndpoints :
+          (Array.isArray(item.State?.ApiEndpoints) && item.State.ApiEndpoints.length ? item.State.ApiEndpoints : []);
+        const historyMetaNode = buildLogCorrelationMetaNode({
+          CorrelationMethod: historyCorrMethod,
+          ApiEndpoints: historyEndpoints,
+          ScriptOutput: item.ScriptOutput || item.State?.ScriptOutput || ""
+        });
+        if (historyMetaNode) entry.append(historyMetaNode);
         if (item.State) entry.append(text("p", `${item.State.Status}; Entra membership: ${item.State.Membership}; mode: ${item.State.Mode}`),
           text("p", `Entra object: ${item.State.EntraObjectId || "None"}`));
         const group = item.State || item;
@@ -1746,7 +1763,8 @@
       ["SYNC_ADMIN_UNIT_ID", "Microsoft Entra ID Administrative Unit GUID for AU-scoped automatic security group creation and management"],
       ["SYNC_AUTO_CREATE_GROUPS", "Automatically create missing active/passive cloud-account groups inside SYNC_ADMIN_UNIT_ID in Enforce mode"],
       ["SYNC_SCHEDULE", "NCRONTAB timer schedule for full Azure Resource Graph inventory"],
-      ["SYNC_FRESHNESS_HOURS", "Maximum age in hours for MDE DeviceInfo telemetry (1–2160, default 2160 / 90 days)"],
+      ["SYNC_FRESHNESS_HOURS", "Maximum age in hours for MDE DeviceInfo telemetry (1–168, default 168 / 7 days)"],
+      ["SYNC_DISABLED_CORRELATION_TIERS", "Correlation tiers disabled via SYNC_DISABLED_CORRELATION_TIERS (Tier1/MdeAadDeviceId, Tier2/GuestConfigurationIntuneDeviceId, Tier3/MdeSyntheticDeviceId, Tier4/MicrosoftSenseHostnameAndOS)"],
       ["SYNC_AWS_WINDOWS_GROUP_PREFIX", "AWS Windows template; default dfs-aws-{id}-windows-{mode}, lowercase; id = AccountId tag"],
       ["SYNC_AWS_LINUX_GROUP_PREFIX", "AWS Linux template; default dfs-aws-{id}-linux-{mode}, lowercase; id = AccountId tag"],
       ["SYNC_GCP_WINDOWS_GROUP_PREFIX", "GCP Windows template; default dfs-gcp-{id}-windows-{mode}, lowercase; id = ProjectId tag"],
@@ -1808,6 +1826,88 @@
   }
   let currentModalEntry = null;
   let scriptModalErrorsOnly = false;
+  function formatCorrelationMethodBadgeLabel(rawPath) {
+    const p = String(rawPath || "").trim();
+    if (!p || p === "None") return "";
+    if (p === "MdeAadDeviceId") return "Tier 1: MDE AadDeviceId (MdeAadDeviceId)";
+    if (p === "GuestConfigurationIntuneDeviceId") return "Tier 2: Machine Configuration intuneDeviceId (GuestConfigurationIntuneDeviceId)";
+    if (p === "MdeSyntheticDeviceId") return "Tier 3: MDE Synthetic Device ID (MdeSyntheticDeviceId)";
+    if (p === "MicrosoftSenseHostnameAndOS") return "Tier 4: MicrosoftSense Hostname & OS (MicrosoftSenseHostnameAndOS)";
+    if (p === "AadDeviceIdAmbiguous") return "Ambiguous (Tier 1: MDE AadDeviceId)";
+    if (p === "GuestConfigIntuneDeviceIdAmbiguous") return "Ambiguous (Tier 2: Machine Configuration)";
+    if (p === "MdeSyntheticDeviceIdAmbiguous") return "Ambiguous (Tier 3: MDE Synthetic Device ID)";
+    if (p === "MicrosoftSenseAmbiguous") return "Ambiguous (Tier 4: MicrosoftSense)";
+    return p;
+  }
+  function extractCorrelationMethodFromEntry(entry) {
+    if (entry?.CorrelationMethod) return String(entry.CorrelationMethod).trim();
+    const msg = String(entry?.Message || "");
+    const msgMatch = msg.match(/\bcorrelation=([A-Za-z0-9_.-]+)/i);
+    if (msgMatch) return msgMatch[1];
+    const out = String(entry?.ScriptOutput || "");
+    const pathMatch = out.match(/\bcorrelationPath=([A-Za-z0-9_.-]+)/i) || out.match(/"CorrelationPath"\s*:\s*"([^"]+)"/i);
+    if (pathMatch) return pathMatch[1];
+    return "";
+  }
+  function extractApiEndpointsFromEntry(entry) {
+    if (Array.isArray(entry?.ApiEndpoints) && entry.ApiEndpoints.length) {
+      return entry.ApiEndpoints.filter(Boolean).map(String);
+    }
+    const out = String(entry?.ScriptOutput || "");
+    if (!out) return [];
+    const endpoints = [];
+    const seen = new Set();
+    const addEp = ep => {
+      const clean = String(ep || "").trim();
+      if (clean && !seen.has(clean)) {
+        seen.add(clean);
+        endpoints.push(clean);
+      }
+    };
+    for (const line of out.split(/\r?\n/)) {
+      const apiTag = line.match(/\[API\]\s+(.+)$/);
+      if (apiTag) {
+        addEp(apiTag[1]);
+        continue;
+      }
+      const corrUrl = line.match(/\b((?:GET|POST|PUT|PATCH|DELETE)\s+https?:\/\/[^\s"]+)/i);
+      if (corrUrl) {
+        addEp(corrUrl[1]);
+        continue;
+      }
+      if (/\bExecuting (?:ARG|bulk MDE|DeviceInfo)/i.test(line)) {
+        if (/ARG/i.test(line)) addEp("POST https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01 — Azure Resource Graph Discovery");
+        else addEp("POST https://graph.microsoft.com/v1.0/security/runHuntingQuery — MDE Advanced Hunting");
+      }
+    }
+    return endpoints;
+  }
+  function buildLogCorrelationMetaNode(entry) {
+    const rawMethod = extractCorrelationMethodFromEntry(entry);
+    const methodLabel = formatCorrelationMethodBadgeLabel(rawMethod);
+    const endpoints = extractApiEndpointsFromEntry(entry);
+    if (!methodLabel && !endpoints.length) return null;
+    const wrap = text("div", "", "log-correlation-meta");
+    if (methodLabel) {
+      const row = text("div", "", "log-meta-row");
+      row.append(
+        text("span", "Correlation method:", "log-meta-label"),
+        text("span", methodLabel, `badge ${rawMethod.includes("Ambiguous") ? "bad" : "good"}`)
+      );
+      wrap.append(row);
+    }
+    if (endpoints.length) {
+      const epRow = text("div", "", "log-meta-row log-meta-endpoints");
+      epRow.append(text("span", `API endpoints (${endpoints.length}):`, "log-meta-label"));
+      const list = text("div", "", "log-api-list");
+      for (const ep of endpoints) {
+        list.append(text("code", ep, "log-api-pill"));
+      }
+      epRow.append(list);
+      wrap.append(epRow);
+    }
+    return wrap;
+  }
   function classifyTranscriptLine(line) {
     const textLine = String(line || "");
     if (!textLine.trim()) return "normal";
@@ -1819,7 +1919,7 @@
         /\b(?:Inventory enrichment failed|warning|Partial|StaleEvidence|PendingMde|Ambiguous|NoEntraDevice|EntraDeviceNotFound|MissingCloudIdentifier|no antivirus assessment)\b/i.test(textLine)) {
       return "warn";
     }
-    if (/===/.test(textLine) || /\bExecuting (?:ARG|bulk MDE|DeviceInfo)/i.test(textLine)) {
+    if (/===/.test(textLine) || /\[(?:API|Correlation|Summary)\]/i.test(textLine) || /\bExecuting (?:ARG|bulk MDE|DeviceInfo)/i.test(textLine)) {
       return "header";
     }
     return "normal";
@@ -1856,7 +1956,9 @@
     if (!modal) return;
     currentModalEntry = entry;
     byId("script-modal-title").textContent = `${entry.FunctionName || "Function"} — ${entry.Status || "Completed"}`;
-    byId("script-modal-meta").textContent = `${time(entry.Timestamp)} · Trigger: ${entry.TriggerReason || missing} · Run ID: ${entry.RunId || missing}`;
+    const corrLabel = formatCorrelationMethodBadgeLabel(extractCorrelationMethodFromEntry(entry));
+    const eps = extractApiEndpointsFromEntry(entry);
+    byId("script-modal-meta").textContent = `${time(entry.Timestamp)} · Trigger: ${entry.TriggerReason || missing}${corrLabel ? ` · Correlation: ${corrLabel}` : ""}${eps.length ? ` · API Calls: ${eps.length}` : ""} · Run ID: ${entry.RunId || missing}`;
     const rawOutput = entry.ScriptOutput || "";
     const { errors, warnings } = summarizeTranscriptIssues(rawOutput);
     const errBox = byId("script-modal-errors");
@@ -1902,6 +2004,8 @@
       const msgClass = status === "Failed" || issues.errors.length > 0 ? "transcript-line transcript-line-error" :
         (health !== "Healthy" || issues.warnings.length > 0 ? "transcript-line transcript-line-warn" : "");
       msgCell.append(text("div", entry.Message || missing, msgClass));
+      const metaNode = buildLogCorrelationMetaNode(entry);
+      if (metaNode) msgCell.append(metaNode);
       if (entry.ScriptOutput) {
         const details = document.createElement("details");
         details.className = "script-output-details";
