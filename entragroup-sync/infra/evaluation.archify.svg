@@ -4974,7 +4974,7 @@
 
         <!-- Workflow groups -->
         <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-0" x="424.4" y="216" width="370.80000000000007" height="72" rx="9" class="c-lane" stroke-width="1"/>
-        <text x="434.4" y="214" class="t-backend" font-size="7" font-weight="600">Exact ID correlation (no hostname/IP guessing)</text>
+        <text x="434.4" y="214" class="t-backend" font-size="7" font-weight="600">4-Tier Entra ID Correlation (Tiers 1–4)</text>
         <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-1" x="246.39999999999998" y="350" width="548.8000000000001" height="72" rx="9" class="c-security-group" stroke-width="1"/>
         <text x="256.4" y="348" class="t-security" font-size="7" font-weight="600">Ineligible states recorded without group write</text>
         <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-2" x="761.2" y="484" width="410" height="72" rx="9" class="c-lane" stroke-width="1"/>
@@ -4986,8 +4986,8 @@
         <path data-edge-from="cloud_group" data-edge-to="persist" data-edge-key="2" data-edge-id="cloud-persist" data-edge-role="return" data-composition-points="1167.2,521;1192,521;1192,120;1167.2,120" d="M 1167.2 521 L 1184 521 Q 1192 521 1192 513 L 1192 128 Q 1192 120 1184 120 L 1167.2 120" class="a-emphasis" data-animate="edge" style="--step:5" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="entra_resolve" data-edge-to="entra_blocked" data-edge-label="NotFound / Off" data-edge-key="3" data-edge-id="entra-ineligible" data-composition-routing="workflow-v2-auto" data-edge-role="error" data-composition-points="718.2,287;718.2,353" d="M 718.2 287 L 718.2 353" class="a-security" data-animate="edge" style="--step:10" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="entra_resolve" data-edge-to="os_group" data-edge-label="objectId" data-edge-key="4" data-edge-id="entra-os-group" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="645.2,260;629.2,260;629.2,576;838.2,576;838.2,555" d="M 645.2 260 L 637.2 260 Q 629.2 260 629.2 268 L 629.2 568 Q 629.2 576 637.2 576 L 830.2 576 Q 838.2 576 838.2 568 L 838.2 555" class="a-emphasis" data-animate="edge" style="--step:3" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="mde_correlate" data-edge-to="entra_resolve" data-edge-label="AadDeviceId" data-edge-key="5" data-edge-id="mde-entra" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="574.4,253;645.2,253" d="M 574.4 253 L 645.2 253" class="a-emphasis" data-animate="edge" style="--step:2" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="mde_correlate" data-edge-to="mde_blocked" data-edge-label="0 / &gt;1 / &gt;24h" data-edge-key="6" data-edge-id="mde-ineligible" data-composition-routing="workflow-v2-auto" data-edge-role="error" data-composition-points="501.4,287;501.4,314;590.4,314;590.4,387;574.4,387" d="M 501.4 287 L 501.4 306 Q 501.4 314 509.4 314 L 582.4 314 Q 590.4 314 590.4 322 L 590.4 379 Q 590.4 387 582.4 387 L 574.4 387" class="a-security" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="mde_correlate" data-edge-to="entra_resolve" data-edge-label="Tiers 1-4" data-edge-key="5" data-edge-id="mde-entra" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="574.4,253;645.2,253" d="M 574.4 253 L 645.2 253" class="a-emphasis" data-animate="edge" style="--step:2" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="mde_correlate" data-edge-to="mde_blocked" data-edge-label="0 / &gt;1 / &gt;7d" data-edge-key="6" data-edge-id="mde-ineligible" data-composition-routing="workflow-v2-auto" data-edge-role="error" data-composition-points="501.4,287;501.4,314;590.4,314;590.4,387;574.4,387" d="M 501.4 287 L 501.4 306 Q 501.4 314 509.4 314 L 582.4 314 Q 590.4 314 590.4 322 L 590.4 379 Q 590.4 387 582.4 387 L 574.4 387" class="a-security" data-animate="edge" style="--step:12" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="os_group" data-edge-to="cloud_group" data-edge-label="Passive / Active" data-edge-key="7" data-edge-id="os-cloud-group" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="911.2,521;1021.2,521" d="M 911.2 521 L 1021.2 521" class="a-emphasis" data-animate="edge" style="--step:4" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="work_item" data-edge-to="arm_check" data-edge-label="In scope" data-edge-key="8" data-edge-id="work-arm" data-composition-routing="workflow-v2-auto" data-edge-role="" data-composition-points="194,120;250.39999999999998,120" d="M 194 120 L 250.39999999999998 120" class="a-emphasis" data-animate="edge" style="--step:0" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
 
@@ -5032,8 +5032,8 @@
         <text data-detail="fine" x="1094.2" y="142" class="t-database" font-size="7" text-anchor="middle">Read-back + Table batch</text>
         </g>
 
-        <g id="node-mde_correlate" data-node-id="mde_correlate" data-node-label="Gate 3: MDE Match" tabindex="0" role="button" aria-label="Focus Gate 3: MDE Match, AzureResourceId &amp; Onboarded, 2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria" aria-pressed="false" data-node-kind="security" data-node-sublabel="AzureResourceId &amp; Onboarded" data-node-tag="1 unmerged &lt;=24h + GUID" data-node-context="2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria">
-          <title>Gate 3: MDE Match · AzureResourceId &amp; Onboarded · 2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria · 1 unmerged &lt;=24h + GUID</title>
+        <g id="node-mde_correlate" data-node-id="mde_correlate" data-node-label="Gate 3: MDE Match" tabindex="0" role="button" aria-label="Focus Gate 3: MDE Match, AzureResourceId &amp; Onboarded, 2. MDE &amp; Entra Identity Criteria › 4-Tier Entra ID Correlation (Tiers 1–4) › Gate 3-4: MDE &amp; Entra Criteria" aria-pressed="false" data-node-kind="security" data-node-sublabel="AzureResourceId &amp; Onboarded" data-node-tag="1 unmerged &lt;=7d (168h)" data-node-context="2. MDE &amp; Entra Identity Criteria › 4-Tier Entra ID Correlation (Tiers 1–4) › Gate 3-4: MDE &amp; Entra Criteria">
+          <title>Gate 3: MDE Match · AzureResourceId &amp; Onboarded · 2. MDE &amp; Entra Identity Criteria › 4-Tier Entra ID Correlation (Tiers 1–4) › Gate 3-4: MDE &amp; Entra Criteria · 1 unmerged &lt;=7d (168h)</title>
           <rect x="428.4" y="219" width="146" height="68" rx="8" class="c-mask"/>
           <rect x="428.4" y="219" width="146" height="68" rx="8" class="c-security" data-animate="node" style="--step:2" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(434.4 225) scale(0.6875)">
@@ -5042,11 +5042,11 @@
           </g>
           <text data-node-label="" data-detail-anchor="" x="503.5" y="240" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Gate 3: MDE Match</text>
           <text data-detail="context" x="501.4" y="257" class="t-muted" font-size="8" text-anchor="middle">AzureResourceId &amp; Onboarded</text>
-        <text data-detail="fine" x="501.4" y="275" class="t-security" font-size="7" text-anchor="middle">1 current Active &lt;=24h</text>
+        <text data-detail="fine" x="501.4" y="275" class="t-security" font-size="7" text-anchor="middle">1 unmerged &lt;=7d (168h)</text>
         </g>
 
-        <g id="node-entra_resolve" data-node-id="entra_resolve" data-node-label="Gate 4: Entra Check" tabindex="0" role="button" aria-label="Focus Gate 4: Entra Check, deviceId == AadDeviceId, 2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria" aria-pressed="false" data-node-kind="security" data-node-sublabel="deviceId == AadDeviceId" data-node-tag="1 object &amp; accountEnabled" data-node-context="2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria">
-          <title>Gate 4: Entra Check · deviceId == AadDeviceId · 2. MDE &amp; Entra Identity Criteria › Exact ID correlation (no hostname/IP guessing) › Gate 3-4: MDE &amp; Entra Criteria · 1 object &amp; accountEnabled</title>
+        <g id="node-entra_resolve" data-node-id="entra_resolve" data-node-label="Gate 4: Entra Check" tabindex="0" role="button" aria-label="Focus Gate 4: Entra Check, AadId · GC · SHA256 · Sense, 2. MDE &amp; Entra Identity Criteria › 4-Tier Entra ID Correlation (Tiers 1–4) › Gate 3-4: MDE &amp; Entra Criteria" aria-pressed="false" data-node-kind="security" data-node-sublabel="AadId · GC · SHA256 · Sense" data-node-tag="1 object &amp; accountEnabled" data-node-context="2. MDE &amp; Entra Identity Criteria › 4-Tier Entra ID Correlation (Tiers 1–4) › Gate 3-4: MDE &amp; Entra Criteria">
+          <title>Gate 4: Entra Check · AadId · GC · SHA256 · Sense · 2. MDE &amp; Entra Identity Criteria › 4-Tier Entra ID Correlation (Tiers 1–4) › Gate 3-4: MDE &amp; Entra Criteria · 1 object &amp; accountEnabled</title>
           <rect x="645.2" y="219" width="146" height="68" rx="8" class="c-mask"/>
           <rect x="645.2" y="219" width="146" height="68" rx="8" class="c-security" data-animate="node" style="--step:3" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(651.2 225) scale(0.6875)">
@@ -5054,7 +5054,7 @@
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="718.2" y="251.2" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Gate 4: Entra Check</text>
-          <text data-detail="context" x="718.2" y="266.1" class="t-muted" font-size="8" text-anchor="middle">deviceId == AadDeviceId</text>
+          <text data-detail="context" x="718.2" y="266.1" class="t-muted" font-size="8" text-anchor="middle">AadId · GC · SHA256 · Sense</text>
         <text data-detail="fine" x="718.2" y="278.9" class="t-security" font-size="7" text-anchor="middle">1 object &amp; accountEnabled</text>
         </g>
 
@@ -5071,8 +5071,8 @@
         <text data-detail="fine" x="323.4" y="412.8" class="t-security" font-size="7" text-anchor="middle">404 = ArcMissing</text>
         </g>
 
-        <g id="node-mde_blocked" data-node-id="mde_blocked" data-node-label="Stop: MDE Blocked" tabindex="0" role="button" aria-label="Focus Stop: MDE Blocked, 0=Pending · &gt;24h=Stale, Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria" aria-pressed="false" data-node-kind="security" data-node-sublabel="0=Pending · &gt;24h=Stale" data-node-tag="&gt;1=Ambiguous · NoEntraId" data-node-context="Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria">
-          <title>Stop: MDE Blocked · 0=Pending · &gt;24h=Stale · Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria · &gt;1=Ambiguous · NoEntraId</title>
+        <g id="node-mde_blocked" data-node-id="mde_blocked" data-node-label="Stop: MDE Blocked" tabindex="0" role="button" aria-label="Focus Stop: MDE Blocked, 0=Pending · &gt;7d=Stale, Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria" aria-pressed="false" data-node-kind="security" data-node-sublabel="0=Pending · &gt;7d=Stale" data-node-tag="&gt;1=Ambiguous · NoEntraId" data-node-context="Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria">
+          <title>Stop: MDE Blocked · 0=Pending · &gt;7d=Stale · Safety Stops (No Group Write) › Ineligible states recorded without group write › Gate 3-4: MDE &amp; Entra Criteria · &gt;1=Ambiguous · NoEntraId</title>
           <rect x="428.4" y="353" width="146" height="68" rx="8" class="c-mask"/>
           <rect x="428.4" y="353" width="146" height="68" rx="8" class="c-security" data-animate="node" style="--step:12" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(434.4 359) scale(0.6875)">
@@ -5080,7 +5080,7 @@
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="503.5" y="374" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Stop: MDE Blocked</text>
-          <text data-detail="context" x="501.4" y="391" class="t-muted" font-size="8" text-anchor="middle">0=Pending · &gt;24h=Stale</text>
+          <text data-detail="context" x="501.4" y="391" class="t-muted" font-size="8" text-anchor="middle">0=Pending · &gt;7d=Stale</text>
         <text data-detail="fine" x="501.4" y="409" class="t-security" font-size="7" text-anchor="middle">&gt;1=Ambiguous · NoEntraId</text>
         </g>
 
@@ -5139,13 +5139,13 @@
           <rect x="709.5" y="556" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="733.7" y="566" class="t-edge-emphasis" font-size="8" text-anchor="middle">objectId</text>
         </g>
-        <g data-detail="context" data-edge-from="mde_correlate" data-edge-to="entra_resolve" data-edge-label="AadDeviceId" data-edge-key="5" data-edge-id="mde-entra">
+        <g data-detail="context" data-edge-from="mde_correlate" data-edge-to="entra_resolve" data-edge-label="Tiers 1-4" data-edge-key="5" data-edge-id="mde-entra">
           <rect x="578.4" y="233" width="62.8" height="14" rx="3" class="c-mask"/>
-          <text x="609.8" y="243" class="t-edge-emphasis" font-size="8" text-anchor="middle">AadDeviceId</text>
+          <text x="609.8" y="243" class="t-edge-emphasis" font-size="8" text-anchor="middle">Tiers 1-4</text>
         </g>
-        <g data-detail="context" data-edge-from="mde_correlate" data-edge-to="mde_blocked" data-edge-label="0 / &gt;1 / &gt;24h" data-edge-key="6" data-edge-id="mde-ineligible">
+        <g data-detail="context" data-edge-from="mde_correlate" data-edge-to="mde_blocked" data-edge-label="0 / &gt;1 / &gt;7d" data-edge-key="6" data-edge-id="mde-ineligible">
           <rect x="509.7" y="294" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="545.9" y="304" class="t-edge-security" font-size="8" text-anchor="middle">0 / &gt;1 / &gt;24h</text>
+          <text x="545.9" y="304" class="t-edge-security" font-size="8" text-anchor="middle">0 / &gt;1 / &gt;7d</text>
         </g>
         <g data-detail="context" data-edge-from="os_group" data-edge-to="cloud_group" data-edge-label="Passive / Active" data-edge-key="7" data-edge-id="os-cloud-group">
           <rect x="922.8000000000001" y="501" width="86.8" height="14" rx="3" class="c-mask"/>

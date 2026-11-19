@@ -14,10 +14,10 @@
       "id": "triggers",
       "type": "external",
       "label": "Discovery Triggers",
-      "sublabel": "Timer (30m) · MDE Ext Succeeded",
+      "sublabel": "Timer (6h) · MDE & GC Event Grid",
       "pos": [20, 120],
       "size": [190, 62],
-      "tag": "MDE.Windows / MDE.Linux"
+      "tag": "MDE.Windows / MDE.Linux / GC"
     },
     {
       "id": "ingest_fn",
@@ -32,10 +32,10 @@
       "id": "arg_arm",
       "type": "cloud",
       "label": "Azure Resource Graph & ARM",
-      "sublabel": "Arc · Native VM · VMSS · Tags",
+      "sublabel": "Arc · Native VM · VMSS · GC",
       "pos": [250, 10],
       "size": [225, 62],
-      "tag": "!deallocated · !AKS"
+      "tag": "Extensions + intuneDeviceId"
     },
     {
       "id": "service_bus",
@@ -49,7 +49,7 @@
       "id": "machine_worker",
       "type": "backend",
       "label": "Machine Sync Worker",
-      "sublabel": "Invoke-MachineSync · Managed Identity",
+      "sublabel": "4-Tier Correlation · Managed Identity",
       "pos": [730, 120],
       "size": [230, 62],
       "tag": "PowerShell 7.6"
@@ -61,7 +61,7 @@
       "sublabel": "DeviceInfo · NetworkInfo · scid-2010",
       "pos": [730, 10],
       "size": [230, 62],
-      "tag": "runHuntingQuery"
+      "tag": "7d Bulk Hunting (500/batch)"
     },
     {
       "id": "entra_graph",
@@ -79,13 +79,13 @@
       "sublabel": "state · h_ history · log_ runs",
       "pos": [760, 300],
       "size": [230, 62],
-      "tag": "atomic batch"
+      "tag": "1,000-row Raw JSON + Batch"
     },
     {
       "id": "report_fn",
       "type": "backend",
       "label": "Report Function App",
-      "sublabel": "Easy Auth + Report.Reader check",
+      "sublabel": "Easy Auth + 5m Server Cache",
       "pos": [420, 300],
       "size": [220, 62],
       "tag": "Table Reader + sync Sender"
@@ -94,7 +94,7 @@
       "id": "portal_ui",
       "type": "frontend",
       "label": "Device Inventory Portal",
-      "sublabel": "KPIs · hover cards · drawer · logs",
+      "sublabel": "50-100/page · IndexedDB · KPIs",
       "pos": [50, 300],
       "size": [230, 62]
     }

@@ -21,7 +21,7 @@
     { "id": "sync", "label": "Gate 5-6: Cloud account Group Sync", "fromCol": 4, "toCol": 5, "variant": "dashed" }
   ],
   "groups": [
-    { "id": "identity_gate", "label": "Exact ID correlation (no hostname/IP guessing)", "lane": "mde", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "identity_gate", "label": "4-Tier Entra ID Correlation (Tiers 1-4)", "lane": "mde", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
     { "id": "safety_stops", "label": "Ineligible states recorded without group write", "lane": "blocked", "fromCol": 1, "toCol": 3, "variant": "security" },
     { "id": "group_sync", "label": "Per-Account Cloud account Group (AWS · GCP · Azure; Win / Lin separate)", "lane": "groups", "fromCol": 4, "toCol": 5, "variant": "dashed" }
   ],
@@ -54,7 +54,7 @@
       "type": "security",
       "label": "Gate 3: MDE Match",
       "sublabel": "AzureResourceId & Onboarded",
-      "tag": "1 unmerged <=24h + GUID",
+      "tag": "1 unmerged <=7d (168h)",
       "width": 146
     },
     {
@@ -63,7 +63,7 @@
       "col": 3,
       "type": "security",
       "label": "Gate 4: Entra Check",
-      "sublabel": "deviceId == AadDeviceId",
+      "sublabel": "AadId · GC · SHA256 · Sense",
       "tag": "1 object & accountEnabled",
       "width": 146
     },
@@ -83,7 +83,7 @@
       "col": 2,
       "type": "security",
       "label": "Stop: MDE Blocked",
-      "sublabel": "0=Pending · >24h=Stale",
+      "sublabel": "0=Pending · >7d=Stale",
       "tag": ">1=Ambiguous · NoEntraId",
       "width": 146
     },
@@ -132,8 +132,8 @@
     { "id": "work-arm", "from": "work_item", "to": "arm_check", "label": "In scope", "variant": "emphasis" },
     { "id": "arm-offline", "from": "arm_check", "to": "arc_blocked", "label": "Offline / 404", "variant": "security", "role": "error" },
     { "id": "arm-mde", "from": "arm_check", "to": "mde_correlate", "label": "Connected", "variant": "emphasis" },
-    { "id": "mde-ineligible", "from": "mde_correlate", "to": "mde_blocked", "label": "0 / >1 / >24h", "variant": "security", "role": "error" },
-    { "id": "mde-entra", "from": "mde_correlate", "to": "entra_resolve", "label": "AadDeviceId", "variant": "emphasis" },
+    { "id": "mde-ineligible", "from": "mde_correlate", "to": "mde_blocked", "label": "0 / >1 / >7d", "variant": "security", "role": "error" },
+    { "id": "mde-entra", "from": "mde_correlate", "to": "entra_resolve", "label": "Tiers 1-4", "variant": "emphasis" },
     { "id": "entra-ineligible", "from": "entra_resolve", "to": "entra_blocked", "label": "NotFound / Off", "variant": "security", "role": "error" },
     { "id": "entra-os-group", "from": "entra_resolve", "to": "os_group", "label": "objectId", "variant": "emphasis" },
     { "id": "os-cloud-group", "from": "os_group", "to": "cloud_group", "label": "Passive / Active", "variant": "emphasis" },
@@ -151,11 +151,11 @@
     },
     {
       "dot": "emerald",
-      "title": "Gates 3-4: MDE & Entra Identity Criteria",
+      "title": "Gates 3-4: MDE & 4-Tier Entra Identity Criteria",
       "items": [
-        "MDE DeviceInfo (7d arg_max by DeviceId): AzureResourceId =~ resourceId, OnboardingStatus == Onboarded, MergedToDeviceId empty, Timestamp <= SYNC_FRESHNESS_HOURS (24h), exactly 1 device",
-        "MDE AadDeviceId must be a valid non-empty GUID (otherwise Status = NoEntraDevice or InvalidEntraIdentifier)",
-        "Entra Graph /devices?$filter=deviceId eq AadDeviceId: exactly 1 directory object with accountEnabled == true; uses directory object id (never deviceId)"
+        "MDE DeviceInfo (7d arg_max by DeviceId): AzureResourceId =~ resourceId, OnboardingStatus == Onboarded, MergedToDeviceId empty, Timestamp <= SYNC_FRESHNESS_HOURS (168h / 7d), exactly 1 device",
+        "4-Tier Entra Correlation: Tier 1 MdeAadDeviceId -> Tier 2 GuestConfigurationIntuneDeviceId -> Tier 3 MdeSyntheticDeviceId (SHA-256 folded SenseId) -> Tier 4 MicrosoftSenseHostnameAndOS",
+        "Entra Graph /devices: exactly 1 directory object with accountEnabled == true; uses directory object id (never deviceId)"
       ]
     },
     {

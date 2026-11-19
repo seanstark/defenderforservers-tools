@@ -4991,8 +4991,8 @@
         </g>
 
         <!-- Components -->
-        <g id="node-triggers" data-node-id="triggers" data-node-label="Discovery Triggers" tabindex="0" role="button" aria-label="Focus Discovery Triggers, Timer (30m) · MDE Ext Succeeded, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="Timer (30m) · MDE Ext Succeeded" data-node-tag="MDE.Windows / MDE.Linux" data-node-context="Architecture component">
-          <title>Discovery Triggers · Timer (30m) · MDE Ext Succeeded · Architecture component · MDE.Windows / MDE.Linux</title>
+        <g id="node-triggers" data-node-id="triggers" data-node-label="Discovery Triggers" tabindex="0" role="button" aria-label="Focus Discovery Triggers, Timer (6h) · MDE &amp; GC Event Grid, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="Timer (6h) · MDE &amp; GC Event Grid" data-node-tag="MDE.Windows / MDE.Linux / GC" data-node-context="Architecture component">
+          <title>Discovery Triggers · Timer (6h) · MDE &amp; GC Event Grid · Architecture component · MDE.Windows / MDE.Linux / GC</title>
           <rect x="20" y="120" width="190" height="62" rx="8" class="c-mask"/>
           <rect x="20" y="120" width="190" height="62" rx="8" class="c-external" data-animate="node" style="--step:0" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(26 126) scale(0.6875)">
@@ -5000,8 +5000,8 @@
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="115" y="149" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Discovery Triggers</text>
-        <text data-detail="context" x="115" y="165" class="t-muted" font-size="9" text-anchor="middle">Timer (30m) · MDE Ext Succeeded</text>
-        <text data-detail="fine" x="115" y="174" class="t-external" font-size="7" text-anchor="middle">MDE.Windows / MDE.Linux</text>
+        <text data-detail="context" x="115" y="165" class="t-muted" font-size="9" text-anchor="middle">Timer (6h) · MDE &amp; GC Event Grid</text>
+        <text data-detail="fine" x="115" y="174" class="t-external" font-size="7" text-anchor="middle">MDE.Windows / MDE.Linux / GC</text>
         </g>
 
         <g id="node-ingest_fn" data-node-id="ingest_fn" data-node-label="Inventory &amp; ArcEvent" tabindex="0" role="button" aria-label="Focus Inventory &amp; ArcEvent, MG / Sub / RG scope validation, Privileged Worker Plane (System-Assigned Managed Identity)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="MG / Sub / RG scope validation" data-node-tag="worker functions" data-node-context="Privileged Worker Plane (System-Assigned Managed Identity)">
@@ -5016,16 +5016,16 @@
         <text data-detail="fine" x="352.5" y="174" class="t-backend" font-size="7" text-anchor="middle">worker functions</text>
         </g>
 
-        <g id="node-arg_arm" data-node-id="arg_arm" data-node-label="Azure Resource Graph &amp; ARM" tabindex="0" role="button" aria-label="Focus Azure Resource Graph &amp; ARM, Arc · Native VM · VMSS · Tags, Architecture component" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="Arc · Native VM · VMSS · Tags" data-node-tag="!deallocated · !AKS" data-node-context="Architecture component">
-          <title>Azure Resource Graph &amp; ARM · Arc · Native VM · VMSS · Tags · Architecture component · !deallocated · !AKS</title>
+        <g id="node-arg_arm" data-node-id="arg_arm" data-node-label="Azure Resource Graph &amp; ARM" tabindex="0" role="button" aria-label="Focus Azure Resource Graph &amp; ARM, Arc · Native VM · VMSS · GC, Architecture component" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="Arc · Native VM · VMSS · GC" data-node-tag="Extensions + intuneDeviceId" data-node-context="Architecture component">
+          <title>Azure Resource Graph &amp; ARM · Arc · Native VM · VMSS · GC · Architecture component · Extensions + intuneDeviceId</title>
           <rect x="250" y="10" width="225" height="62" rx="8" class="c-mask"/>
           <rect x="250" y="10" width="225" height="62" rx="8" class="c-cloud" data-animate="node" style="--step:2" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(256 16) scale(0.6875)">
             <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="362.5" y="39" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Azure Resource Graph &amp; ARM</text>
-        <text data-detail="context" x="362.5" y="55" class="t-muted" font-size="9" text-anchor="middle">Arc · Native VM · VMSS · Tags</text>
-        <text data-detail="fine" x="362.5" y="64" class="t-cloud" font-size="7" text-anchor="middle">!deallocated · !AKS</text>
+        <text data-detail="context" x="362.5" y="55" class="t-muted" font-size="9" text-anchor="middle">Arc · Native VM · VMSS · GC</text>
+        <text data-detail="fine" x="362.5" y="64" class="t-cloud" font-size="7" text-anchor="middle">Extensions + intuneDeviceId</text>
         </g>
 
         <g id="node-service_bus" data-node-id="service_bus" data-node-label="Service Bus Queue" tabindex="0" role="button" aria-label="Focus Service Bus Queue, machines · 10 retries + DLQ, Privileged Worker Plane (System-Assigned Managed Identity)" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="machines · 10 retries + DLQ" data-node-context="Privileged Worker Plane (System-Assigned Managed Identity)">
@@ -5042,20 +5042,20 @@
         <text data-detail="context" x="592.5" y="165" class="t-muted" font-size="9" text-anchor="middle">machines · 10 retries + DLQ</text>
         </g>
 
-        <g id="node-machine_worker" data-node-id="machine_worker" data-node-label="Machine Sync Worker" tabindex="0" role="button" aria-label="Focus Machine Sync Worker, Invoke-MachineSync · Managed Identity, Privileged Worker Plane (System-Assigned Managed Identity)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Invoke-MachineSync · Managed Identity" data-node-tag="PowerShell 7.6" data-node-context="Privileged Worker Plane (System-Assigned Managed Identity)">
-          <title>Machine Sync Worker · Invoke-MachineSync · Managed Identity · Privileged Worker Plane (System-Assigned Managed Identity) · PowerShell 7.6</title>
+        <g id="node-machine_worker" data-node-id="machine_worker" data-node-label="Machine Sync Worker" tabindex="0" role="button" aria-label="Focus Machine Sync Worker, 4-Tier Correlation · Managed Identity, Privileged Worker Plane (System-Assigned Managed Identity)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="4-Tier Correlation · Managed Identity" data-node-tag="PowerShell 7.6" data-node-context="Privileged Worker Plane (System-Assigned Managed Identity)">
+          <title>Machine Sync Worker · 4-Tier Correlation · Managed Identity · Privileged Worker Plane (System-Assigned Managed Identity) · PowerShell 7.6</title>
           <rect x="730" y="120" width="230" height="62" rx="8" class="c-mask"/>
           <rect x="730" y="120" width="230" height="62" rx="8" class="c-backend" data-animate="node" style="--step:4" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(736 126) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="845" y="149" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Machine Sync Worker</text>
-        <text data-detail="context" x="845" y="165" class="t-muted" font-size="9" text-anchor="middle">Invoke-MachineSync · Managed Identity</text>
+        <text data-detail="context" x="845" y="165" class="t-muted" font-size="9" text-anchor="middle">4-Tier Correlation · Managed Identity</text>
         <text data-detail="fine" x="845" y="174" class="t-backend" font-size="7" text-anchor="middle">PowerShell 7.6</text>
         </g>
 
-        <g id="node-mde_hunting" data-node-id="mde_hunting" data-node-label="Defender XDR Hunting" tabindex="0" role="button" aria-label="Focus Defender XDR Hunting, DeviceInfo · NetworkInfo · scid-2010, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="DeviceInfo · NetworkInfo · scid-2010" data-node-tag="runHuntingQuery" data-node-context="Architecture component">
-          <title>Defender XDR Hunting · DeviceInfo · NetworkInfo · scid-2010 · Architecture component · runHuntingQuery</title>
+        <g id="node-mde_hunting" data-node-id="mde_hunting" data-node-label="Defender XDR Hunting" tabindex="0" role="button" aria-label="Focus Defender XDR Hunting, DeviceInfo · NetworkInfo · scid-2010, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="DeviceInfo · NetworkInfo · scid-2010" data-node-tag="7d Bulk Hunting (500/batch)" data-node-context="Architecture component">
+          <title>Defender XDR Hunting · DeviceInfo · NetworkInfo · scid-2010 · Architecture component · 7d Bulk Hunting (500/batch)</title>
           <rect x="730" y="10" width="230" height="62" rx="8" class="c-mask"/>
           <rect x="730" y="10" width="230" height="62" rx="8" class="c-security" data-animate="node" style="--step:5" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(736 16) scale(0.6875)">
@@ -5064,7 +5064,7 @@
           </g>
           <text data-node-label="" data-detail-anchor="" x="845" y="39" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Defender XDR Hunting</text>
         <text data-detail="context" x="845" y="55" class="t-muted" font-size="9" text-anchor="middle">DeviceInfo · NetworkInfo · scid-2010</text>
-        <text data-detail="fine" x="845" y="64" class="t-security" font-size="7" text-anchor="middle">runHuntingQuery</text>
+        <text data-detail="fine" x="845" y="64" class="t-security" font-size="7" text-anchor="middle">7d Bulk Hunting (500/batch)</text>
         </g>
 
         <g id="node-entra_graph" data-node-id="entra_graph" data-node-label="Microsoft Graph (Entra ID)" tabindex="0" role="button" aria-label="Focus Microsoft Graph (Entra ID), AU Auto-Create + Cloud account groups, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="AU Auto-Create + Cloud account groups" data-node-tag="Groups Admin (AU) · Win/Lin" data-node-context="Architecture component">
@@ -5080,8 +5080,8 @@
         <text data-detail="fine" x="1122.5" y="174" class="t-security" font-size="7" text-anchor="middle">Groups Admin (AU) · Win/Lin</text>
         </g>
 
-        <g id="node-table_storage" data-node-id="table_storage" data-node-label="Azure Table Storage" tabindex="0" role="button" aria-label="Focus Azure Table Storage, state · h_ history · log_ runs, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="state · h_ history · log_ runs" data-node-tag="atomic batch" data-node-context="Architecture component">
-          <title>Azure Table Storage · state · h_ history · log_ runs · Architecture component · atomic batch</title>
+        <g id="node-table_storage" data-node-id="table_storage" data-node-label="Azure Table Storage" tabindex="0" role="button" aria-label="Focus Azure Table Storage, state · h_ history · log_ runs, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="state · h_ history · log_ runs" data-node-tag="1,000-row Raw JSON + Batch" data-node-context="Architecture component">
+          <title>Azure Table Storage · state · h_ history · log_ runs · Architecture component · 1,000-row Raw JSON + Batch</title>
           <rect x="760" y="300" width="230" height="62" rx="8" class="c-mask"/>
           <rect x="760" y="300" width="230" height="62" rx="8" class="c-database" data-animate="node" style="--step:7" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(766 306) scale(0.6875)">
@@ -5090,23 +5090,23 @@
           </g>
           <text data-node-label="" data-detail-anchor="" x="875" y="329" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Azure Table Storage</text>
         <text data-detail="context" x="875" y="345" class="t-muted" font-size="9" text-anchor="middle">state · h_ history · log_ runs</text>
-        <text data-detail="fine" x="875" y="354" class="t-database" font-size="7" text-anchor="middle">atomic batch</text>
+        <text data-detail="fine" x="875" y="354" class="t-database" font-size="7" text-anchor="middle">1,000-row Raw JSON + Batch</text>
         </g>
 
-        <g id="node-report_fn" data-node-id="report_fn" data-node-label="Report Function App" tabindex="0" role="button" aria-label="Focus Report Function App, Easy Auth + Report.Reader check, Report Plane (Table Reader · sync-request Sender · no Graph)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Easy Auth + Report.Reader check" data-node-tag="Table Reader + sync Sender" data-node-context="Report Plane (Table Reader · sync-request Sender · no Graph)">
-          <title>Report Function App · Easy Auth + Report.Reader check · Report Plane (Table Reader · sync-request Sender · no Graph) · Table Reader + sync Sender</title>
+        <g id="node-report_fn" data-node-id="report_fn" data-node-label="Report Function App" tabindex="0" role="button" aria-label="Focus Report Function App, Easy Auth + 5m Server Cache, Report Plane (Table Reader · sync-request Sender · no Graph)" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Easy Auth + 5m Server Cache" data-node-tag="Table Reader + sync Sender" data-node-context="Report Plane (Table Reader · sync-request Sender · no Graph)">
+          <title>Report Function App · Easy Auth + 5m Server Cache · Report Plane (Table Reader · sync-request Sender · no Graph) · Table Reader + sync Sender</title>
           <rect x="420" y="300" width="220" height="62" rx="8" class="c-mask"/>
           <rect x="420" y="300" width="220" height="62" rx="8" class="c-backend" data-animate="node" style="--step:8" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(426 306) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="530" y="329" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Report Function App</text>
-        <text data-detail="context" x="530" y="345" class="t-muted" font-size="9" text-anchor="middle">Easy Auth + Report.Reader check</text>
+        <text data-detail="context" x="530" y="345" class="t-muted" font-size="9" text-anchor="middle">Easy Auth + 5m Server Cache</text>
         <text data-detail="fine" x="530" y="354" class="t-backend" font-size="7" text-anchor="middle">Table Reader + sync Sender</text>
         </g>
 
-        <g id="node-portal_ui" data-node-id="portal_ui" data-node-label="Device Inventory Portal" tabindex="0" role="button" aria-label="Focus Device Inventory Portal, KPIs · hover cards · drawer · logs, Report Plane (Table Reader · sync-request Sender · no Graph)" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="KPIs · hover cards · drawer · logs" data-node-context="Report Plane (Table Reader · sync-request Sender · no Graph)">
-          <title>Device Inventory Portal · KPIs · hover cards · drawer · logs · Report Plane (Table Reader · sync-request Sender · no Graph)</title>
+        <g id="node-portal_ui" data-node-id="portal_ui" data-node-label="Device Inventory Portal" tabindex="0" role="button" aria-label="Focus Device Inventory Portal, 50-100/page · IndexedDB · KPIs, Report Plane (Table Reader · sync-request Sender · no Graph)" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="50-100/page · IndexedDB · KPIs" data-node-context="Report Plane (Table Reader · sync-request Sender · no Graph)">
+          <title>Device Inventory Portal · 50-100/page · IndexedDB · KPIs · Report Plane (Table Reader · sync-request Sender · no Graph)</title>
           <rect x="50" y="300" width="230" height="62" rx="8" class="c-mask"/>
           <rect x="50" y="300" width="230" height="62" rx="8" class="c-frontend" data-animate="node" style="--step:9" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(56 306) scale(0.6875)">
@@ -5116,7 +5116,7 @@
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="165" y="329" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Device Inventory Portal</text>
-        <text data-detail="context" x="165" y="345" class="t-muted" font-size="9" text-anchor="middle">KPIs · hover cards · drawer · logs</text>
+        <text data-detail="context" x="165" y="345" class="t-muted" font-size="9" text-anchor="middle">50-100/page · IndexedDB · KPIs</text>
         </g>
 
         <!-- Connection labels -->

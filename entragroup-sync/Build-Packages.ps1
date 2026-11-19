@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$OutputDirectory = (Join-Path ([IO.Path]::GetTempPath()) "arc-entra-packages-$([guid]::NewGuid().ToString('N'))")
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot 'packages')
 )
 $ErrorActionPreference = 'Stop'
 $output = [IO.Path]::GetFullPath($OutputDirectory)
