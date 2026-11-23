@@ -244,6 +244,8 @@ const server = http.createServer((request, response) => {
   }
   const name = normalizedPath.replace(/^\/+/, "") || "index.html";
   const types = { "index.html": "text/html", "coverage.html": "text/html", "permissions.html": "text/html", "docs.html": "text/html", "style.css": "text/css", "theme.js": "text/javascript", "app.js": "text/javascript", "coverage.js": "text/javascript", "permissions.js": "text/javascript", "docs.js": "text/javascript" };
+  types["uncorrelated.html"] = "text/html";
+  types["uncorrelated.js"] = "text/javascript";
   if (!Object.hasOwn(types, name)) { response.writeHead(404); response.end(); return; }
   response.setHeader("Content-Type", types[name]);
   response.setHeader("Referrer-Policy", "same-origin");

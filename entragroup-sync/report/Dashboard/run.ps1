@@ -70,10 +70,12 @@ try {
         '' { @{ File = 'index.html'; Type = 'text/html; charset=utf-8' } }
         'index.html' { @{ File = 'index.html'; Type = 'text/html; charset=utf-8' } }
         'coverage.html' { @{ File = 'coverage.html'; Type = 'text/html; charset=utf-8' } }
+        'uncorrelated.html' { @{ File = 'uncorrelated.html'; Type = 'text/html; charset=utf-8' } }
         'permissions.html' { @{ File = 'permissions.html'; Type = 'text/html; charset=utf-8' } }
         'docs.html' { @{ File = 'docs.html'; Type = 'text/html; charset=utf-8' } }
         'app.js' { @{ File = 'app.js'; Type = 'text/javascript; charset=utf-8' } }
         'coverage.js' { @{ File = 'coverage.js'; Type = 'text/javascript; charset=utf-8' } }
+        'uncorrelated.js' { @{ File = 'uncorrelated.js'; Type = 'text/javascript; charset=utf-8' } }
         'permissions.js' { @{ File = 'permissions.js'; Type = 'text/javascript; charset=utf-8' } }
         'docs.js' { @{ File = 'docs.js'; Type = 'text/javascript; charset=utf-8' } }
         'theme.js' { @{ File = 'theme.js'; Type = 'text/javascript; charset=utf-8' } }

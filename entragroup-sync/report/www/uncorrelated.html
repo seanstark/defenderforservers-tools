@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Uncorrelated Devices — Cloud Server Correlation</title>
+  <script src="/theme.js?v=20261119a"></script>
+  <link rel="stylesheet" href="/style.css?v=20261123c">
+  <script src="/uncorrelated.js?v=20261123d" defer></script>
+</head>
+<body class="uncorrelated-page">
+  <a class="skip-link" href="#uncorrelated-main">Skip to uncorrelated devices</a>
+  <header class="app-bar">
+    <a class="app-brand" href="/"><span class="brand-mark" aria-hidden="true">AE</span>Cloud Server Correlation</a>
+    <span class="app-context">Cloud Servers / Entra ID — Uncorrelated Devices Diagnostics</span>
+    <div id="header-mode-badges" class="header-mode-badges" aria-live="polite">
+      <span id="header-sync-mode" class="badge mode-pill" hidden></span>
+      <span id="header-group-mode" class="badge mode-pill" hidden></span>
+    </div>
+    <div class="actions"><span class="read-only">Role-based report</span><button id="theme-toggle" class="secondary theme-toggle" type="button" aria-label="Switch color theme">Dark mode</button><a href="/.auth/logout">Sign out</a></div>
+  </header>
+  <aside class="sidebar" aria-label="Report navigation">
+    <p class="nav-heading">ASSET MANAGEMENT</p>
+    <nav>
+      <a href="/"><span aria-hidden="true">01</span>Device inventory</a>
+      <a href="/coverage.html"><span aria-hidden="true">02</span>Reports</a>
+      <div class="nav-sub" role="group" aria-label="Reports sections">
+        <a class="nav-child" href="/coverage.html#coverage-mde-summary">Overview</a>
+        <a class="nav-child" href="/coverage.html#coverage-accounts">By AWS / GCP / Subscription</a>
+        <a class="nav-child" href="/coverage.html#coverage-groups">Entra ID Group Summary</a>
+        <a class="nav-child" href="/coverage.html#coverage-empty-scopes">Scopes with 0 servers</a>
+        <a class="nav-child nav-current" href="/uncorrelated.html" aria-current="page">Uncorrelated Devices</a>
+      </div>
+      <a href="/#device-status"><span aria-hidden="true">03</span>Status breakdowns</a>
+      <a href="/#processing-health"><span aria-hidden="true">04</span>Function App &amp; logs</a>
+      <a href="/permissions.html"><span aria-hidden="true">05</span>Permissions &amp; readiness</a>
+      <a href="/docs.html"><span aria-hidden="true">06</span>Documentation &amp; APIs</a>
+      <div class="nav-sub" role="group" aria-label="Documentation sections">
+        <a class="nav-child" href="/docs.html#doc-archify">Architecture</a>
+        <a class="nav-child" href="/docs.html#doc-correlation">4-Tier Correlation</a>
+        <a class="nav-child" href="/docs.html#doc-architecture">Workflow</a>
+        <a class="nav-child" href="/docs.html#doc-queries">KQL &amp; ARG queries</a>
+        <a class="nav-child" href="/docs.html#doc-apis">REST APIs</a>
+        <a class="nav-child" href="/docs.html#doc-permissions">Permissions &amp; RBAC</a>
+        <a class="nav-child" href="/docs.html#doc-scopes">Scope &amp; group routing</a>
+        <a class="nav-child" href="/docs.html#doc-cost">Cost estimate</a>
+        <a class="nav-child" href="/docs.html#doc-troubleshooting">Troubleshooting</a>
+      </div>
+    </nav>
+    <div class="sidebar-note"><strong>Why devices fail correlation</strong><p>Gate 3: MDE Onboarding &amp; 7d Freshness<br>Gate 4: Tier 1–4 Entra ID Lookup<br>Re-onboarding &amp; Duplicate Guards</p><span>Select Details to inspect a server's gate checklist &amp; history.</span></div>
+  </aside>
+  <main id="uncorrelated-main" tabindex="-1">
+    <div class="page-heading">
+      <p class="eyebrow">DIAGNOSTICS / UNCORRELATED SERVERS</p>
+      <h1>Uncorrelated Devices</h1>
+      <p class="muted">Find servers without an Entra ID match, understand the blocker, and see what to do next. Select Details for lookup results and history.</p>
+    </div>
+    <p id="error" role="alert" hidden></p>
+
+    <section id="uncorr-summary" class="cards summary-metrics" aria-label="Uncorrelated root cause summary"></section>
+
+    <section class="panel" aria-label="Uncorrelated devices table">
+      <div class="table-toolbar uncorr-actions">
+        <h2>Devices needing attention</h2>
+        <div class="uncorr-action-buttons">
+          <button id="export-csv" class="secondary" type="button" title="Export filtered uncorrelated devices to CSV">Export CSV</button>
+          <button id="clear-filters" class="secondary" type="button">Clear filters</button>
+          <button id="refresh" type="button">Refresh data</button>
+        </div>
+      </div>
+      <div class="filters uncorr-filters">
+        <label class="inventory-search">Search devices
+          <input id="search" type="search" placeholder="Server, device ID, reason, or tag">
+        </label>
+        <label>Root cause
+          <select id="reason-filter">
+            <option value="">All uncorrelated reasons</option>
+          </select>
+        </label>
+        <label>Cloud scope
+          <select id="cloud-filter">
+            <option value="">All cloud scopes</option>
+          </select>
+        </label>
+        <label>OS
+          <select id="os-filter">
+            <option value="">All operating systems</option>
+          </select>
+        </label>
+          <label>Machine status
+            <select id="arc-status-filter">
+              <option value="">All machine statuses</option>
+            </select>
+          </label>
+          <label>AWS Account
+            <select id="aws-account-filter">
+              <option value="">All AWS accounts</option>
+            </select>
+          </label>
+          <label>Subscription
+            <select id="subscription-filter">
+              <option value="">All subscriptions</option>
+            </select>
+          </label>
+      </div>
+      <div class="uncorr-data-status">
+        <span id="updated" class="muted" aria-live="polite">Loading uncorrelated devices...</span>
+      </div>
+      <p id="table-notice" role="status" hidden></p>
+      <div class="table-caption">
+        <p id="count" aria-live="polite"></p>
+        <div id="table-pagination" class="table-pagination" aria-label="Uncorrelated device table pagination">
+          <label class="page-size-label">Show
+            <select id="page-size" aria-label="Rows per page">
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+            </select>
+            per page
+          </label>
+          <span id="page-info" class="muted" aria-live="polite">Page 1 of 1</span>
+          <button id="page-first" class="secondary page-btn" type="button" title="First page" disabled>&laquo; First</button>
+          <button id="page-prev" class="secondary page-btn" type="button" title="Previous page" disabled>&lsaquo; Prev</button>
+          <button id="page-next" class="secondary page-btn" type="button" title="Next page" disabled>Next &rsaquo;</button>
+          <button id="page-last" class="secondary page-btn" type="button" title="Last page" disabled>Last &raquo;</button>
+        </div>
+      </div>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable uncorrelated device inventory">
+        <table id="uncorr-table">
+          <thead id="uncorr-head"></thead>
+          <tbody id="uncorr-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="detail" class="detail-drawer" aria-labelledby="detail-title" aria-describedby="detail-description">
+    <div class="drawer-heading">
+      <div>
+        <p class="eyebrow">UNCORRELATED DEVICE DIAGNOSTIC</p>
+        <h2 id="detail-title">Device diagnostic</h2>
+        <p id="detail-description" class="muted">Correlation diagnostics and synchronization history</p>
+      </div>
+      <button id="close-detail" class="secondary" type="button" aria-label="Close device details" autofocus>Close</button>
+    </div>
+    <div class="drawer-content">
+    <div id="detail-summary" class="detail-summary" aria-label="Device summary"></div>
+    <section class="history-section" aria-labelledby="gate-checklist-heading">
+      <div class="section-bar">
+        <h3 id="gate-checklist-heading">Step-by-step correlation gate checklist</h3>
+        <span class="muted">Pinpoints the exact gate and tier where correlation stopped</span>
+      </div>
+      <ol id="gate-checklist" class="gate-checklist"></ol>
+    </section>
+    <details class="identity-section" open>
+      <summary>Full device &amp; correlation telemetry</summary>
+      <dl id="identity"></dl>
+    </details>
+    <section class="history-section" aria-labelledby="history-heading">
+      <div class="section-bar">
+        <h3 id="history-heading">Observed sync history</h3>
+        <span id="history-status" class="muted" aria-live="polite"></span>
+      </div>
+      <p id="history-error" role="alert" hidden></p>
+      <ol id="history"></ol>
+      <button id="more" class="secondary" type="button" hidden>Load earlier history</button>
+    </section>
+    </div>
+  </dialog>
+
+  <dialog id="script-output-modal" class="script-modal" aria-labelledby="script-modal-title">
+    <div class="drawer-heading">
+      <div>
+        <p class="eyebrow">POWERSHELL EXECUTION TRANSCRIPT &amp; QUERY RESULTS</p>
+        <h2 id="script-modal-title">Function execution output</h2>
+        <p id="script-modal-meta" class="muted"></p>
+      </div>
+      <div class="function-portal-links">
+        <button id="filter-script-errors" class="secondary" type="button" aria-pressed="false">Errors &amp; warnings only: Off</button>
+        <button id="wrap-script-modal" class="secondary" type="button" aria-pressed="true">Wrap lines: On</button>
+        <button id="copy-script-modal" class="secondary" type="button">Copy output</button>
+        <button id="close-script-modal" class="secondary" type="button">Close</button>
+      </div>
+    </div>
+    <div id="script-modal-errors" class="script-error-summary" hidden></div>
+    <pre id="script-modal-pre" class="script-modal-pre wrap-lines"><code id="script-modal-code"></code></pre>
+  </dialog>
+
+  <div id="hover-popover" class="hover-popover" role="tooltip" hidden></div>
+</body>
+</html>

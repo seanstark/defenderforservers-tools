@@ -366,6 +366,34 @@ async function testLiveControls() {
   const issues = vm.runInContext('summarizeTranscriptIssues("[Error] HTTP 500\\n[Warning] StaleEvidence\\nNormal line")', context);
   assert.equal(issues.errors.length, 1);
   assert.equal(issues.warnings.length, 1);
-  console.log("PASS AWS Account inventory filter, Reports rename, and MDE/Active/Passive/Arc-disconnected report summary.");
+
+  const uncorrHtml = fs.readFileSync(path.join(__dirname, "..", "report", "www", "uncorrelated.html"), "utf8");
+  assert.match(uncorrHtml, /id="uncorr-summary"/);
+  assert.match(uncorrHtml, /id="uncorr-table"/);
+  assert.match(uncorrHtml, /id="gate-checklist"/);
+  const uncorrSource = fs.readFileSync(path.join(__dirname, "..", "report", "www", "uncorrelated.js"), "utf8");
+  const uncorrSlice = uncorrSource.slice(uncorrSource.indexOf("  function defenderExtensionFor("), uncorrSource.indexOf("  const columns ="));
+  const uncorrCtx = vm.createContext({
+    missing: "Not available",
+    time: v => String(v || "Not observed"),
+    Object, String, Array, Boolean, RegExp
+  });
+  vm.runInContext(uncorrSlice, uncorrCtx);
+  const noMdeRes = vm.runInContext('analyzeUncorrelatedDevice({ MachineName: "srv-dealloc", Status: "PendingMde", ArcStatus: "VM deallocated", DefenderExtensionStatus: "Not installed" })', uncorrCtx);
+  assert.equal(noMdeRes.categoryKey, "no-mde");
+  assert.equal(noMdeRes.gateStopped, "Gate 3: MDE Onboarding");
+  const noEntraRes = vm.runInContext('analyzeUncorrelatedDevice({ MachineName: "winsql01", Status: "EntraDeviceNotFound", MdeDeviceId: "cf3af259c252553af2bc01843d4731ad195ac886", MdeOnboardingStatus: "Onboarded", MdeSyntheticDeviceId: "db2b9503-6eed-0af2-a4db-56c19234219c", EntraDiagnostic: "1. Tier 1 (MdeAadDeviceId) is disabled via SYNC_DISABLED_CORRELATION_TIERS. 3. MDE synthetic Entra deviceId returned 0 objects." })', uncorrCtx);
+  assert.equal(noEntraRes.categoryKey, "no-entra");
+  assert.equal(noEntraRes.tiers[0].state, "Disabled by setting");
+  assert.match(noEntraRes.tiers[2].state, /0 in Entra/);
+
+  uncorrCtx.resolveMachineCloudScope = () => ({ CloudType: "Azure", CloudIdentifier: "Test" });
+  vm.runInContext(uncorrSource.slice(uncorrSource.indexOf("  const columns ="), uncorrSource.indexOf("  function osIconSvg(")), uncorrCtx);
+  const diagnosticSearch = vm.runInContext('fullSearchTextFor({ MachineName: "server-01", Status: "PendingMde", DefenderExtensionStatus: "MDE.Windows: Failed", MdeSyntheticDeviceId: "test-synthetic-guid", EntraDiagnostic: "Lookup request rejected" })', uncorrCtx);
+  assert.match(diagnosticSearch, /mde.windows: failed/);
+  assert.match(diagnosticSearch, /test-synthetic-guid/);
+  assert.match(diagnosticSearch, /lookup request rejected/);
+
+  console.log("PASS AWS Account inventory filter, Reports rename, Uncorrelated Devices page, and MDE/Active/Passive/Arc-disconnected report summary.");
 }
 testLiveControls().catch(error => { console.error(error); process.exitCode = 1; });

@@ -10,6 +10,8 @@
     - Windows and Linux have separate active/passive groups for each cloud account, with a hyphen between OS and mode (`windows-active`, `windows-passive`, `linux-active`, `linux-passive`). Azure uses the subscription name, AWS uses the `AccountId` tag, and GCP uses the `ProjectId` tag. The existing default mode remains `Passive`; the naming change does not change mode-selection behavior.
 4. Includes an authenticated **Cloud Server Correlation** web portal for device inventory, cloud/group coverage, permissions validation, and execution logs.
 
+The **Reports > Uncorrelated Devices** page lists each server's correlation blocker and recommended next step. Search and filter by reason, cloud, OS, machine status, AWS account, and subscription in one horizontal filter bar (scroll sideways on smaller screens). Select **Details** to open the right-side context pane, like inventory history, for the gate checklist, four-tier lookup results, device IDs, and sync history. Close the pane with **Close** or **Escape** to return focus to the device's Details button. CSV export includes the full diagnostics for all matching devices, not just the current page.
+
 - **Not in group:** Shows devices without confirmed managed-group membership, including unknown/unverified devices; their original membership status remains visible.
 - **Default mode:** `Audit` (observes and reports without modifying groups).
 - **Add-only safety:** Never deletes Entra devices or removes group members.
